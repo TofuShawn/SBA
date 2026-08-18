@@ -136,7 +136,6 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> `webui.py` 
 - [NiceGUI](https://nicegui.io) - reactive web UI framework (bundles Quasar / Tailwind) / 響應式網頁框架
 - [PyTorch](https://pytorch.org) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
 - [NumPy](https://numpy.org) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
-- Code and project setup developed with assistance from OpenAI Codex / 程式碼與專案建置由 OpenAI Codex 協助開發。
 
 ---
 
