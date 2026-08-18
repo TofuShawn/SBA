@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
  && pip install --no-cache-dir nicegui numpy
 
 COPY SBA.py webui.py alphazero.py run.bat ./
+COPY static ./static
 
 EXPOSE 8080
 

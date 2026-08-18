@@ -12,6 +12,7 @@ import asyncio
 import logging
 import sys
 import uuid
+from pathlib import Path
 
 try:
     from nicegui import app, background_tasks, ui
@@ -29,78 +30,22 @@ from SBA import (
     log,
 )
 
-CSS = '''
-.body--light { background: #FDF8FF; }
-.tic-cell { font-weight: 800 !important; }
-.tic-x, .q-btn.tic-x, .q-btn.tic-x .q-btn__content { color: #6750A4 !important; }
-.tic-o, .q-btn.tic-o, .q-btn.tic-o .q-btn__content { color: #B3261E !important; }
-.body--dark .tic-x, .body--dark .q-btn.tic-x, .body--dark .q-btn.tic-x .q-btn__content { color: #D0BCFF !important; }
-.body--dark .tic-o, .body--dark .q-btn.tic-o, .body--dark .q-btn.tic-o .q-btn__content { color: #FFB4AB !important; }
-.tic-large { width: 92px !important; height: 92px !important; min-width: 92px !important; min-height: 92px !important; font-size: 42px !important; border-radius: 14px !important; }
-.tic-small { width: 40px !important; height: 40px !important; min-width: 40px !important; min-height: 40px !important; font-size: 21px !important; border-radius: 9px !important; }
-.body--light .tic-empty { background: #F3EDF7 !important; }
-.body--light .tic-filled { background: #ECE6F0 !important; }
-.body--dark .tic-empty { background: #49454F !important; }
-.body--dark .tic-filled { background: #3D3A41 !important; }
-.tic-empty:hover { background: #EADDFF !important; }
-.body--dark .tic-empty:hover { background: #635B70 !important; }
-.q-btn--disabled .q-btn__content { opacity: 1 !important; }
-.macro-board { border: 2px solid transparent; border-radius: 18px; padding: 6px; background: rgba(0,0,0,0.04); }
-.body--dark .macro-board { background: rgba(255,255,255,0.06); }
-.macro-active { border-color: #6750A4 !important; box-shadow: 0 0 0 3px rgba(103,80,164,0.25) !important; background: rgba(103,80,164,0.08) !important; }
-.body--dark .macro-active { border-color: #D0BCFF !important; box-shadow: 0 0 0 3px rgba(208,188,255,0.25) !important; }
-.macro-won-X { background: rgba(103,80,164,0.16) !important; }
-.macro-won-O { background: rgba(179,38,30,0.12) !important; }
-.macro-draw { opacity: 0.45; }
-.macro-board { position: relative; }
-.macro-win-badge {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.45); pointer-events: none; z-index: 5;
-}
-.body--dark .macro-win-badge { background: rgba(0,0,0,0.5); }
-.macro-win-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 6; }
-.macro-win-line svg { width: 100%; height: 100%; display: block; }
-.macro-win-svg { width: 100%; height: 100%; display: block; opacity: 0.8; }
-.board-win-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 8; color: #1D1B20; }
-.board-win-line svg { width: 100%; height: 100%; display: block; }
-.body--dark .board-win-line { color: #E6E0E9; }
-.macro-win-badge-x { color: #6750A4; }
-.macro-win-badge-o { color: #B3261E; }
-.body--dark .macro-win-badge-x { color: #D0BCFF; }
-.body--dark .macro-win-badge-o { color: #FFB4AB; }
-.mark-chip { font-weight: 900; font-size: 1.5rem; line-height: 1; }
-.mark-x { color: #6750A4; }
-.mark-o { color: #B3261E; }
-.body--dark .mark-x { color: #D0BCFF; }
-.body--dark .mark-o { color: #FFB4AB; }
-@keyframes cell-flash {
-  0% { box-shadow: 0 0 0 0 rgba(103,80,164,0); }
-  50% { box-shadow: 0 0 0 7px rgba(103,80,164,0.55); }
-  100% { box-shadow: 0 0 0 0 rgba(103,80,164,0); }
-}
-.cell-flash { animation: cell-flash 0.9s ease; }
-.analysis-row { cursor: pointer; }
-.board-wrap { position: relative; padding: 10px; border-radius: 20px; background: rgba(0,0,0,0.03); }
-.body--dark .board-wrap { background: rgba(255,255,255,0.04); }
-'''
-
+# Serve static/styles.css as a real stylesheet (external <link>, no inline blob).
+app.add_static_files('/assets', Path(__file__).parent / 'static')
+ui.add_head_html('<link rel="stylesheet" href="/assets/styles.css">', shared=True)
 
 def t(en: str, zh: str) -> str:
     return f'{en} — {zh}'
-
 
 def set_mark(el, player):
     el.classes(remove='mark-x mark-o')
     el.classes(add='mark-x' if player == X else 'mark-o')
     el.set_text('✕' if player == X else '○')
 
-
 def side_label(kind):
     if kind == 'Human':
         return t('Human (You)', '玩家 (你)')
     return f'Computer ({kind}) — 電腦 ({kind})'
-
 
 # ============================================================
 # Web UI
@@ -128,7 +73,6 @@ def main_page():
     cell_refs = {}
 
     ui.colors(primary='#6750A4', secondary='#625B71', accent='#B3261E')
-    ui.add_css(CSS)
     dark = ui.dark_mode(value=False)
 
     with ui.header().classes('items-center justify-between'):
@@ -604,7 +548,6 @@ def main_page():
 
     show_menu()
 
-
 def run():
     if '--debug' in sys.argv:
         log.setLevel(logging.DEBUG)
@@ -627,6 +570,6 @@ def run():
         storage_secret='ultimate-tic-tac-toe-sba',
     )
 
-
 if __name__ == '__main__':
     run()
+
