@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual env & runtime dirs
+.venv/
+.nicegui/
+
+# Trained model weights
+models/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
