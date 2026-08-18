@@ -288,9 +288,9 @@ def model_path(game_type):
 
 def make_game(game_type):
     if game_type == 'normal':
-        from SBA import NormalGame
+        from game import NormalGame
         return NormalGame()
-    from SBA import UltimateGame
+    from game import UltimateGame
     return UltimateGame()
 
 

@@ -21,11 +21,15 @@ except ModuleNotFoundError:
     print('Use run.bat (project virtual environment), or install with:  python -m pip install nicegui')
     raise SystemExit(1)
 
-from SBA import (
+from game import (
     X, O,
     NormalGame, UltimateGame, apply_move,
     win_badge_svg, micro_win_line, line_coords, win_segment, macro_center,
+)
+from ai import (
     get_ai_move, compute_analysis, move_text,
+)
+from SBA import (
     SESSIONS, new_session, side_types, current_side_type, is_ai_turn,
     log,
 )
