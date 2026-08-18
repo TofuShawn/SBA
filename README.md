@@ -55,11 +55,11 @@ pip install torch numpy
 ### 1. Start the web app / 啟動網頁應用
 
 ```bash
-# Windows（使用專案 .venv）
-run.bat
-
-# or directly / 或直接執行
+# canonical / 標準啟動方式
 python SBA.py
+
+# Windows convenience launcher (local only, uses .venv) / Windows 便利啟動檔（僅本地，使用 .venv）
+run.bat
 ```
 
 Open http://localhost:8080 (or http://127.0.0.1:8080) in your browser / 瀏覽器開啟即可。
@@ -78,8 +78,7 @@ CLI flags / 指令參數：
 
 ```bash
 python SBA.py --self-test
-# or / 或
-run.bat --self-test
+# Windows: run.bat --self-test (local launcher, not tracked in git)
 ```
 
 Runs 57 headless checks covering rules, AI sanity, termination, and AlphaZero smoke tests / 執行 57 項無頭檢查，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試。
@@ -114,7 +113,7 @@ docker run -p 8080:8080 sba
 | `webui.py` | NiceGUI web UI (menu, board, assistant panel, CvC controls) / 網頁介面 |
 | `alphazero.py` | AlphaZero neural MCTS (training + evaluation) / AlphaZero 訓練與評估 |
 | `static/styles.css` | Material Design 3 stylesheet / 樣式表 |
-| `run.bat` | Windows launcher / Windows 啟動檔 |
+| `run.bat` | Local Windows launcher (not tracked in git) / 本地 Windows 啟動檔（未納入 git） |
 | `Dockerfile` | Container image (CPU-only torch) / 容器映像（CPU 版 torch） |
 | `requirements.txt` | Core Python dependencies / 核心 Python 依賴 |
 

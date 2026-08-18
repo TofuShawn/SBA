@@ -10,6 +10,9 @@ __pycache__/
 # Trained model weights
 models/
 
+# Windows launcher (local convenience script)
+run.bat
+
 # Editor / OS
 .vscode/
 .idea/
