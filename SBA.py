@@ -3,7 +3,7 @@
 Features:
 - Normal Tic Tac Toe and Ultimate Tic Tac Toe
 - PvP, Player vs Computer, Computer vs Computer
-- AI types: Random, Basic, Minimax, MCTS (AlphaZero placeholder)
+- AI types: Random, Basic, Minimax, MCTS, AlphaZero (neural-guided MCTS)
 - Bilingual (English / Traditional Chinese) UI with a Material Design 3 style
 - AI Assistant analysis panel with best-move evaluations
 
@@ -33,7 +33,7 @@ LINES = [
     (0, 3, 6), (1, 4, 7), (2, 5, 8),
     (0, 4, 8), (2, 4, 6),
 ]
-AI_TYPES = ['Random', 'Basic', 'Minimax', 'MCTS']
+AI_TYPES = ['Random', 'Basic', 'Minimax', 'MCTS', 'AlphaZero']
 
 CSS = '''
 .body--light { background: #FDF8FF; }
@@ -522,6 +522,28 @@ def mcts_move(game, iterations):
     return best.move
 
 
+
+_AZ_MODELS = {}
+
+
+def load_az_model(game):
+    import alphazero
+    key = 'normal' if isinstance(game, NormalGame) else 'ultimate'
+    if key not in _AZ_MODELS:
+        _AZ_MODELS[key] = alphazero.load_model(key)
+    return _AZ_MODELS[key]
+
+
+def alphazero_move(game, budget=800):
+    import alphazero
+    model = load_az_model(game)
+    if model is None:
+        print('AlphaZero: no trained model (models/az_%s.pt), falling back to MCTS'
+              % ('normal' if isinstance(game, NormalGame) else 'ultimate'))
+        return mcts_move(game, budget)
+    return alphazero.alphazero_move(game, model, budget)
+
+
 def get_ai_move(game, ai_type, mcts_budget=800):
     if ai_type == 'Random':
         return random.choice(game.legal_moves())
@@ -533,6 +555,8 @@ def get_ai_move(game, ai_type, mcts_budget=800):
         return minimax_move_ultimate(game, depth=3)
     if ai_type == 'MCTS':
         return mcts_move(game, mcts_budget)
+    if ai_type == 'AlphaZero':
+        return alphazero_move(game, mcts_budget)
     raise ValueError(f'Unknown AI type: {ai_type}')
 
 
@@ -629,6 +653,7 @@ def move_text(move):
 # ============================================================
 
 AI_OPTIONS = {
+    'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
     'Random': 'Random — 隨機',
     'Basic': 'Basic — 基礎',
     'Minimax': 'Minimax — 極小化極大',
@@ -764,7 +789,7 @@ def main_page():
                     ai_o_sel.set_label(label)
                 update_ai_visibility()
 
-                ui.label('AlphaZero — Coming Soon (即將推出)').classes(
+                ui.label('AlphaZero — 神經網路 MCTS · 重新訓練: python alphazero.py train --game normal|ultimate').classes(
                     'text-caption text-grey q-mb-0')
 
                 mcts_label = ui.label(
@@ -785,6 +810,7 @@ def main_page():
         session['analysis_gen'] += 1
         session['analyzing'] = False
         session['reanalyze'] = False
+        session['ai_busy'] = None
         show_game()
 
     def build_game():
@@ -919,14 +945,11 @@ def main_page():
             if game.is_over():
                 show_result()
 
-        def step_ai_move():
+        def apply_ai_move(move):
             if session['screen'] != 'game' or game is not session['game']:
                 return False
-            if game.is_over() or not is_ai_turn(session):
+            if game.is_over() or move not in game.legal_moves():
                 return False
-            x_type, o_type = side_types(session)
-            ai_type = x_type if game.current == X else o_type
-            move = get_ai_move(game, ai_type, session['mcts'])
             apply_move(game, move)
             session['analysis_gen'] += 1
             render_board()
@@ -936,6 +959,33 @@ def main_page():
                 show_result()
             update_cvc_controls()
             return True
+
+        async def finish_ai_move(ai_type, budget):
+            try:
+                move = await asyncio.to_thread(get_ai_move, game, ai_type, budget)
+            except Exception as e:
+                print('AI move error:', e)
+                if session.get('ai_busy') == id(game):
+                    session['ai_busy'] = None
+                return
+            if session.get('ai_busy') == id(game):
+                session['ai_busy'] = None
+            apply_ai_move(move)
+
+        def step_ai_move():
+            if session['screen'] != 'game' or game is not session['game']:
+                return False
+            if game.is_over() or not is_ai_turn(session):
+                return False
+            x_type, o_type = side_types(session)
+            ai_type = x_type if game.current == X else o_type
+            if ai_type == 'AlphaZero':
+                if session.get('ai_busy') is not None:
+                    return False
+                session['ai_busy'] = id(game)
+                background_tasks.create(finish_ai_move(ai_type, session['mcts']))
+                return False
+            return apply_ai_move(get_ai_move(game, ai_type, session['mcts']))
 
         def ai_loop():
             if not session.get('cvc_auto', True):
@@ -1225,6 +1275,40 @@ def self_test():
     check('geometry: badge svg has cross/circle',
           '<line' in win_badge_svg(X) and '<circle' in win_badge_svg(O))
 
+    import alphazero
+    m3 = alphazero.train('normal', games=2, sims=8, quiet=True, save=False)
+    check('alphazero: smoke train normal', m3 is not None)
+    g = NormalGame()
+    check('alphazero: legal move normal', alphazero.select_move(g, m3, 20) in g.legal_moves())
+    m9 = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False)
+    check('alphazero: smoke train ultimate', m9 is not None)
+    g = UltimateGame()
+    check('alphazero: legal move ultimate', alphazero.select_move(g, m9, 20) in g.legal_moves())
+    g = NormalGame()
+    mv = get_ai_move(g, 'AlphaZero', 20)
+    check('alphazero: get_ai_move dispatches', mv in g.legal_moves())
+    g = NormalGame()
+    g.board = [X, X, EMPTY, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
+    g.current = X
+    check('alphazero: normal immediate win found',
+          alphazero.select_move(g, m3, 60) == 2)
+    az9 = alphazero.AZNet(9)  # random-init network: tests search mechanics only
+    gu = UltimateGame()
+    gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
+    gu.micro[2] = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
+    gu.active_macro = 2
+    gu.current = X
+    check('alphazero: ultimate game-winning move found',
+          alphazero.select_move(gu, az9, 60) == (2, 2))
+    gw = NormalGame()
+    gw.board = [X, X, X, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
+    check('alphazero: terminal value sign (normal win)',
+          alphazero.terminal_value(gw) == -1.0)
+    gwu = UltimateGame()
+    gwu.macro = [X, X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
+    check('alphazero: terminal value sign (ultimate win)',
+          alphazero.terminal_value(gwu) == -1.0)
+
     for gt, ax, ao in (('normal', 'Random', 'Random'),
                        ('ultimate', 'Random', 'Random'),
                        ('ultimate', 'Minimax', 'Random')):
@@ -1237,7 +1321,7 @@ def self_test():
         check(f'cvc {gt} ({ax} vs {ao}) terminates', game.is_over() and guard <= 500)
 
     for gt in ('normal', 'ultimate'):
-        for ai in AI_TYPES:
+        for ai in ('Random', 'Basic', 'Minimax', 'MCTS'):
             game = NormalGame() if gt == 'normal' else UltimateGame()
             guard = 0
             while not game.is_over() and guard < 500:
@@ -1255,6 +1339,10 @@ def self_test():
 def main():
     if '--self-test' in sys.argv:
         sys.exit(self_test())
+    if '--train-az' in sys.argv:
+        import alphazero
+        rest = [a for a in sys.argv[1:] if a != '--train-az']
+        sys.exit(alphazero.main(['train'] + rest))
     ui.run(
         title='Ultimate Tic Tac Toe — 終極井字棋',
         reload=False,
