@@ -10,13 +10,19 @@ Features:
 Run:
     run.bat                    # start the web app at http://127.0.0.1:8080
     run.bat --self-test        # run headless checks
+    run.bat --debug            # verbose backend logs
 """
 
 import asyncio
+import logging
 import math
 import random
 import sys
 import uuid
+
+log = logging.getLogger('SBA')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)s %(message)s', datefmt='%H:%M:%S')
 
 try:
     from nicegui import app, background_tasks, ui
@@ -538,13 +544,13 @@ def alphazero_move(game, budget=800):
     import alphazero
     model = load_az_model(game)
     if model is None:
-        print('AlphaZero: no trained model (models/az_%s.pt), falling back to MCTS'
-              % ('normal' if isinstance(game, NormalGame) else 'ultimate'))
+        log.info('AlphaZero: no trained model (models/az_%s.pt), falling back to MCTS',
+                 'normal' if isinstance(game, NormalGame) else 'ultimate')
         return mcts_move(game, budget)
     return alphazero.alphazero_move(game, model, budget)
 
 
-def get_ai_move(game, ai_type, mcts_budget=800):
+def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
     if ai_type == 'Random':
         return random.choice(game.legal_moves())
     if ai_type == 'Basic':
@@ -552,7 +558,7 @@ def get_ai_move(game, ai_type, mcts_budget=800):
     if ai_type == 'Minimax':
         if isinstance(game, NormalGame):
             return minimax_move_normal(game)[0]
-        return minimax_move_ultimate(game, depth=3)
+        return minimax_move_ultimate(game, depth=minimax_depth)
     if ai_type == 'MCTS':
         return mcts_move(game, mcts_budget)
     if ai_type == 'AlphaZero':
@@ -672,6 +678,7 @@ def new_session():
         'ai_x': 'Minimax',
         'ai_o': 'MCTS',
         'mcts': 800,
+        'minimax_depth': 4,
         'assistant_enabled': True,
         'analyzing': False,
         'reanalyze': False,
@@ -801,6 +808,18 @@ def main_page():
                     mcts_label.set_text(t('MCTS Strength', 'MCTS 強度') + f': {int(e.value)}'),
                 ))
 
+                mm_label = ui.label(
+                    t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）')
+                    + f': {session["minimax_depth"]}')
+                mm_slider = ui.slider(min=2, max=6, step=1,
+                                      value=session['minimax_depth']).props('label-always')
+                mm_slider.on_value_change(lambda e: (
+                    session.update(minimax_depth=int(e.value)),
+                    mm_label.set_text(
+                        t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）')
+                        + f': {int(e.value)}'),
+                ))
+
                 ui.button(t('Start Game', '開始遊戲'), icon='play_arrow',
                           on_click=start_game).props('unelevated').classes('w-full')
 
@@ -811,6 +830,11 @@ def main_page():
         session['analyzing'] = False
         session['reanalyze'] = False
         session['ai_busy'] = None
+        x_type, o_type = side_types(session)
+        log.info('Game started: %s, mode=%s, X=%s, O=%s, mcts=%d, mm_depth=%d',
+                 'Normal' if session['game_type'] == 'normal' else 'Ultimate',
+                 session['mode'], x_type, o_type,
+                 session['mcts'], session.get('minimax_depth', 3))
         show_game()
 
     def build_game():
@@ -829,10 +853,12 @@ def main_page():
             else:
                 player = game.current
                 set_mark(status_mark, player)
+                thinking = session.get('ai_busy') == id(game)
                 side = t('Player X', '玩家 X') if player == X else t('Player O', '玩家 O')
                 action = (t('your move', '輪到你') if current_side_type(session) == 'Human'
                           else t('thinking...', '思考中'))
-                status_text.set_text(f'{side} · {action}')
+                status_spinner.set_visibility(thinking)
+                status_text.set_text(f'{side} · 🤔 {action}' if thinking else f'{side} · {action}')
             mode_text = {'pvp': 'PvP', 'pvc': 'PvC', 'cvc': 'CvC'}[session['mode']]
             game_text = 'Normal' if isinstance(game, NormalGame) else 'Ultimate'
             x_type, o_type = side_types(session)
@@ -937,7 +963,10 @@ def main_page():
                 return
             if move not in game.legal_moves():
                 return
+            side = game.current
             apply_move(game, move)
+            log.info('Human move: %s -> %s [%s]', side, move_text(move),
+                     'Normal' if isinstance(game, NormalGame) else 'Ultimate')
             session['analysis_gen'] += 1
             render_board()
             refresh_status()
@@ -960,16 +989,21 @@ def main_page():
             update_cvc_controls()
             return True
 
-        async def finish_ai_move(ai_type, budget):
+        async def finish_ai_move(ai_type, budget, depth):
             try:
-                move = await asyncio.to_thread(get_ai_move, game, ai_type, budget)
+                move = await asyncio.to_thread(
+                    get_ai_move, game, ai_type, budget, depth)
             except Exception as e:
-                print('AI move error:', e)
+                log.error('AI move error (%s): %s', ai_type, e)
                 if session.get('ai_busy') == id(game):
                     session['ai_busy'] = None
+                    refresh_status()
                 return
             if session.get('ai_busy') == id(game):
                 session['ai_busy'] = None
+            side = game.current
+            log.info('AI move: %s (%s) -> %s [%s]', side, ai_type, move_text(move),
+                     'Normal' if isinstance(game, NormalGame) else 'Ultimate')
             apply_ai_move(move)
 
         def step_ai_move():
@@ -977,15 +1011,15 @@ def main_page():
                 return False
             if game.is_over() or not is_ai_turn(session):
                 return False
+            if session.get('ai_busy') is not None:
+                return False
             x_type, o_type = side_types(session)
             ai_type = x_type if game.current == X else o_type
-            if ai_type == 'AlphaZero':
-                if session.get('ai_busy') is not None:
-                    return False
-                session['ai_busy'] = id(game)
-                background_tasks.create(finish_ai_move(ai_type, session['mcts']))
-                return False
-            return apply_ai_move(get_ai_move(game, ai_type, session['mcts']))
+            session['ai_busy'] = id(game)
+            background_tasks.create(finish_ai_move(
+                ai_type, session['mcts'], session.get('minimax_depth', 3)))
+            refresh_status()
+            return False
 
         def ai_loop():
             if not session.get('cvc_auto', True):
@@ -1082,6 +1116,8 @@ def main_page():
 
         def show_result():
             result = game.result()
+            log.info('Game over: %s [%s]', result,
+                     'Normal' if isinstance(game, NormalGame) else 'Ultimate')
             title = (t("It's a draw!", '平局！') if result == 'D'
                      else f'Player {result} wins! (玩家 {result} 獲勝！)')
             try:
@@ -1102,6 +1138,8 @@ def main_page():
             with ui.column().classes('items-center gap-3'):
                 with ui.row().classes('items-center gap-2'):
                     status_mark = ui.label('').classes('mark-chip')
+                    status_spinner = ui.spinner(size='sm')
+                    status_spinner.set_visibility(False)
                     status_text = ui.label('').classes('text-h6')
                 board_ui = ui.element('div').classes('board-wrap')
                 render_board()
@@ -1343,8 +1381,23 @@ def main():
         import alphazero
         rest = [a for a in sys.argv[1:] if a != '--train-az']
         sys.exit(alphazero.main(['train'] + rest))
+    if '--debug' in sys.argv:
+        log.setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
+    host = '0.0.0.0'
+    port = 8080
+    for i, a in enumerate(sys.argv):
+        if a == '--host' and i + 1 < len(sys.argv):
+            host = sys.argv[i + 1]
+        elif a == '--port' and i + 1 < len(sys.argv):
+            try:
+                port = int(sys.argv[i + 1])
+            except ValueError:
+                pass
     ui.run(
         title='Ultimate Tic Tac Toe — 終極井字棋',
+        host=host,
+        port=port,
         reload=False,
         storage_secret='ultimate-tic-tac-toe-sba',
     )

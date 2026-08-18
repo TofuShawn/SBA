@@ -25,6 +25,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(HERE, 'models')
 X = 'X'
@@ -142,63 +144,102 @@ class AZNet(nn.Module):
 # Neural-guided MCTS
 # ---------------------------------------------------------------
 
-class Node:
-    __slots__ = ('prior', 'n', 'w', 'q', 'children')
+ROLLOUT_WEIGHT = 0.5  # leaf value = (1-w)*network + w*random playout
 
-    def __init__(self, prior=0.0):
-        self.prior = prior
-        self.n = 0
-        self.w = 0.0
+
+class SearchNode:
+    """Node with plain-MCTS style incremental expansion and UCB exploration.
+
+    Children are created one at a time (untried list) and unvisited children
+    always win selection, which gives much stronger exploration than expanding
+    every child at once -- important for Ultimate's wide branching factor.
+    q is stored from the perspective of the player to move at this state.
+    """
+
+    __slots__ = ('state', 'move', 'children', 'visits', 'wins', 'q',
+                 'untried', 'priors')
+
+    def __init__(self, state, move):
+        self.state = state
+        self.move = move
+        self.children = []
+        self.visits = 0
+        self.wins = 0.0
         self.q = 0.0
-        self.children = {}
+        self.untried = state.legal_moves() if not state.is_over() else []
+        random.shuffle(self.untried)
+        self.priors = None  # {move: prior} filled once by the policy head
+
+    def best_child(self, c_puct):
+        log_n = math.log(max(1, self.visits))
+        best, best_val = None, -math.inf
+        for child in self.children:
+            if child.visits == 0:
+                uct = math.inf
+            else:
+                prior = self.priors.get(child.move, 1.0) if self.priors else 1.0
+                uct = (-child.q + c_puct * prior * math.sqrt(log_n / child.visits))
+            if uct > best_val:
+                best, best_val = child, uct
+        return best
 
 
 def rollout_value(g):
-    """Random playout from g; value from the perspective of the player to move."""
+    """Random playout from g; value from the perspective of g's current player."""
+    player = g.current
     state = g.clone()
     while not state.is_over():
         legal = state.legal_moves()
         if not legal:
             break
         apply_move(state, random.choice(legal))
-    return terminal_value(state)
+    r = state.result()
+    if r == 'D':
+        return 0.0
+    return 1.0 if r == player else -1.0
 
 
 @torch.no_grad()
-def mcts_search(game, model, budget, c_puct=1.5):
-    """Run neural-guided MCTS; return (root Node, {move: visit_count})."""
-    root = Node()
+def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None):
+    """Run neural-guided MCTS; return (root SearchNode, {move: visit_count})."""
+    if rollout_weight is None:
+        rollout_weight = ROLLOUT_WEIGHT
+    root_state = game.clone()
+    root = SearchNode(root_state, None)
     for _ in range(budget):
         node = root
-        g = game.clone()
+        state = root_state.clone()
         path = [root]
-        while node.children:
-            best_move = None
-            best_score = -float('inf')
-            for move, child in node.children.items():
-                score = (-child.q
-                         + c_puct * child.prior * math.sqrt(node.n + 1) / (1.0 + child.n))
-                if score > best_score:
-                    best_score = score
-                    best_move = move
-            node = node.children[best_move]
+        while node.untried == [] and node.children:
+            node = node.best_child(c_puct)
+            apply_move(state, node.move)
             path.append(node)
-            apply_move(g, best_move)
-        legal = g.legal_moves()
-        if g.is_over() or not legal:
-            value = terminal_value(g)
+        if node.untried:
+            if node.priors is None:
+                policy, _ = model(encode(node.state).unsqueeze(0).to(DEVICE))
+                probs = F.softmax(policy[0], dim=0).cpu().numpy()
+                node.priors = {m: float(probs[move_index(node.state, m)])
+                               for m in node.untried}
+            m = node.untried.pop()
+            apply_move(state, m)
+            child = SearchNode(state.clone(), m)
+            node.children.append(child)
+            node = child
+            path.append(node)
+        if state.is_over() or not state.legal_moves():
+            value = terminal_value(state)
         else:
-            policy, value = model(encode(g).unsqueeze(0))
-            probs = F.softmax(policy[0], dim=0).cpu().numpy()
-            for move in legal:
-                node.children[move] = Node(float(probs[move_index(g, move)]))
-            value = 0.5 * float(value[0, 0].item()) + 0.5 * rollout_value(g)
-        for node in reversed(path):
-            node.n += 1
-            node.w += value
-            node.q = node.w / node.n
+            policy, value = model(encode(state).unsqueeze(0).to(DEVICE))
+            value = float(value[0, 0].item())
+            if rollout_weight > 0:
+                value = ((1.0 - rollout_weight) * value
+                         + rollout_weight * rollout_value(state))
+        for n in reversed(path):
+            n.visits += 1
+            n.wins += value
+            n.q = n.wins / n.visits
             value = -value
-    counts = {move: child.n for move, child in root.children.items()}
+    counts = {child.move: child.visits for child in root.children}
     return root, counts
 
 
@@ -220,9 +261,10 @@ def select_move(game, model, budget=800, temp=0.0, c_puct=1.5):
         if not pool:
             pool = moves
         if len(pool) > 1:
+            child_by_move = {c.move: c for c in root.children}
             best_m, best_q = pool[0], -float('inf')
             for move in pool:
-                q = -root.children[move].q
+                q = -child_by_move[move].q
                 if q > best_q:
                     best_q, best_m = q, move
             return best_m
@@ -289,7 +331,7 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         np.random.seed(seed)
         torch.manual_seed(seed)
     size = 3 if game_type == 'normal' else 9
-    model = AZNet(size)
+    model = AZNet(size).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     make_game_fn = lambda: make_game(game_type)
     start = time.time()
@@ -328,7 +370,7 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             g_states, g_targets, g_zs = random.choice(replay)
             n_pos = len(g_states)
             idx = np.random.choice(n_pos, min(32, n_pos), replace=False)
-            batch = torch.stack([g_states[i] for i in idx])
+            batch = torch.stack([g_states[i] for i in idx]).to(DEVICE)
             target = torch.stack([torch.tensor(g_targets[i]) for i in idx])
             z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32)
             optimizer.zero_grad()
@@ -359,7 +401,7 @@ def load_model(game_type):
     if not os.path.exists(path):
         return None
     ckpt = torch.load(path, map_location='cpu')
-    model = AZNet(ckpt['size'])
+    model = AZNet(ckpt['size']).to(DEVICE)
     model.load_state_dict(ckpt['state_dict'])
     model.eval()
     return model
