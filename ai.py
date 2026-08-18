@@ -1,3 +1,6 @@
+# Copyright (c) 2026 TofuShawn
+# SPDX-License-Identifier: MIT
+
 """Ultimate Tic Tac Toe — AI engines and the AI assistant analysis.
 
 Implements every computer opponent (Random, Basic, Minimax, Minimax Pro,

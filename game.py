@@ -1,3 +1,6 @@
+# Copyright (c) 2026 TofuShawn
+# SPDX-License-Identifier: MIT
+
 """Ultimate Tic Tac Toe — game rules and board helpers.
 
 Defines the Normal (3x3) and Ultimate (9x9) game rules, move application, and

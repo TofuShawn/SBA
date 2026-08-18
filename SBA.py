@@ -1,3 +1,6 @@
+# Copyright (c) 2026 TofuShawn
+# SPDX-License-Identifier: MIT
+
 """Ultimate Tic Tac Toe — entry point, session state, and self-tests.
 
 Game rules live in game.py, the AI engines in ai.py, and the NiceGUI web UI

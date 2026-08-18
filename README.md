@@ -143,4 +143,4 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> `webui.py` 
 
 ## License / 授權
 
-This project is provided as-is for personal and educational use. See the repository owner for any reuse questions / 本專案以現狀提供，供個人與教育用途使用；如有再使用需求請聯繫倉庫擁有者。
+This project is released under the [MIT License](LICENSE). See the [LICENSE](LICENSE) file for details / 本專案以 [MIT 授權](LICENSE) 釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。

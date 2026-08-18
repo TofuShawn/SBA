@@ -1,3 +1,6 @@
+# Copyright (c) 2026 TofuShawn
+# SPDX-License-Identifier: MIT
+
 """Ultimate Tic Tac Toe — NiceGUI web UI.
 
 Imports the game engines and AI from SBA.py and renders the interactive UI:

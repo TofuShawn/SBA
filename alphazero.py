@@ -1,3 +1,6 @@
+# Copyright (c) 2026 TofuShawn
+# SPDX-License-Identifier: MIT
+
 """AlphaZero-style neural-guided MCTS for (Ultimate) Tic Tac Toe.
 
 Self-contained: works with any game object exposing the SBA.py interface
