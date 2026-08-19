@@ -10,6 +10,12 @@ UI. The NiceGUI web server is opt-in: enable it from the menu switch or with
 Run:
     python qtui.py            # desktop app (default)
     python qtui.py --web      # desktop app + start the NiceGUI web server
+
+Maintenance notes:
+- Uses the vendored PyQt-SiliconUI (GPLv3) under vendor/siui/; falls back to
+  the native dark-glass QSS when the vendor directory is missing (decision D5).
+- Fonts prefer Noto Sans TC; 微软雅黑 is not installed on every system (D7).
+- Won chunks fill with the winner's color; hovering reveals the cells (D6).
 """
 
 import argparse

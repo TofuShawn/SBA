@@ -9,6 +9,11 @@ analysis panel, and CvC controls.
 
 Run the app via `python SBA.py` (or run.bat). This module is imported on
 demand by SBA.main(); it can also be run directly with `python webui.py`.
+
+Maintenance notes:
+- NiceGUI is opt-in via --web or the desktop switch (decision D1).
+- Solver and MCTS+RAVE are intentionally absent from the AI menu (D3, D8).
+- Mobile layout lives in static/styles.css media queries.
 """
 
 import asyncio

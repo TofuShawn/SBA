@@ -14,6 +14,10 @@ Evaluation vs random:
     python alphazero.py eval --games 30 --sims 200
 
 Models are saved to ./models/az_<game>.pt
+
+Maintenance notes:
+- Training/evaluation are Ultimate-only (decision D4).
+- Without a trained model in models/, the engine falls back to MCTS.
 """
 
 import argparse

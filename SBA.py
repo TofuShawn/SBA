@@ -13,6 +13,12 @@ Run:
     python SBA.py --web        # start the NiceGUI web app at http://127.0.0.1:8080
     python SBA.py --self-test  # run headless checks
     python SBA.py --debug      # verbose backend logs
+
+Maintenance notes:
+- The desktop app is the default entry; the NiceGUI web server only starts
+  with --web or the desktop's "Enable NiceGUI Web UI" switch (decision D1).
+- Session state lives here; the module is aliased as 'SBA' so qtui/webui
+  reuse it instead of importing a second copy.
 """
 
 import logging

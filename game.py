@@ -6,6 +6,11 @@
 Defines the Normal (3x3) and Ultimate (9x9) game rules, move application, and
 the board geometry / win-badge helpers used by the AI engines, analysis,
 self-tests, and the web UI. Pure logic with no NiceGUI dependency.
+
+Maintenance notes:
+- Keep this file free of UI/engine imports (decision D2) — everything else
+  depends on it.
+- win_badge_svg / win_segment / macro_center are shared by the web board.
 """
 X = 'X'
 O = 'O'
@@ -194,4 +199,3 @@ def win_badge_svg(player):
                  'stroke-width="12" stroke-linecap="round"/>')
     return (f'<svg class="macro-win-svg" viewBox="0 0 100 100" '
             f'xmlns="http://www.w3.org/2000/svg">{inner}</svg>')
-
