@@ -26,10 +26,10 @@
 .macro-win-badge {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   border-radius: 14px;
-  background: rgba(255,255,255,0.45); pointer-events: none; z-index: 5;
+  background: rgba(255,255,255,0.45); pointer-events: none; z-index: 6;
 }
 .body--dark .macro-win-badge { background: rgba(0,0,0,0.5); }
-.macro-win-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 6; }
+.macro-win-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; }
 .macro-win-line svg { width: 100%; height: 100%; display: block; }
 .macro-win-svg { width: 100%; height: 100%; display: block; opacity: 0.8; }
 .board-win-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 8; color: #1D1B20; }
@@ -44,8 +44,8 @@
    the fill and mark fade out while the small win line fades in. */
 .macro-win-fill {
   position: absolute; inset: 0; border-radius: 14px;
-  pointer-events: none; z-index: 4;
-  opacity: 1; transition: opacity 0.18s ease;
+  pointer-events: none; z-index: 5;
+  opacity: 1 !important; transition: opacity 0.18s ease;
 }
 .macro-win-fill-x { background: #6750A4; }
 .macro-win-fill-o { background: #B3261E; }
@@ -53,11 +53,11 @@
 .body--dark .macro-win-badge-x, .body--dark .macro-win-badge-o { color: #FFFFFF; }
 .macro-win-badge { background: transparent; }
 .body--dark .macro-win-badge { background: transparent; }
-.macro-win-line { opacity: 0; }
+.macro-win-line { opacity: 0 !important; }
 .macro-win-badge, .macro-win-line { transition: opacity 0.18s ease; }
-.macro-board:hover .macro-win-fill { opacity: 0; }
-.macro-board:hover .macro-win-badge { opacity: 0; }
-.macro-board:hover .macro-win-line { opacity: 1; }
+.macro-board:hover .macro-win-fill { opacity: 0 !important; }
+.macro-board:hover .macro-win-badge { opacity: 0 !important; }
+.macro-board:hover .macro-win-line { opacity: 1 !important; }
 .macro-board:hover .macro-win-line.mark-x { color: #6750A4; }
 .macro-board:hover .macro-win-line.mark-o { color: #B3261E; }
 .body--dark .macro-board:hover .macro-win-line.mark-x { color: #D0BCFF; }
