@@ -20,11 +20,12 @@ import sys
 
 try:
     from PySide6.QtCore import QEasingCurve, QRectF, QSize, Qt, QThread, QTimer, QVariantAnimation, Signal
-    from PySide6.QtGui import QColor, QPainter, QPen
+    from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
-        QMessageBox, QPushButton, QSlider, QStackedWidget, QVBoxLayout, QWidget,
+        QMessageBox, QPushButton, QSizePolicy, QSlider, QStackedWidget,
+        QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -45,6 +46,11 @@ from SBA import (
 
 def t(en: str, zh: str) -> str:
     return f'{en} — {zh}'
+
+
+# Font stack: Noto Sans TC is installed on Windows 10+; Segoe UI/雅黑 are
+# fallbacks so CJK and Latin both render cleanly.
+FONT_FAMILIES = ['Noto Sans TC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
 
 
 # Board palettes. BoardWidget paints from the active palette; the native dark
@@ -147,14 +153,24 @@ if SIUI is not None:
 
         def __init__(self, parent=None):
             super().__init__(parent)
-            self.setMinimumSize(220, 36)
+            self.setMinimumSize(260, 40)
+            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self._labels = []
             self._data = []
             self._current = 0
+            self._max_w = 0
             self.valueChanged.connect(self._on_value)
 
+        def _text_w(self, text):
+            try:
+                from silicon import SiFont
+                fm = QFontMetrics(SiFont.font_L1)
+            except Exception:  # noqa: BLE001
+                fm = self.fontMetrics()
+            return fm.horizontalAdvance(text)
+
         def sizeHint(self):
-            return QSize(220, 36)
+            return QSize(max(260, self._max_w + 78), 40)
 
         def _on_value(self, value):
             try:
@@ -167,6 +183,7 @@ if SIUI is not None:
             self._labels.append(label)
             self._data.append(data)
             self.addOption(label, data)
+            self._max_w = max(self._max_w, self._text_w(label))
             if len(self._data) == 1:
                 self.setOption(label)
 
@@ -188,16 +205,19 @@ def _si_combo(parent=None):
 
 def _si_button(text, parent=None, primary=False):
     if SIUI is not None:
+        from silicon import SiFont
         from silicon.SiButton import SiButton
         btn = SiButton(parent)
         btn.setText(text)
         if primary:
             btn.setStrong(True)
+        fm = QFontMetrics(SiFont.font_L1_bold)
     else:
         btn = QPushButton(text, parent)
         if primary:
             btn.setObjectName('primary')
-    btn.setMinimumSize(120, 40)
+        fm = QFontMetrics(QFont(FONT_FAMILIES, 10, QFont.Bold))
+    btn.setMinimumSize(max(140, fm.horizontalAdvance(text) + 48), 44)
     return btn
 
 
@@ -242,7 +262,8 @@ AI_OPTIONS = {
 # not installed): dark background, translucent glass cards, capsule buttons
 # and smooth controls.
 QSS = '''
-QWidget { background: #141218; color: #E6E0E9; font-size: 14px; }
+QWidget { background: #141218; color: #E6E0E9; font-size: 14px;
+    font-family: "Noto Sans TC", "Noto Sans SC", "Microsoft YaHei", "Segoe UI"; }
 QMainWindow { background: #141218; }
 QLabel#title { font-size: 20px; font-weight: 700; color: #E8DEF8; }
 QLabel#cardTitle { font-weight: 600; color: #E8DEF8; }
@@ -687,9 +708,11 @@ class MenuPage(QWidget):
             row = QHBoxLayout()
             lab = QLabel(label_text)
             lab.setObjectName('muted')
-            row.addWidget(lab)
-            row.addStretch(1)
-            row.addWidget(widget)
+            lab.setWordWrap(True)
+            lab.setMinimumWidth(320)
+            lab.setMaximumWidth(360)
+            row.addWidget(lab, 0)
+            row.addWidget(widget, 1)
             return row
 
         self.game_type = _si_combo()
@@ -874,7 +897,9 @@ class GamePage(QWidget):
         self.info_mode = QLabel('')
         self.info_mode.setObjectName('muted')
         self.info_x = QLabel('')
+        self.info_x.setWordWrap(True)
         self.info_o = QLabel('')
+        self.info_o.setWordWrap(True)
         info_lay.addWidget(self.info_game)
         info_lay.addWidget(self.info_mode)
         info_lay.addWidget(self.info_x)
@@ -1247,6 +1272,7 @@ def main(argv=None):
         logging.getLogger().setLevel(logging.DEBUG)
     app = QApplication(sys.argv[:1])
     app.setApplicationName('SBA')
+    app.setFont(QFont(FONT_FAMILIES, 10))
     _init_siui_runtime()
     window = MainWindow(web_enabled=args.web, port=args.port)
     window.show()

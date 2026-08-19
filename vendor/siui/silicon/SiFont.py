@@ -4,7 +4,9 @@ import silicon
 def adjusted(p):
     return int(p/silicon.SA_SCALE_FACTOR)
 
-font_name = ['微软雅黑']
+# SBA modification: Microsoft YaHei is not installed on every system, which
+# broke text rendering; prefer Noto Sans TC/SC with Segoe UI as fallback.
+font_name = ['Noto Sans TC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
 
 font_L1 = QFont(font_name, adjusted(10), QFont.Normal)
 font_L1_bold = QFont(font_name,adjusted(10), QFont.Bold)
