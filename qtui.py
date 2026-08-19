@@ -29,7 +29,7 @@ try:
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
-    print('Install the desktop UI with:  python -m pip install -r requirements-qt.txt')
+    print('Install the desktop UI with:  python -m pip install -r requirements.txt')
     print('Or start the web UI instead with:  python SBA.py --web')
     raise SystemExit(1)
 
@@ -256,6 +256,7 @@ AI_OPTIONS = {
     'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
     'MCTS': 'MCTS — 蒙地卡羅',
     'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
+    'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
 }
 
 # Native dark-glass theme (fallback used when the PyQt-SiliconUI package is

@@ -66,6 +66,7 @@ AI_OPTIONS = {
     'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
     'MCTS': 'MCTS — 蒙地卡羅',
     'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
+    'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
 }
 
 @ui.page('/')

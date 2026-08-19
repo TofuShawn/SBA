@@ -11,13 +11,14 @@
 
 - **Two game types / 兩種棋盤**：classic 3x3 Tic Tac Toe（經典井字棋）和 9x9 Ultimate Tic Tac Toe（終極井字棋）
 - **Three modes / 三種模式**：Player vs Player（玩家對戰）、Player vs Computer（人機對戰）、Computer vs Computer（電腦對戰）
-- **7 selectable AI engines / 七種可選 AI 引擎**：
+- **8 selectable AI engines / 八種可選 AI 引擎**：
   - `Random` - random legal move / 隨機走棋
   - `Basic` - win if possible, block, prefer center/corners / 能贏就贏、會擋棋、偏好中心與角落
   - `Minimax` - classic alpha-beta search / 經典極小化極大搜尋（普通模式完美、終極模式限深度）
   - `Minimax Pro` - negamax + transposition table + iterative deepening / 進階極小化極大（置換表 + 疊代加深）
   - `MCTS` - Monte Carlo Tree Search with UCT / 蒙地卡羅樹搜尋（強度可調）
   - `MCTS+RAVE` - MCTS with AMAF/RAVE move sharing / 蒙地卡羅 + RAVE 走法共享
+  - `MCTS+GRAVE` - Generalized RAVE (Cazenave 2015): shares RAVE stats through reference nodes, lower memory / 廣義 RAVE：透過 reference node 共享 RAVE 統計，省記憶體
   - ~~`Solver`~~ - disabled in the menu (engine kept for the analysis panel) / 已停用（選單不可選，引擎保留供分析面板使用）
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
 - **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
@@ -26,7 +27,7 @@
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
 - **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
 - **SiliconUI desktop theme / 桌面版 SiliconUI 主題**：PySide6 桌面版使用 [PyQt-SiliconUI](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)（PySide6 fork）的深色玻璃主題；該套件缺失時自動退回內建深色玻璃樣式
-- **Headless self-test suite / 無頭自測**（54 項檢查）與 **Docker** 映像
+- **Headless self-test suite / 無頭自測**（59 項檢查）與 **Docker** 映像
 
 ---
 
@@ -41,12 +42,7 @@ Install core dependencies / 安裝核心依賴：
 pip install -r requirements.txt
 ```
 
-**Optional - Desktop UI / 選用 - 桌面版**：需要 PySide6（Qt for Python）：
-
-```bash
-pip install -r requirements-qt.txt
-```
-
+PySide6（Qt for Python，桌面版用）已併入 `requirements.txt`，不需要另外安裝檔。
 PyQt-SiliconUI（PySide6 fork）已隨專案 vendoring 於 `vendor/siui/`（GPLv3），
 無需另外安裝；若刪除該目錄，桌面版會自動退回內建深色玻璃樣式。
 
@@ -96,6 +92,7 @@ CLI flags / 指令參數：
 | `--port PORT` | Web port / Web 連接埠（預設 `8080`） |
 | `--debug` | Verbose backend logging / 後端詳細日誌 |
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
+| `--bench [--games N] [--iters N] [--normal]` | MCTS-family win-rate benchmark / MCTS 家族引擎勝率對戰測試 |
 | `--train-az` | Alias for `alphazero.py train` / 等同執行 `alphazero.py train` |
 
 ### 2. Self-test / 自測
@@ -105,7 +102,18 @@ python SBA.py --self-test
 # Windows: run.bat --self-test (local launcher, not tracked in git)
 ```
 
-Runs 54 headless checks covering rules, AI sanity, termination, and AlphaZero smoke tests / 執行 54 項無頭檢查，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試。
+Runs 59 headless checks covering rules, AI sanity, termination, and AlphaZero smoke tests / 執行 59 項無頭檢查，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試。
+
+### 2b. MCTS benchmark / MCTS 對戰測試
+
+```bash
+# round-robin: MCTS vs MCTS+RAVE vs MCTS+GRAVE on Ultimate / 終極模式三方循環賽
+python SBA.py --bench
+# smaller / faster, or Normal board / 較小規模或普通棋盤
+python SBA.py --bench --games 10 --iters 200 --normal
+```
+
+Alternates the first player per game and prints per-match win rates / 每局輪換先手，輸出各組合勝率。
 
 ### 3. Train / evaluate AlphaZero / 訓練與評估 AlphaZero
 
@@ -140,8 +148,7 @@ docker run -p 8080:8080 sba
 | `vendor/siui/` | Vendored PyQt-SiliconUI runtime (`silicon/` + `icons/`, GPLv3) / 隨附的 SiliconUI 執行時期（GPLv3） |
 | `run.bat` | Local Windows launcher (not tracked in git) / 本地 Windows 啟動檔（未納入 git） |
 | `Dockerfile` | Container image (CPU-only torch) / 容器映像（CPU 版 torch） |
-| `requirements.txt` | Core Python dependencies / 核心 Python 依賴 |
-| `requirements-qt.txt` | Desktop UI dependency (PySide6) / 桌面版依賴（PySide6） |
+| `requirements.txt` | Core + desktop dependencies (NiceGUI, PySide6) / 核心與桌面版依賴（NiceGUI、PySide6） |
 
 Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`} / 依賴方向為單向：`game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`}。
 
