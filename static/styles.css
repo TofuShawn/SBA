@@ -39,6 +39,28 @@
 .macro-win-badge-o { color: #B3261E; }
 .body--dark .macro-win-badge-x { color: #D0BCFF; }
 .body--dark .macro-win-badge-o { color: #FFB4AB; }
+/* Filled won chunk = player-color label; hovering reveals the cells again.
+   Mirrors the desktop board: fill + big white mark by default, and on hover
+   the fill and mark fade out while the small win line fades in. */
+.macro-win-fill {
+  position: absolute; inset: 0; border-radius: 14px;
+  pointer-events: none; z-index: 4;
+  opacity: 1; transition: opacity 0.18s ease;
+}
+.macro-win-fill-x { background: #6750A4; }
+.macro-win-fill-o { background: #B3261E; }
+.macro-win-badge-x, .macro-win-badge-o { color: #FFFFFF; }
+.macro-win-badge { background: transparent; }
+.body--dark .macro-win-badge { background: transparent; }
+.macro-win-line { opacity: 0; }
+.macro-win-badge, .macro-win-line { transition: opacity 0.18s ease; }
+.macro-board:hover .macro-win-fill { opacity: 0; }
+.macro-board:hover .macro-win-badge { opacity: 0; }
+.macro-board:hover .macro-win-line { opacity: 1; }
+.macro-board:hover .macro-win-line.mark-x { color: #6750A4; }
+.macro-board:hover .macro-win-line.mark-o { color: #B3261E; }
+.body--dark .macro-board:hover .macro-win-line.mark-x { color: #D0BCFF; }
+.body--dark .macro-board:hover .macro-win-line.mark-o { color: #FFB4AB; }
 .mark-chip { font-weight: 900; font-size: 1.5rem; line-height: 1; }
 .mark-x { color: #6750A4; }
 .mark-o { color: #B3261E; }

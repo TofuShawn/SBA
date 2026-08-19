@@ -271,6 +271,11 @@ def main_page():
                                             btn.disable()
                                         cell_refs[(m, i)] = btn
                                 if game.macro[m] in (X, O):
+                                    fill = ui.element('div')
+                                    fill.mark(f'macro-fill-{m}')
+                                    fill.classes('macro-win-fill'
+                                                 + (' macro-win-fill-x' if game.macro[m] == X
+                                                    else ' macro-win-fill-o'))
                                     badge = ui.html(win_badge_svg(game.macro[m]))
                                     badge.mark(f'macro-badge-{m}')
                                     badge.classes('macro-win-badge'
