@@ -69,28 +69,83 @@ AI_OPTIONS = {
     'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
 }
 
+# SiliconUI-inspired styling: soft lavender-tinted light theme, rounded
+# "glass" cards, capsule buttons and smooth controls (kept consistent with
+# the Material Design 3 palette used by the web UI).
 QSS = '''
-QWidget { background: #FDF8FF; color: #1D1B20; font-size: 14px; }
-QLabel#title { font-size: 18px; font-weight: 600; color: #21005D; }
+QWidget { background: #F5F1F8; color: #1D1B20; font-size: 14px; }
+QMainWindow { background: #F5F1F8; }
+QLabel#title { font-size: 20px; font-weight: 700; color: #21005D; }
 QLabel#cardTitle { font-weight: 600; color: #21005D; }
 QLabel#muted { color: #79747E; font-size: 12px; }
-QFrame#card { background: #FFFFFF; border: 1px solid #E6E0E9; border-radius: 12px; }
-QPushButton { background: #EADDFF; color: #21005D; border: none; border-radius: 8px; padding: 8px 16px; }
+QFrame#card {
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(121, 116, 126, 0.18);
+    border-radius: 16px;
+}
+QFrame#sidePanel {
+    background: rgba(255, 255, 255, 0.70);
+    border-left: 1px solid rgba(121, 116, 126, 0.15);
+}
+QPushButton {
+    background: #EADDFF; color: #21005D; border: none;
+    border-radius: 14px; padding: 8px 18px; font-weight: 500;
+}
 QPushButton:hover { background: #D0BCFF; }
-QPushButton#primary { background: #6750A4; color: #FFFFFF; font-weight: 600; padding: 10px 20px; }
-QPushButton#primary:hover { background: #7C6BB0; }
+QPushButton:pressed { background: #C6B3F5; }
+QPushButton#primary {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #7C6BB0, stop:1 #6750A4);
+    color: #FFFFFF; font-weight: 600; padding: 10px 22px; border-radius: 16px;
+}
+QPushButton#primary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #8B79BE, stop:1 #7C6BB0); }
+QPushButton#primary:pressed { background: #5C4694; }
 QPushButton:disabled { background: #E6E0E9; color: #9A969E; }
-QComboBox, QSpinBox { background: #F3EDF7; border: 1px solid #E6E0E9; border-radius: 8px; padding: 4px 8px; min-height: 22px; }
-QSlider::groove:horizontal { height: 4px; background: #E6E0E9; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #6750A4; border-radius: 2px; }
-QSlider::handle:horizontal { background: #6750A4; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; }
-QCheckBox::indicator { width: 18px; height: 18px; border-radius: 5px; border: 2px solid #79747E; background: #FFFFFF; }
+QComboBox, QSpinBox {
+    background: rgba(243, 237, 247, 0.85);
+    border: 1px solid #E6E0E9; border-radius: 10px; padding: 5px 10px; min-height: 22px;
+}
+QComboBox:hover, QSpinBox:hover { border-color: #CAC4D0; }
+QComboBox::drop-down { border: none; width: 22px; }
+QSlider::groove:horizontal { height: 6px; background: #E6E0E9; border-radius: 3px; }
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #B39DDB, stop:1 #6750A4); border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #FFFFFF; border: 2px solid #6750A4;
+    width: 18px; height: 18px; margin: -8px 0; border-radius: 9px;
+}
+QSlider::handle:horizontal:hover { background: #EADDFF; }
+QCheckBox::indicator {
+    width: 18px; height: 18px; border-radius: 6px;
+    border: 2px solid #79747E; background: #FFFFFF;
+}
+QCheckBox::indicator:hover { border-color: #6750A4; }
 QCheckBox::indicator:checked { background: #6750A4; border-color: #6750A4; }
-QRadioButton::indicator { width: 18px; height: 18px; border-radius: 9px; border: 2px solid #79747E; background: #FFFFFF; }
+QRadioButton::indicator {
+    width: 18px; height: 18px; border-radius: 9px;
+    border: 2px solid #79747E; background: #FFFFFF;
+}
+QRadioButton::indicator:hover { border-color: #6750A4; }
 QRadioButton::indicator:checked { background: #6750A4; border-color: #6750A4; }
-QListWidget { background: #F3EDF7; border: 1px solid #E6E0E9; border-radius: 8px; }
-QListWidget::item { padding: 6px; border-radius: 6px; }
+QListWidget {
+    background: rgba(243, 237, 247, 0.55);
+    border: 1px solid #E6E0E9; border-radius: 12px; padding: 4px;
+}
+QListWidget::item { padding: 8px; border-radius: 8px; }
+QListWidget::item:hover { background: rgba(208, 188, 255, 0.35); }
 QListWidget::item:selected { background: #EADDFF; color: #21005D; }
+QToolTip {
+    background: #21005D; color: #FFFFFF; border: none;
+    border-radius: 8px; padding: 6px 10px;
+}
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: #CAC4D0; border-radius: 4px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #B3A9BD; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QMessageBox { background: #F5F1F8; }
 QMessageBox QPushButton { min-width: 90px; }
 '''
 
@@ -144,6 +199,14 @@ class BoardWidget(QWidget):
         x = ox + col * (cell + self.GAP)
         y = oy + row * (cell + self.GAP)
         return QRectF(x, y, cell, cell)
+
+    def _macro_rect(self, m, cell, ox, oy):
+        """Return the QRectF of the whole 3x3 macro chunk for macro index m."""
+        mr, mc = divmod(m, 3)
+        x = ox + mc * 3 * (cell + self.GAP)
+        y = oy + mr * 3 * (cell + self.GAP)
+        size = cell * 3 + 2 * self.GAP
+        return QRectF(x, y, size, size)
 
     def _move_at(self, px, py):
         n, cell, ox, oy = self._grid()
@@ -207,9 +270,12 @@ class BoardWidget(QWidget):
         xs = [p.x() for p in pts]
         ys = [p.y() for p in pts]
         x1, x2 = min(xs), max(xs)
-        y1 = pts[xs.index(x1)].y()
-        y2 = pts[xs.index(x2)].y()
-        return x1, y1, x2, y2
+        if x1 == x2:  # vertical line
+            y1, y2 = min(ys), max(ys)
+            return x1, y1, x1, y2
+        i1 = xs.index(x1)
+        i2 = xs.index(x2)
+        return x1, pts[i1].y(), x2, pts[i2].y()
 
     def _paint_win_line(self, painter, line, centers, color, width):
         if line is None:
@@ -248,8 +314,7 @@ class BoardWidget(QWidget):
         n, cell, ox, oy = self._grid()
         # macro region highlights
         for m in range(9):
-            mr, mc = divmod(m, 3)
-            rect = self._cell_rect(mr * 3, mc * 3, cell * 3 + 2 * self.GAP, ox, oy)
+            rect = self._macro_rect(m, cell, ox, oy)
             if self.game.macro[m] == X:
                 painter.setBrush(QColor(MACRO_WON_X))
             elif self.game.macro[m] == O:
@@ -264,7 +329,7 @@ class BoardWidget(QWidget):
         macro_centers = []
         for m in range(9):
             mr, mc = divmod(m, 3)
-            macro_rect = self._cell_rect(mr * 3, mc * 3, cell * 3 + 2 * self.GAP, ox, oy)
+            macro_rect = self._macro_rect(m, cell, ox, oy)
             macro_centers.append(macro_rect.center())
             for i in range(9):
                 row = mr * 3 + i // 3
@@ -288,8 +353,7 @@ class BoardWidget(QWidget):
         # won macro badges
         for m in range(9):
             if self.game.macro[m] in (X, O):
-                mr, mc = divmod(m, 3)
-                rect = self._cell_rect(mr * 3, mc * 3, cell * 3 + 2 * self.GAP, ox, oy)
+                rect = self._macro_rect(m, cell, ox, oy)
                 pad = rect.width() * 0.18
                 badge = QRectF(rect.left() + pad, rect.top() + pad,
                                rect.width() - 2 * pad, rect.height() - 2 * pad)
@@ -608,6 +672,7 @@ class GamePage(QWidget):
 
         panel.addStretch(1)
         panel_widget = QWidget()
+        panel_widget.setObjectName('sidePanel')
         panel_widget.setLayout(panel)
         panel_widget.setFixedWidth(320)
         body.addWidget(panel_widget)
