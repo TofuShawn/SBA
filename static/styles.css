@@ -50,6 +50,7 @@
 .macro-win-fill-x { background: #6750A4; }
 .macro-win-fill-o { background: #B3261E; }
 .macro-win-badge-x, .macro-win-badge-o { color: #FFFFFF; }
+.body--dark .macro-win-badge-x, .body--dark .macro-win-badge-o { color: #FFFFFF; }
 .macro-win-badge { background: transparent; }
 .body--dark .macro-win-badge { background: transparent; }
 .macro-win-line { opacity: 0; }
