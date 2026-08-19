@@ -1,11 +1,16 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — game rules and board helpers.
 
 Defines the Normal (3x3) and Ultimate (9x9) game rules, move application, and
 the board geometry / win-badge helpers used by the AI engines, analysis,
 self-tests, and the web UI. Pure logic with no NiceGUI dependency.
+
+Maintenance notes:
+- Keep this file free of UI/engine imports (decision D2) — everything else
+  depends on it.
+- win_badge_svg / win_segment / macro_center are shared by the web board.
 """
 X = 'X'
 O = 'O'
@@ -15,6 +20,16 @@ LINES = [
     (0, 3, 6), (1, 4, 7), (2, 5, 8),
     (0, 4, 8), (2, 4, 6),
 ]
+
+
+def line_winner(cells):
+    """Return X/O if `cells` (9 entries) contains a winning line, else None."""
+    for a, b, c in LINES:
+        if cells[a] in (X, O) and cells[a] == cells[b] == cells[c]:
+            return cells[a]
+    return None
+
+
 # ============================================================
 # Game engines
 # ============================================================
@@ -35,10 +50,7 @@ class NormalGame:
             self.current = O if self.current == X else X
 
     def winner(self):
-        for a, b, c in LINES:
-            if self.board[a] and self.board[a] == self.board[b] == self.board[c]:
-                return self.board[a]
-        return None
+        return line_winner(self.board)
 
     def is_full(self):
         return EMPTY not in self.board
@@ -84,11 +96,7 @@ class UltimateGame:
         return moves
 
     def micro_winner(self, m):
-        cells = self.micro[m]
-        for a, b, c in LINES:
-            if cells[a] in (X, O) and cells[a] == cells[b] == cells[c]:
-                return cells[a]
-        return None
+        return line_winner(self.micro[m])
 
     def make_move(self, macro, micro):
         if self.micro[macro][micro] != EMPTY:
@@ -194,5 +202,3 @@ def win_badge_svg(player):
                  'stroke-width="12" stroke-linecap="round"/>')
     return (f'<svg class="macro-win-svg" viewBox="0 0 100 100" '
             f'xmlns="http://www.w3.org/2000/svg">{inner}</svg>')
-
-

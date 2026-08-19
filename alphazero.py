@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """AlphaZero-style neural-guided MCTS for (Ultimate) Tic Tac Toe.
 
@@ -7,14 +7,17 @@ Self-contained: works with any game object exposing the SBA.py interface
 (NormalGame / UltimateGame): board/micro+macro, legal_moves(), is_over(),
 result(), clone(), make_move(...), current.
 
-Training:
-    python alphazero.py train --game normal --games 400 --sims 80
-    python alphazero.py train --game ultimate --games 300 --sims 80
+Training (Ultimate only; Normal Tic Tac Toe is a solved game and is not supported):
+    python alphazero.py train --games 400 --sims 80
 
 Evaluation vs random:
-    python alphazero.py eval --game normal --games 30 --sims 200
+    python alphazero.py eval --games 30 --sims 200
 
 Models are saved to ./models/az_<game>.pt
+
+Maintenance notes:
+- Training/evaluation are Ultimate-only (decision D4).
+- Without a trained model in models/, the engine falls back to MCTS.
 """
 
 import argparse
@@ -418,7 +421,6 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='AlphaZero for (Ultimate) Tic Tac Toe')
     sub = ap.add_subparsers(dest='cmd', required=True)
     tr = sub.add_parser('train')
-    tr.add_argument('--game', choices=['normal', 'ultimate'], default='normal')
     tr.add_argument('--games', type=int, default=300)
     tr.add_argument('--sims', type=int, default=80)
     tr.add_argument('--eval-every', type=int, default=25)
@@ -426,22 +428,21 @@ def main(argv=None):
     tr.add_argument('--lr', type=float, default=1e-3)
     tr.add_argument('--seed', type=int, default=None)
     ev = sub.add_parser('eval')
-    ev.add_argument('--game', choices=['normal', 'ultimate'], default='normal')
     ev.add_argument('--games', type=int, default=20)
     ev.add_argument('--sims', type=int, default=200)
     args = ap.parse_args(argv)
     if args.cmd == 'train':
-        train(args.game, args.games, args.sims, args.eval_every,
+        train('ultimate', args.games, args.sims, args.eval_every,
               args.eval_games, args.lr, args.seed)
     else:
-        model = load_model(args.game)
+        model = load_model('ultimate')
         if model is None:
-            print('no trained model; run: python alphazero.py train --game %s' % args.game)
+            print('no trained model; run: python alphazero.py train')
             return 1
         wins = draws = losses = 0
         for _ in range(args.games):
             for az_first in (True, False):
-                game = make_game(args.game)
+                game = make_game('ultimate')
                 while not game.is_over():
                     az_turn = game.current == X if az_first else game.current == O
                     if az_turn:
@@ -456,8 +457,8 @@ def main(argv=None):
                     draws += 1
                 else:
                     losses += 1
-        print('AlphaZero(%s) vs Random over %d games: win=%d draw=%d loss=%d'
-              % (args.game, args.games * 2, wins, draws, losses))
+        print('AlphaZero(ultimate) vs Random over %d games: win=%d draw=%d loss=%d'
+              % (args.games * 2, wins, draws, losses))
     return 0
 
 

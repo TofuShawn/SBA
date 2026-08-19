@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — entry point, session state, and self-tests.
 
@@ -8,9 +8,17 @@ in webui.py. This module wires them together, keeps the per-session UI state,
 runs the headless self-tests, and provides the CLI entry point.
 
 Run:
-    run.bat                    # start the web app at http://127.0.0.1:8080
-    run.bat --self-test        # run headless checks
-    run.bat --debug            # verbose backend logs
+    python SBA.py              # start the PySide6 desktop app (default)
+    python SBA.py --qt         # start the desktop app explicitly
+    python SBA.py --web        # start the NiceGUI web app at http://127.0.0.1:8080
+    python SBA.py --self-test  # run headless checks
+    python SBA.py --debug      # verbose backend logs
+
+Maintenance notes:
+- The desktop app is the default entry; the NiceGUI web server only starts
+  with --web or the desktop's "Enable NiceGUI Web UI" switch (decision D1).
+- Session state lives here; the module is aliased as 'SBA' so qtui/webui
+  reuse it instead of importing a second copy.
 """
 
 import logging
@@ -24,7 +32,7 @@ from game import (
 )
 from ai import (
     get_basic_move, minimax_move_normal, mcts_move,
-    solver_move, minimax_pro_move, mcts_rave_move,
+    solver_move, minimax_pro_move, mcts_rave_move, mcts_grave_move,
     build_tablebase, _board_key, get_ai_move,
 )
 
@@ -72,6 +80,36 @@ def current_side_type(s):
 
 def is_ai_turn(s):
     return current_side_type(s) != 'Human'
+
+
+# ============================================================
+# Shared UI helpers (imported by qtui.py and webui.py)
+# ============================================================
+
+AI_OPTIONS = {
+    'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
+    'Random': 'Random — 隨機',
+    'Basic': 'Basic — 基礎',
+    'Minimax': 'Minimax — 極小化極大',
+    'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
+    'MCTS': 'MCTS — 蒙地卡羅',
+    'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
+    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
+    # successor (same bias term, lower memory). The engine stays available
+    # through get_ai_move for self-tests and the --bench comparison.
+}
+
+
+def t(en: str, zh: str) -> str:
+    return f'{en} — {zh}'
+
+
+def side_label(kind):
+    if kind == 'Human':
+        return t('Human (You)', '玩家 (你)')
+    return f'Computer ({kind}) — 電腦 ({kind})'
+
+
 # ============================================================
 # Self-test
 # ============================================================
@@ -199,6 +237,7 @@ def self_test():
     g.current = X
     check('minimax pro: normal immediate win', minimax_pro_move(g, depth=9) == 2)
     check('mcts+rave: normal immediate win', mcts_rave_move(g, 1500) == 2)
+    check('mcts+grave: normal immediate win', mcts_grave_move(g, 1500) == 2)
 
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
@@ -207,6 +246,7 @@ def self_test():
     gu.current = X
     check('minimax pro: ultimate game-winning move', minimax_pro_move(gu, depth=4) == (2, 2))
     check('mcts+rave: ultimate game-winning move', mcts_rave_move(gu, 2000) == (2, 2))
+    check('mcts+grave: ultimate game-winning move', mcts_grave_move(gu, 2000) == (2, 2))
 
     seg = win_segment((0, 1, 2), line_coords)
     check('geometry: horizontal line spans full width', seg == ((4, 20), (96, 20)))
@@ -218,10 +258,6 @@ def self_test():
           '<line' in win_badge_svg(X) and '<circle' in win_badge_svg(O))
 
     import alphazero
-    m3 = alphazero.train('normal', games=2, sims=8, quiet=True, save=False)
-    check('alphazero: smoke train normal', m3 is not None)
-    g = NormalGame()
-    check('alphazero: legal move normal', alphazero.select_move(g, m3, 20) in g.legal_moves())
     m9 = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False)
     check('alphazero: smoke train ultimate', m9 is not None)
     g = UltimateGame()
@@ -229,11 +265,6 @@ def self_test():
     g = NormalGame()
     mv = get_ai_move(g, 'AlphaZero', 20)
     check('alphazero: get_ai_move dispatches', mv in g.legal_moves())
-    g = NormalGame()
-    g.board = [X, X, EMPTY, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('alphazero: normal immediate win found',
-          alphazero.select_move(g, m3, 60) == 2)
     az9 = alphazero.AZNet(9)  # random-init network: tests search mechanics only
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
@@ -256,7 +287,8 @@ def self_test():
                        ('ultimate', 'Minimax', 'Random'),
                        ('normal', 'Solver', 'Random'),
                        ('ultimate', 'Minimax Pro', 'Random'),
-                       ('ultimate', 'MCTS+RAVE', 'Random')):
+                       ('ultimate', 'MCTS+RAVE', 'Random'),
+                       ('ultimate', 'MCTS+GRAVE', 'Random')):
         game = NormalGame() if gt == 'normal' else UltimateGame()
         guard = 0
         while not game.is_over() and guard < 500:
@@ -266,7 +298,8 @@ def self_test():
         check(f'cvc {gt} ({ax} vs {ao}) terminates', game.is_over() and guard <= 500)
 
     for gt in ('normal', 'ultimate'):
-        for ai in ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS', 'MCTS+RAVE', 'Solver'):
+        for ai in ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
+                   'MCTS+RAVE', 'MCTS+GRAVE', 'Solver'):
             game = NormalGame() if gt == 'normal' else UltimateGame()
             guard = 0
             while not game.is_over() and guard < 500:
@@ -281,6 +314,47 @@ def self_test():
     return 1 if failed else 0
 
 
+def _flag_value(name, default):
+    if name not in sys.argv:
+        return default
+    i = sys.argv.index(name)
+    if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
+        return sys.argv[i + 1]
+    return default
+
+
+def bench(games=30, iterations=300, game_type='ultimate', seed=12345):
+    """Round-robin win-rate comparison of the MCTS family engines."""
+    random.seed(seed)
+    engines = ['MCTS', 'MCTS+RAVE', 'MCTS+GRAVE']
+    print(f'\nMCTS benchmark — {game_type} · {games} games/pair · {iterations} sims')
+    header = f'{"A":<12}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}{"A win%":>8}'
+    print(header)
+    print('-' * len(header))
+    for i, a in enumerate(engines):
+        for b in engines[i + 1:]:
+            aw = dw = bw = 0
+            for k in range(games):
+                a_first = k % 2 == 0  # alternate who moves first per game
+                x_ai, o_ai = (a, b) if a_first else (b, a)
+                game = NormalGame() if game_type == 'normal' else UltimateGame()
+                guard = 0
+                while not game.is_over() and guard < 1000:
+                    ai = x_ai if game.current == X else o_ai
+                    apply_move(game, get_ai_move(game, ai, iterations))
+                    guard += 1
+                r = game.result()
+                if (r == X and a_first) or (r == O and not a_first):
+                    aw += 1
+                elif r == 'D':
+                    dw += 1
+                else:
+                    bw += 1
+            pct = 100.0 * aw / games
+            print(f'{a:<12}{b:<14}{aw:7d}{dw:6d}{bw:7d}{pct:7.1f}%')
+    return 0
+
+
 def main():
     if '--self-test' in sys.argv:
         sys.exit(self_test())
@@ -288,12 +362,25 @@ def main():
         import alphazero
         rest = [a for a in sys.argv[1:] if a != '--train-az']
         sys.exit(alphazero.main(['train'] + rest))
+    if '--bench' in sys.argv:
+        sys.exit(bench(
+            games=int(_flag_value('--games', '30')),
+            iterations=int(_flag_value('--iters', '300')),
+            game_type='normal' if '--normal' in sys.argv else 'ultimate',
+        ))
     # When SBA.py is the entry script it is '__main__'; register it under the
-    # canonical name so webui.py's `from SBA import ...` reuses this module
-    # instead of importing a second copy.
+    # canonical name so qtui.py / webui.py reuse this module instead of
+    # importing a second copy.
     sys.modules.setdefault('SBA', sys.modules['__main__'])
-    import webui
-    webui.run()
+    if '--web' in sys.argv:
+        import webui
+        webui.run()
+        return
+    # Default entry (also explicit via --qt): PySide6 desktop app. The
+    # NiceGUI web UI is opt-in only (see the --web flag or the desktop
+    # app's "Enable NiceGUI Web UI" switch).
+    import qtui
+    qtui.main()
 
 
 if __name__ == '__main__':

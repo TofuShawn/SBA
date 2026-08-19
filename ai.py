@@ -1,11 +1,17 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — AI engines and the AI assistant analysis.
 
 Implements every computer opponent (Random, Basic, Minimax, Minimax Pro,
 MCTS, MCTS+RAVE, Solver, AlphaZero) plus the best-move analysis used by the
 AI assistant panel. Pure logic on top of game.py — no NiceGUI dependency.
+
+Maintenance notes:
+- MCTS+RAVE is hidden from the menus but kept for tests and --bench
+  (decision D8: MCTS+GRAVE supersedes it).
+- Solver is menu-disabled but still used by the analysis panel (D3).
+- AlphaZero falls back to MCTS when no trained model exists (see models/).
 """
 
 import math
@@ -235,8 +241,8 @@ def mcts_search(game, iterations):
     return root
 
 
-def mcts_move(game, iterations):
-    root = mcts_search(game, iterations)
+def _best_mcts_move(root, game, iterations):
+    """Pick the best child of a finished MCTS root, preferring an immediate win."""
     visited = [c for c in root.children if c.visits >= max(5, iterations // 100)]
     pool = visited if visited else list(root.children)
     best = max(pool, key=lambda c: c.wins / c.visits)
@@ -248,6 +254,11 @@ def mcts_move(game, iterations):
                 best = c
                 break
     return best.move
+
+
+def mcts_move(game, iterations):
+    root = mcts_search(game, iterations)
+    return _best_mcts_move(root, game, iterations)
 
 
 # ---------------------------------------------------------------
@@ -408,17 +419,112 @@ def mcts_rave_search(game, iterations, c=1.4, k=150):
 
 def mcts_rave_move(game, iterations):
     root = mcts_rave_search(game, iterations)
-    visited = [c for c in root.children if c.visits >= max(5, iterations // 100)]
-    pool = visited if visited else list(root.children)
-    best = max(pool, key=lambda c: c.wins / c.visits)
-    for c in pool:
-        if c.wins / c.visits == best.wins / best.visits:
-            g = game.clone()
-            apply_move(g, c.move)
-            if g.result() == game.current:
-                best = c
+    return _best_mcts_move(root, game, iterations)
+
+
+# ---------------------------------------------------------------
+# MCTS + GRAVE (Generalized RAVE, Cazenave 2015)
+# ---------------------------------------------------------------
+# GRAVE reuses RAVE statistics through "reference" nodes: a move's RAVE
+# values live on the node where that move was first tried, and descendants
+# look them up from their reference instead of maintaining their own AMAF
+# tables. Same bias term as RAVE, but far less memory and steadier
+# estimates on wide branching factors (e.g. Ultimate).
+
+class GraveNode:
+    __slots__ = ('state', 'move', 'parent', 'children', 'mover',
+                 'visits', 'wins', 'untried', 'ref', 'rave')
+
+    def __init__(self, state, move, parent, mover):
+        self.state = state
+        self.move = move
+        self.parent = parent
+        self.children = []
+        self.mover = mover
+        self.visits = 0
+        self.wins = 0.0
+        self.untried = [] if state.is_over() else state.legal_moves()
+        random.shuffle(self.untried)
+        self.ref = None   # reference node providing this move's RAVE stats
+        self.rave = {}    # move -> [visits, wins], only meaningful on ref nodes
+
+    def best_child(self, c, k):
+        log_n = math.log(max(1, self.visits))
+        best, best_val = None, -math.inf
+        for child in self.children:
+            if child.visits == 0:
+                uct = math.inf
+            else:
+                q = child.wins / child.visits
+                ref = child.ref if child.ref is not None else self
+                an, aw = ref.rave.get(child.move, (0, 0.0))
+                q_rave = aw / an if an else q
+                beta = math.sqrt(k / (3 * child.visits + k))
+                uct = ((1 - beta) * q + beta * q_rave
+                       + c * math.sqrt(log_n / child.visits))
+            if uct > best_val:
+                best, best_val = child, uct
+        return best
+
+
+def mcts_grave_search(game, iterations, c=1.4, k=150):
+    root_state = game.clone()
+    root = GraveNode(root_state, None, None, None)
+    root.ref = root
+    for _ in range(iterations):
+        node = root
+        state = root_state.clone()
+        while node.untried == [] and node.children:
+            node = node.best_child(c, k)
+            apply_move(state, node.move)
+        rollout_moves = []
+        if node.untried:
+            m = node.untried.pop()
+            mover = state.current
+            apply_move(state, m)
+            child = GraveNode(state.clone(), m, node, mover)
+            ref = node.ref if node.ref is not None else node
+            child.ref = ref if m in ref.rave else node
+            node.children.append(child)
+            node = child
+            rollout_moves.append(m)
+        result = state.result()
+        while result is None:
+            moves = state.legal_moves()
+            if not moves:
                 break
-    return best.move
+            m = random.choice(moves)
+            apply_move(state, m)
+            rollout_moves.append(m)
+            result = state.result()
+        seen_refs = set()
+        while node is not None:
+            node.visits += 1
+            win = 1.0 if result == node.mover else (0.5 if result == 'D' else 0.0)
+            node.wins += win
+            ref = node.ref if node.ref is not None else node
+            if id(ref) not in seen_refs:
+                seen_refs.add(id(ref))
+                # RAVE is scored from the perspective of the player to move.
+                if node.mover is None:
+                    amaf_win = 1.0 if result == X else (0.5 if result == 'D' else 0.0)
+                else:
+                    amaf_p = O if node.mover == X else X
+                    amaf_win = 1.0 if result == amaf_p else (0.5 if result == 'D' else 0.0)
+                rave = ref.rave
+                for m in rollout_moves:
+                    if m in rave:
+                        rave[m][0] += 1
+                        rave[m][1] += amaf_win
+                    else:
+                        rave[m] = [1, amaf_win]
+            node = node.parent
+    return root
+
+
+def mcts_grave_move(game, iterations):
+    root = mcts_grave_search(game, iterations)
+    return _best_mcts_move(root, game, iterations)
 
 
 # ---------------------------------------------------------------
@@ -576,6 +682,8 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
         return mcts_move(game, mcts_budget)
     if ai_type == 'MCTS+RAVE':
         return mcts_rave_move(game, mcts_budget)
+    if ai_type == 'MCTS+GRAVE':
+        return mcts_grave_move(game, mcts_budget)
     if ai_type == 'Solver':
         return solver_move(game, mcts_budget)
     if ai_type == 'AlphaZero':
@@ -660,4 +768,3 @@ def move_text(move):
     m, i = move
     r, c = divmod(i, 3)
     return f'B{m + 1} ({r + 1},{c + 1})'
-

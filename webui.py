@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — NiceGUI web UI.
 
@@ -9,6 +9,11 @@ analysis panel, and CvC controls.
 
 Run the app via `python SBA.py` (or run.bat). This module is imported on
 demand by SBA.main(); it can also be run directly with `python webui.py`.
+
+Maintenance notes:
+- NiceGUI is opt-in via --web or the desktop switch (decision D1).
+- Solver and MCTS+RAVE are intentionally absent from the AI menu (D3, D8).
+- Mobile layout lives in static/styles.css media queries.
 """
 
 import asyncio
@@ -33,41 +38,22 @@ from ai import (
     get_ai_move, compute_analysis, move_text,
 )
 from SBA import (
-    SESSIONS, new_session, side_types, current_side_type, is_ai_turn,
-    log,
+    AI_OPTIONS, SESSIONS, current_side_type, is_ai_turn, log,
+    new_session, side_label, side_types, t,
 )
 
 # Serve static/styles.css as a real stylesheet (external <link>, no inline blob).
 app.add_static_files('/assets', Path(__file__).parent / 'static')
 ui.add_head_html('<link rel="stylesheet" href="/assets/styles.css">', shared=True)
 
-def t(en: str, zh: str) -> str:
-    return f'{en} — {zh}'
-
 def set_mark(el, player):
     el.classes(remove='mark-x mark-o')
     el.classes(add='mark-x' if player == X else 'mark-o')
     el.set_text('✕' if player == X else '○')
 
-def side_label(kind):
-    if kind == 'Human':
-        return t('Human (You)', '玩家 (你)')
-    return f'Computer ({kind}) — 電腦 ({kind})'
-
 # ============================================================
 # Web UI
 # ============================================================
-
-AI_OPTIONS = {
-    'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
-    'Random': 'Random — 隨機',
-    'Basic': 'Basic — 基礎',
-    'Minimax': 'Minimax — 極小化極大',
-    'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
-    'MCTS': 'MCTS — 蒙地卡羅',
-    'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
-    'Solver': 'Solver — 完美解（普通模式）',
-}
 
 @ui.page('/')
 def main_page():
@@ -92,7 +78,7 @@ def main_page():
             back_btn.set_visibility(False)
             ui.switch(t('Dark', '深色')).bind_value(dark)
 
-    content = ui.column().classes('w-full items-center p-6 gap-6')
+    content = ui.column().classes('w-full items-center p-3 gap-4 sm:p-6 sm:gap-6')
 
     def show_menu():
         session['screen'] = 'menu'
@@ -109,7 +95,7 @@ def main_page():
             build_game()
 
     def build_menu():
-        with ui.card().classes('w-full max-w-3xl'):
+        with ui.card().classes('w-full max-w-xl sm:max-w-3xl'):
             with ui.column().classes('w-full gap-4 q-pa-md'):
                 ui.label(t('Game Setup', '遊戲設定')).classes('text-h5')
 
@@ -158,7 +144,7 @@ def main_page():
                     ai_o_sel.set_label(label)
                 update_ai_visibility()
 
-                ui.label('AlphaZero — 神經網路 MCTS · 重新訓練: python alphazero.py train --game normal|ultimate').classes(
+                ui.label('AlphaZero — 神經網路 MCTS（僅終極模式）· 重新訓練: python alphazero.py train').classes(
                     'text-caption text-grey q-mb-0')
 
                 mcts_label = ui.label(
@@ -285,6 +271,11 @@ def main_page():
                                             btn.disable()
                                         cell_refs[(m, i)] = btn
                                 if game.macro[m] in (X, O):
+                                    fill = ui.element('div')
+                                    fill.mark(f'macro-fill-{m}')
+                                    fill.classes('macro-win-fill'
+                                                 + (' macro-win-fill-x' if game.macro[m] == X
+                                                    else ' macro-win-fill-o'))
                                     badge = ui.html(win_badge_svg(game.macro[m]))
                                     badge.mark(f'macro-badge-{m}')
                                     badge.classes('macro-win-badge'
@@ -496,7 +487,7 @@ def main_page():
             except RuntimeError:
                 pass
 
-        with ui.row().classes('w-full justify-center gap-6 items-start flex-wrap'):
+        with ui.row().classes('w-full justify-center gap-4 items-start flex-wrap sm:gap-6'):
             with ui.column().classes('items-center gap-3'):
                 with ui.row().classes('items-center gap-2'):
                     status_mark = ui.label('').classes('mark-chip')
@@ -508,7 +499,7 @@ def main_page():
                 with ui.row().classes('gap-2'):
                     ui.button(t('New Game', '新遊戲'), icon='replay',
                               on_click=start_game).props('flat')
-            with ui.column().classes('w-80 gap-3'):
+            with ui.column().classes('w-full max-w-sm gap-3 sm:w-80 sm:max-w-none'):
                 with ui.card().classes('w-full'):
                     with ui.column().classes('gap-1'):
                         ui.label(t('Game Info', '遊戲資訊')).classes('text-subtitle1')
@@ -579,4 +570,3 @@ def run():
 
 if __name__ == '__main__':
     run()
-
