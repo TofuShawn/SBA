@@ -80,6 +80,36 @@ def current_side_type(s):
 
 def is_ai_turn(s):
     return current_side_type(s) != 'Human'
+
+
+# ============================================================
+# Shared UI helpers (imported by qtui.py and webui.py)
+# ============================================================
+
+AI_OPTIONS = {
+    'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
+    'Random': 'Random — 隨機',
+    'Basic': 'Basic — 基礎',
+    'Minimax': 'Minimax — 極小化極大',
+    'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
+    'MCTS': 'MCTS — 蒙地卡羅',
+    'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
+    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
+    # successor (same bias term, lower memory). The engine stays available
+    # through get_ai_move for self-tests and the --bench comparison.
+}
+
+
+def t(en: str, zh: str) -> str:
+    return f'{en} — {zh}'
+
+
+def side_label(kind):
+    if kind == 'Human':
+        return t('Human (You)', '玩家 (你)')
+    return f'Computer ({kind}) — 電腦 ({kind})'
+
+
 # ============================================================
 # Self-test
 # ============================================================

@@ -241,8 +241,8 @@ def mcts_search(game, iterations):
     return root
 
 
-def mcts_move(game, iterations):
-    root = mcts_search(game, iterations)
+def _best_mcts_move(root, game, iterations):
+    """Pick the best child of a finished MCTS root, preferring an immediate win."""
     visited = [c for c in root.children if c.visits >= max(5, iterations // 100)]
     pool = visited if visited else list(root.children)
     best = max(pool, key=lambda c: c.wins / c.visits)
@@ -254,6 +254,11 @@ def mcts_move(game, iterations):
                 best = c
                 break
     return best.move
+
+
+def mcts_move(game, iterations):
+    root = mcts_search(game, iterations)
+    return _best_mcts_move(root, game, iterations)
 
 
 # ---------------------------------------------------------------
@@ -414,17 +419,7 @@ def mcts_rave_search(game, iterations, c=1.4, k=150):
 
 def mcts_rave_move(game, iterations):
     root = mcts_rave_search(game, iterations)
-    visited = [c for c in root.children if c.visits >= max(5, iterations // 100)]
-    pool = visited if visited else list(root.children)
-    best = max(pool, key=lambda c: c.wins / c.visits)
-    for c in pool:
-        if c.wins / c.visits == best.wins / best.visits:
-            g = game.clone()
-            apply_move(g, c.move)
-            if g.result() == game.current:
-                best = c
-                break
-    return best.move
+    return _best_mcts_move(root, game, iterations)
 
 
 # ---------------------------------------------------------------
@@ -529,17 +524,7 @@ def mcts_grave_search(game, iterations, c=1.4, k=150):
 
 def mcts_grave_move(game, iterations):
     root = mcts_grave_search(game, iterations)
-    visited = [c for c in root.children if c.visits >= max(5, iterations // 100)]
-    pool = visited if visited else list(root.children)
-    best = max(pool, key=lambda c: c.wins / c.visits)
-    for c in pool:
-        if c.wins / c.visits == best.wins / best.visits:
-            g = game.clone()
-            apply_move(g, c.move)
-            if g.result() == game.current:
-                best = c
-                break
-    return best.move
+    return _best_mcts_move(root, game, iterations)
 
 
 # ---------------------------------------------------------------

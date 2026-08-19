@@ -38,43 +38,22 @@ from ai import (
     get_ai_move, compute_analysis, move_text,
 )
 from SBA import (
-    SESSIONS, new_session, side_types, current_side_type, is_ai_turn,
-    log,
+    AI_OPTIONS, SESSIONS, current_side_type, is_ai_turn, log,
+    new_session, side_label, side_types, t,
 )
 
 # Serve static/styles.css as a real stylesheet (external <link>, no inline blob).
 app.add_static_files('/assets', Path(__file__).parent / 'static')
 ui.add_head_html('<link rel="stylesheet" href="/assets/styles.css">', shared=True)
 
-def t(en: str, zh: str) -> str:
-    return f'{en} — {zh}'
-
 def set_mark(el, player):
     el.classes(remove='mark-x mark-o')
     el.classes(add='mark-x' if player == X else 'mark-o')
     el.set_text('✕' if player == X else '○')
 
-def side_label(kind):
-    if kind == 'Human':
-        return t('Human (You)', '玩家 (你)')
-    return f'Computer ({kind}) — 電腦 ({kind})'
-
 # ============================================================
 # Web UI
 # ============================================================
-
-AI_OPTIONS = {
-    'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
-    'Random': 'Random — 隨機',
-    'Basic': 'Basic — 基礎',
-    'Minimax': 'Minimax — 極小化極大',
-    'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
-    'MCTS': 'MCTS — 蒙地卡羅',
-    'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
-    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
-    # successor (same bias term, lower memory). The engine stays available
-    # through get_ai_move for self-tests and the --bench comparison.
-}
 
 @ui.page('/')
 def main_page():

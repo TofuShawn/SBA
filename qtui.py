@@ -45,13 +45,9 @@ from game import (
 )
 from ai import get_ai_move, compute_analysis, move_text
 from SBA import (
-    new_session, side_types, current_side_type, is_ai_turn,
-    log,
+    AI_OPTIONS, current_side_type, is_ai_turn, log, new_session,
+    side_label, side_types, t,
 )
-
-
-def t(en: str, zh: str) -> str:
-    return f'{en} — {zh}'
 
 
 # Font stack: Noto Sans TC is installed on Windows 10+; Segoe UI/雅黑 are
@@ -252,20 +248,6 @@ if SIUI is not None:
         })
     except Exception:  # noqa: BLE001
         pass
-
-
-AI_OPTIONS = {
-    'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
-    'Random': 'Random — 隨機',
-    'Basic': 'Basic — 基礎',
-    'Minimax': 'Minimax — 極小化極大',
-    'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
-    'MCTS': 'MCTS — 蒙地卡羅',
-    'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
-    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
-    # successor (same bias term, lower memory). The engine stays available
-    # through get_ai_move for self-tests and the --bench comparison.
-}
 
 # Native dark-glass theme (fallback used when the PyQt-SiliconUI package is
 # not installed): dark background, translucent glass cards, capsule buttons
@@ -1022,15 +1004,10 @@ class GamePage(QWidget):
         mode_text = {'pvp': 'PvP', 'pvc': 'PvC', 'cvc': 'CvC'}[self.session['mode']]
         x_type, o_type = side_types(self.session)
         self.info_game.setText(f'{game_text} · {mode_text}')
-        self.info_x.setText(f'✕ {self.side_label(x_type)}')
-        self.info_o.setText(f'○ {self.side_label(o_type)}')
+        self.info_x.setText(f'✕ {side_label(x_type)}')
+        self.info_o.setText(f'○ {side_label(o_type)}')
         self.board.update()
         self.update_cvc_controls()
-
-    def side_label(self, kind):
-        if kind == 'Human':
-            return t('Human (You)', '玩家 (你)')
-        return f'Computer ({kind}) — 電腦 ({kind})'
 
     # -- moves -------------------------------------------------------------
 
