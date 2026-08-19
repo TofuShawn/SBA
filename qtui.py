@@ -192,8 +192,8 @@ class BoardWidget(QWidget):
     def _grid(self):
         n = 9 if isinstance(self.game, UltimateGame) else 3
         cell = (min(self.width(), self.height()) - 2 * self.MARGIN - (n - 1) * self.GAP) / n
-        size = 2 * self.MARGIN + n * cell + (n - 1) * self.GAP
-        return n, cell, (self.width() - size) / 2, (self.height() - size) / 2
+        grid = n * cell + (n - 1) * self.GAP
+        return n, cell, (self.width() - grid) / 2, (self.height() - grid) / 2
 
     def _cell_rect(self, row, col, cell, ox, oy):
         x = ox + col * (cell + self.GAP)
@@ -265,22 +265,27 @@ class BoardWidget(QWidget):
             painter.drawEllipse(QRectF(rect.left() + pad, rect.top() + pad,
                                        rect.width() - 2 * pad, rect.height() - 2 * pad))
 
-    def _line_endpoints(self, line, centers):
+    def _win_segment(self, line, centers, bounds):
+        """Extend a win line across `bounds`, mirroring the web UI's win_segment."""
         pts = [centers[i] for i in line]
         xs = [p.x() for p in pts]
-        ys = [p.y() for p in pts]
         x1, x2 = min(xs), max(xs)
+        y1 = next(p.y() for p in pts if p.x() == x1)
+        y2 = next(p.y() for p in pts if p.x() == x2)
         if x1 == x2:  # vertical line
-            y1, y2 = min(ys), max(ys)
-            return x1, y1, x1, y2
-        i1 = xs.index(x1)
-        i2 = xs.index(x2)
-        return x1, pts[i1].y(), x2, pts[i2].y()
+            top = bounds.top() + bounds.height() * 0.04
+            bottom = bounds.bottom() - bounds.height() * 0.04
+            return (x1, top), (x1, bottom)
+        slope = (y2 - y1) / (x2 - x1)
+        margin = bounds.width() * (0.07 if abs(slope) > 0.5 else 0.04)
+        p1 = (bounds.left() + margin, y1 + (bounds.left() + margin - x1) * slope)
+        p2 = (bounds.right() - margin, y2 + (bounds.right() - margin - x2) * slope)
+        return p1, p2
 
-    def _paint_win_line(self, painter, line, centers, color, width):
+    def _paint_win_line(self, painter, line, centers, color, width, bounds):
         if line is None:
             return
-        x1, y1, x2, y2 = self._line_endpoints(line, centers)
+        (x1, y1), (x2, y2) = self._win_segment(line, centers, bounds)
         pen = QPen(QColor(color), width)
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
@@ -306,7 +311,9 @@ class BoardWidget(QWidget):
         line = micro_win_line(self.game.board)
         if line:
             winner = self.game.board[line[0]]
-            self._paint_win_line(painter, line, centers, _mark_color(winner), cell * 0.12)
+            bounds = QRectF(ox, oy, 3 * cell + 2 * self.GAP, 3 * cell + 2 * self.GAP)
+            self._paint_win_line(painter, line, centers, _mark_color(winner),
+                                 cell * 0.12, bounds)
 
     # -- Ultimate ----------------------------------------------------------
 
@@ -327,6 +334,7 @@ class BoardWidget(QWidget):
             painter.drawRoundedRect(rect, 10, 10)
         # micro cells
         macro_centers = []
+        micro_centers = [[] for _ in range(9)]
         for m in range(9):
             mr, mc = divmod(m, 3)
             macro_rect = self._macro_rect(m, cell, ox, oy)
@@ -335,6 +343,7 @@ class BoardWidget(QWidget):
                 row = mr * 3 + i // 3
                 col = mc * 3 + i % 3
                 rect = self._cell_rect(row, col, cell, ox, oy)
+                micro_centers[m].append(rect.center())
                 self._paint_cell(painter, rect, self.game.micro[m][i],
                                  self.flash_cell == (m, i))
         # grid lines
@@ -358,11 +367,18 @@ class BoardWidget(QWidget):
                 badge = QRectF(rect.left() + pad, rect.top() + pad,
                                rect.width() - 2 * pad, rect.height() - 2 * pad)
                 self._paint_mark(painter, badge, self.game.macro[m])
+                line = micro_win_line(self.game.micro[m])
+                if line is not None:
+                    self._paint_win_line(painter, line, micro_centers[m],
+                                         _mark_color(self.game.macro[m]),
+                                         cell * 0.12, rect)
         # overall macro win line
         whole = micro_win_line(self.game.macro)
         if whole:
             winner = self.game.macro[whole[0]]
-            self._paint_win_line(painter, whole, macro_centers, _mark_color(winner), cell * 0.16)
+            bounds = QRectF(ox, oy, 9 * cell + 8 * self.GAP, 9 * cell + 8 * self.GAP)
+            self._paint_win_line(painter, whole, macro_centers,
+                                 _mark_color(winner), cell * 0.16, bounds)
 
 # ---------------------------------------------------------------------------
 # Workers
