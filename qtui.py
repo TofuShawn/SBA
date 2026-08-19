@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import QEasingCurve, QRectF, Qt, QThread, QTimer, QVariantAnimation, Signal
+    from PySide6.QtCore import QEasingCurve, QRectF, QSize, Qt, QThread, QTimer, QVariantAnimation, Signal
     from PySide6.QtGui import QColor, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
@@ -147,10 +147,14 @@ if SIUI is not None:
 
         def __init__(self, parent=None):
             super().__init__(parent)
+            self.setMinimumSize(220, 36)
             self._labels = []
             self._data = []
             self._current = 0
             self.valueChanged.connect(self._on_value)
+
+        def sizeHint(self):
+            return QSize(220, 36)
 
         def _on_value(self, value):
             try:
@@ -189,10 +193,11 @@ def _si_button(text, parent=None, primary=False):
         btn.setText(text)
         if primary:
             btn.setStrong(True)
-        return btn
-    btn = QPushButton(text, parent)
-    if primary:
-        btn.setObjectName('primary')
+    else:
+        btn = QPushButton(text, parent)
+        if primary:
+            btn.setObjectName('primary')
+    btn.setMinimumSize(120, 40)
     return btn
 
 
