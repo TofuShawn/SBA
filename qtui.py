@@ -23,8 +23,8 @@ try:
     from PySide6.QtGui import QColor, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
-        QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPushButton,
-        QSlider, QStackedWidget, QVBoxLayout, QWidget,
+        QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
+        QMessageBox, QPushButton, QSlider, QStackedWidget, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -81,8 +81,17 @@ PALETTE = {
         'win_mark': '#FFFFFF',
     },
 }
-ACTIVE_THEME = 'LIGHT'  # flipped to 'DARK' by the native dark theme step.
+ACTIVE_THEME = 'DARK'  # dark glass is the default; siui theme overrides later.
 PAL = PALETTE[ACTIVE_THEME]
+
+
+def _glass_shadow(widget):
+    """Attach a soft drop shadow to a glass panel."""
+    effect = QGraphicsDropShadowEffect(widget)
+    effect.setBlurRadius(26)
+    effect.setOffset(0, 6)
+    effect.setColor(QColor(0, 0, 0, 100))
+    widget.setGraphicsEffect(effect)
 
 AI_OPTIONS = {
     'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
@@ -94,83 +103,90 @@ AI_OPTIONS = {
     'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
 }
 
-# SiliconUI-inspired styling: soft lavender-tinted light theme, rounded
-# "glass" cards, capsule buttons and smooth controls (kept consistent with
-# the Material Design 3 palette used by the web UI).
+# Native dark-glass theme (fallback used when the PyQt-SiliconUI package is
+# not installed): dark background, translucent glass cards, capsule buttons
+# and smooth controls.
 QSS = '''
-QWidget { background: #F5F1F8; color: #1D1B20; font-size: 14px; }
-QMainWindow { background: #F5F1F8; }
-QLabel#title { font-size: 20px; font-weight: 700; color: #21005D; }
-QLabel#cardTitle { font-weight: 600; color: #21005D; }
-QLabel#muted { color: #79747E; font-size: 12px; }
+QWidget { background: #141218; color: #E6E0E9; font-size: 14px; }
+QMainWindow { background: #141218; }
+QLabel#title { font-size: 20px; font-weight: 700; color: #E8DEF8; }
+QLabel#cardTitle { font-weight: 600; color: #E8DEF8; }
+QLabel#muted { color: #CAC4D0; font-size: 12px; }
 QFrame#card {
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(121, 116, 126, 0.18);
-    border-radius: 16px;
+    background: rgba(45, 40, 52, 0.86);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
 }
 QFrame#sidePanel {
-    background: rgba(255, 255, 255, 0.70);
-    border-left: 1px solid rgba(121, 116, 126, 0.15);
+    background: rgba(24, 21, 28, 0.72);
+    border-left: 1px solid rgba(255, 255, 255, 0.07);
 }
 QPushButton {
-    background: #EADDFF; color: #21005D; border: none;
-    border-radius: 14px; padding: 8px 18px; font-weight: 500;
+    background: rgba(73, 69, 79, 0.55); color: #E6E0E9; border: none;
+    border-radius: 16px; padding: 8px 18px; font-weight: 500;
 }
-QPushButton:hover { background: #D0BCFF; }
-QPushButton:pressed { background: #C6B3F5; }
+QPushButton:hover { background: rgba(93, 88, 103, 0.75); }
+QPushButton:pressed { background: rgba(103, 80, 164, 0.55); }
 QPushButton#primary {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #7C6BB0, stop:1 #6750A4);
-    color: #FFFFFF; font-weight: 600; padding: 10px 22px; border-radius: 16px;
+        stop:0 #7C6BB0, stop:1 #4F378B);
+    color: #FFFFFF; font-weight: 600; padding: 10px 22px; border-radius: 18px;
 }
 QPushButton#primary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #8B79BE, stop:1 #7C6BB0); }
-QPushButton#primary:pressed { background: #5C4694; }
-QPushButton:disabled { background: #E6E0E9; color: #9A969E; }
+        stop:0 #8B79BE, stop:1 #5B46A0); }
+QPushButton#primary:pressed { background: #4F378B; }
+QPushButton:disabled { background: rgba(73, 69, 79, 0.4); color: #6F6A76; }
 QComboBox, QSpinBox {
-    background: rgba(243, 237, 247, 0.85);
-    border: 1px solid #E6E0E9; border-radius: 10px; padding: 5px 10px; min-height: 22px;
+    background: rgba(45, 40, 52, 0.9);
+    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
+    padding: 5px 10px; min-height: 22px;
 }
-QComboBox:hover, QSpinBox:hover { border-color: #CAC4D0; }
+QComboBox:hover, QSpinBox:hover { border-color: #6750A4; }
 QComboBox::drop-down { border: none; width: 22px; }
-QSlider::groove:horizontal { height: 6px; background: #E6E0E9; border-radius: 3px; }
+QComboBox QAbstractItemView {
+    background: #211F26; color: #E6E0E9;
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;
+    selection-background-color: #4F378B; selection-color: #FFFFFF;
+}
+QSlider::groove:horizontal { height: 6px; background: #49454F; border-radius: 3px; }
 QSlider::sub-page:horizontal {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #B39DDB, stop:1 #6750A4); border-radius: 3px;
 }
 QSlider::handle:horizontal {
-    background: #FFFFFF; border: 2px solid #6750A4;
+    background: #E6E0E9; border: 2px solid #6750A4;
     width: 18px; height: 18px; margin: -8px 0; border-radius: 9px;
 }
-QSlider::handle:horizontal:hover { background: #EADDFF; }
+QSlider::handle:horizontal:hover { background: #D0BCFF; }
 QCheckBox::indicator {
     width: 18px; height: 18px; border-radius: 6px;
-    border: 2px solid #79747E; background: #FFFFFF;
+    border: 2px solid #938F99; background: #211F26;
 }
-QCheckBox::indicator:hover { border-color: #6750A4; }
+QCheckBox::indicator:hover { border-color: #D0BCFF; }
 QCheckBox::indicator:checked { background: #6750A4; border-color: #6750A4; }
 QRadioButton::indicator {
     width: 18px; height: 18px; border-radius: 9px;
-    border: 2px solid #79747E; background: #FFFFFF;
+    border: 2px solid #938F99; background: #211F26;
 }
-QRadioButton::indicator:hover { border-color: #6750A4; }
+QRadioButton::indicator:hover { border-color: #D0BCFF; }
 QRadioButton::indicator:checked { background: #6750A4; border-color: #6750A4; }
 QListWidget {
-    background: rgba(243, 237, 247, 0.55);
-    border: 1px solid #E6E0E9; border-radius: 12px; padding: 4px;
+    background: rgba(33, 30, 38, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 4px;
 }
 QListWidget::item { padding: 8px; border-radius: 8px; }
-QListWidget::item:hover { background: rgba(208, 188, 255, 0.35); }
-QListWidget::item:selected { background: #EADDFF; color: #21005D; }
+QListWidget::item:hover { background: rgba(103, 80, 164, 0.35); }
+QListWidget::item:selected { background: #4F378B; color: #FFFFFF; }
 QToolTip {
-    background: #21005D; color: #FFFFFF; border: none;
+    background: #2B2930; color: #E6E0E9;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px; padding: 6px 10px;
 }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
-QScrollBar::handle:vertical { background: #CAC4D0; border-radius: 4px; min-height: 30px; }
-QScrollBar::handle:vertical:hover { background: #B3A9BD; }
+QScrollBar::handle:vertical { background: #49454F; border-radius: 4px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #6F6A76; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QMessageBox { background: #F5F1F8; }
+QMessageBox { background: #211F26; }
 QMessageBox QPushButton { min-width: 90px; }
 '''
 
@@ -535,6 +551,13 @@ class MenuPage(QWidget):
         title.setObjectName('title')
         root.addWidget(title)
         root.addWidget(QLabel(t('Game Setup', '遊戲設定')))
+        card = QFrame()
+        card.setObjectName('card')
+        _glass_shadow(card)
+        card_lay = QVBoxLayout(card)
+        card_lay.setSpacing(8)
+        root.addWidget(card)
+        root.addStretch(1)
 
         def field_row(label_text, widget):
             row = QHBoxLayout()
@@ -548,65 +571,64 @@ class MenuPage(QWidget):
         self.game_type = QComboBox()
         self.game_type.addItem('Normal Tic Tac Toe (普通井字棋)', 'normal')
         self.game_type.addItem('Ultimate Tic Tac Toe (終極井字棋)', 'ultimate')
-        root.addLayout(field_row(t('Game Type', '遊戲類型'), self.game_type))
+        card_lay.addLayout(field_row(t('Game Type', '遊戲類型'), self.game_type))
 
         self.mode = QComboBox()
         self.mode.addItem('PvP (玩家對玩家)', 'pvp')
         self.mode.addItem('Player vs Computer (玩家對電腦)', 'pvc')
         self.mode.addItem('Computer vs Computer (電腦對電腦)', 'cvc')
         self.mode.currentIndexChanged.connect(lambda _: self._update_visibility())
-        root.addLayout(field_row(t('Mode', '模式'), self.mode))
+        card_lay.addLayout(field_row(t('Mode', '模式'), self.mode))
 
         self.first = QComboBox()
         self.first.addItem(t('You move first — X', '你先手 — X'), 'human')
         self.first.addItem(t('Computer moves first — O', '電腦先手 — O'), 'computer')
         self.first.currentIndexChanged.connect(lambda _: self._update_visibility())
-        root.addLayout(field_row(t('First Player', '先手'), self.first))
+        card_lay.addLayout(field_row(t('First Player', '先手'), self.first))
 
         self.ai_x = QComboBox()
         for key, label in AI_OPTIONS.items():
             self.ai_x.addItem(label, key)
-        root.addLayout(field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x))
+        card_lay.addLayout(field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x))
 
         self.ai_o = QComboBox()
         for key, label in AI_OPTIONS.items():
             self.ai_o.addItem(label, key)
         self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
-        root.addLayout(self.ai_o_label)
+        card_lay.addLayout(self.ai_o_label)
 
         self.mcts = QSlider(Qt.Horizontal)
         self.mcts.setRange(200, 3000)
         self.mcts.setSingleStep(100)
         self.mcts.setValue(800)
-        root.addLayout(field_row(t('MCTS Strength', 'MCTS 強度'),
-                                 self._slider_row(self.mcts)))
+        card_lay.addLayout(field_row(t('MCTS Strength', 'MCTS 強度'),
+                                     self._slider_row(self.mcts)))
 
         self.mm_depth = QSlider(Qt.Horizontal)
         self.mm_depth.setRange(2, 6)
         self.mm_depth.setValue(4)
-        root.addLayout(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
-                                 self._slider_row(self.mm_depth)))
+        card_lay.addLayout(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
+                                     self._slider_row(self.mm_depth)))
 
         self.assistant = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant.setChecked(True)
-        root.addWidget(self.assistant)
+        card_lay.addWidget(self.assistant)
 
-        root.addSpacing(12)
+        card_lay.addSpacing(10)
         web_title = QLabel(t('NiceGUI Web UI (選用啟動)', 'NiceGUI Web 介面（選用）'))
         web_title.setObjectName('cardTitle')
-        root.addWidget(web_title)
+        card_lay.addWidget(web_title)
         self.web_switch = QCheckBox(t('Enable NiceGUI Web UI', '啟動 Web 介面'))
         self.web_switch.toggled.connect(self._on_web_toggled)
-        root.addWidget(self.web_switch)
+        card_lay.addWidget(self.web_switch)
         self.web_status = QLabel(t('Web UI stopped', 'Web 介面已停止'))
         self.web_status.setObjectName('muted')
-        root.addWidget(self.web_status)
+        card_lay.addWidget(self.web_status)
 
         start_btn = QPushButton(t('Start Game', '開始遊戲'))
         start_btn.setObjectName('primary')
         start_btn.clicked.connect(self._on_start)
-        root.addWidget(start_btn)
-        root.addStretch(1)
+        card_lay.addWidget(start_btn)
 
         self._update_visibility()
 
@@ -719,6 +741,7 @@ class GamePage(QWidget):
         # Game info card
         info_card = QFrame()
         info_card.setObjectName('card')
+        _glass_shadow(info_card)
         info_lay = QVBoxLayout(info_card)
         info_title = QLabel(t('Game Info', '遊戲資訊'))
         info_title.setObjectName('cardTitle')
@@ -742,6 +765,7 @@ class GamePage(QWidget):
         # Assistant card
         az_card = QFrame()
         az_card.setObjectName('card')
+        _glass_shadow(az_card)
         az_lay = QVBoxLayout(az_card)
         az_title = QLabel(t('Best Moves', '最佳棋步'))
         az_title.setObjectName('cardTitle')
@@ -758,6 +782,7 @@ class GamePage(QWidget):
         # CvC controls card
         self.cvc_card = QFrame()
         self.cvc_card.setObjectName('card')
+        _glass_shadow(self.cvc_card)
         cvc_lay = QVBoxLayout(self.cvc_card)
         cvc_title = QLabel(t('CvC Controls', '電腦對戰控制'))
         cvc_title.setObjectName('cardTitle')
@@ -785,6 +810,7 @@ class GamePage(QWidget):
         panel.addStretch(1)
         panel_widget = QWidget()
         panel_widget.setObjectName('sidePanel')
+        _glass_shadow(panel_widget)
         panel_widget.setLayout(panel)
         panel_widget.setFixedWidth(320)
         body.addWidget(panel_widget)
