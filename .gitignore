@@ -13,6 +13,9 @@ models/
 # Windows launcher (local convenience script)
 run.bat
 
+# Local text-based project mindmap (not part of the repository)
+MINDMAP.txt
+
 # Editor / OS
 .vscode/
 .idea/

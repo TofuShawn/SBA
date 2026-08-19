@@ -65,8 +65,10 @@ AI_OPTIONS = {
     'Minimax': 'Minimax — 極小化極大',
     'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
     'MCTS': 'MCTS — 蒙地卡羅',
-    'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
     'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
+    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
+    # successor (same bias term, lower memory). The engine stays available
+    # through get_ai_move for self-tests and the --bench comparison.
 }
 
 @ui.page('/')
