@@ -8,9 +8,11 @@ in webui.py. This module wires them together, keeps the per-session UI state,
 runs the headless self-tests, and provides the CLI entry point.
 
 Run:
-    run.bat                    # start the web app at http://127.0.0.1:8080
-    run.bat --self-test        # run headless checks
-    run.bat --debug            # verbose backend logs
+    python SBA.py              # start the PySide6 desktop app (default)
+    python SBA.py --qt         # start the desktop app explicitly
+    python SBA.py --web        # start the NiceGUI web app at http://127.0.0.1:8080
+    python SBA.py --self-test  # run headless checks
+    python SBA.py --debug      # verbose backend logs
 """
 
 import logging
@@ -218,10 +220,6 @@ def self_test():
           '<line' in win_badge_svg(X) and '<circle' in win_badge_svg(O))
 
     import alphazero
-    m3 = alphazero.train('normal', games=2, sims=8, quiet=True, save=False)
-    check('alphazero: smoke train normal', m3 is not None)
-    g = NormalGame()
-    check('alphazero: legal move normal', alphazero.select_move(g, m3, 20) in g.legal_moves())
     m9 = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False)
     check('alphazero: smoke train ultimate', m9 is not None)
     g = UltimateGame()
@@ -229,11 +227,6 @@ def self_test():
     g = NormalGame()
     mv = get_ai_move(g, 'AlphaZero', 20)
     check('alphazero: get_ai_move dispatches', mv in g.legal_moves())
-    g = NormalGame()
-    g.board = [X, X, EMPTY, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('alphazero: normal immediate win found',
-          alphazero.select_move(g, m3, 60) == 2)
     az9 = alphazero.AZNet(9)  # random-init network: tests search mechanics only
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
@@ -289,11 +282,18 @@ def main():
         rest = [a for a in sys.argv[1:] if a != '--train-az']
         sys.exit(alphazero.main(['train'] + rest))
     # When SBA.py is the entry script it is '__main__'; register it under the
-    # canonical name so webui.py's `from SBA import ...` reuses this module
-    # instead of importing a second copy.
+    # canonical name so qtui.py / webui.py reuse this module instead of
+    # importing a second copy.
     sys.modules.setdefault('SBA', sys.modules['__main__'])
-    import webui
-    webui.run()
+    if '--web' in sys.argv:
+        import webui
+        webui.run()
+        return
+    # Default entry (also explicit via --qt): PySide6 desktop app. The
+    # NiceGUI web UI is opt-in only (see the --web flag or the desktop
+    # app's "Enable NiceGUI Web UI" switch).
+    import qtui
+    qtui.main()
 
 
 if __name__ == '__main__':

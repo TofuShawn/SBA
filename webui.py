@@ -66,7 +66,6 @@ AI_OPTIONS = {
     'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
     'MCTS': 'MCTS — 蒙地卡羅',
     'MCTS+RAVE': 'MCTS+RAVE — 蒙地卡羅+RAVE',
-    'Solver': 'Solver — 完美解（普通模式）',
 }
 
 @ui.page('/')
@@ -92,7 +91,7 @@ def main_page():
             back_btn.set_visibility(False)
             ui.switch(t('Dark', '深色')).bind_value(dark)
 
-    content = ui.column().classes('w-full items-center p-6 gap-6')
+    content = ui.column().classes('w-full items-center p-3 gap-4 sm:p-6 sm:gap-6')
 
     def show_menu():
         session['screen'] = 'menu'
@@ -109,7 +108,7 @@ def main_page():
             build_game()
 
     def build_menu():
-        with ui.card().classes('w-full max-w-3xl'):
+        with ui.card().classes('w-full max-w-xl sm:max-w-3xl'):
             with ui.column().classes('w-full gap-4 q-pa-md'):
                 ui.label(t('Game Setup', '遊戲設定')).classes('text-h5')
 
@@ -158,7 +157,7 @@ def main_page():
                     ai_o_sel.set_label(label)
                 update_ai_visibility()
 
-                ui.label('AlphaZero — 神經網路 MCTS · 重新訓練: python alphazero.py train --game normal|ultimate').classes(
+                ui.label('AlphaZero — 神經網路 MCTS（僅終極模式）· 重新訓練: python alphazero.py train').classes(
                     'text-caption text-grey q-mb-0')
 
                 mcts_label = ui.label(
@@ -496,7 +495,7 @@ def main_page():
             except RuntimeError:
                 pass
 
-        with ui.row().classes('w-full justify-center gap-6 items-start flex-wrap'):
+        with ui.row().classes('w-full justify-center gap-4 items-start flex-wrap sm:gap-6'):
             with ui.column().classes('items-center gap-3'):
                 with ui.row().classes('items-center gap-2'):
                     status_mark = ui.label('').classes('mark-chip')
@@ -508,7 +507,7 @@ def main_page():
                 with ui.row().classes('gap-2'):
                     ui.button(t('New Game', '新遊戲'), icon='replay',
                               on_click=start_game).props('flat')
-            with ui.column().classes('w-80 gap-3'):
+            with ui.column().classes('w-full max-w-sm gap-3 sm:w-80 sm:max-w-none'):
                 with ui.card().classes('w-full'):
                     with ui.column().classes('gap-1'):
                         ui.label(t('Game Info', '遊戲資訊')).classes('text-subtitle1')

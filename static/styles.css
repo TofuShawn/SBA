@@ -53,3 +53,21 @@
 .analysis-row { cursor: pointer; }
 .board-wrap { position: relative; padding: 10px; border-radius: 20px; background: rgba(0,0,0,0.03); }
 .body--dark .board-wrap { background: rgba(255,255,255,0.04); }
+
+/* Responsive: scale the boards down on narrow screens so the 9x9 Ultimate
+   board fits without horizontal overflow. */
+@media (max-width: 640px) {
+  .tic-large { width: min(24vw, 92px) !important; height: min(24vw, 92px) !important;
+               min-width: 0 !important; min-height: 0 !important;
+               font-size: clamp(22px, 10vw, 42px) !important; border-radius: 10px !important; }
+  .tic-small { width: min(7.6vw, 40px) !important; height: min(7.6vw, 40px) !important;
+               min-width: 0 !important; min-height: 0 !important;
+               font-size: clamp(11px, 4vw, 21px) !important; border-radius: 6px !important; }
+  .macro-board { padding: 3px !important; border-radius: 12px !important; }
+  .macro-win-badge { border-radius: 10px !important; }
+  .board-wrap { padding: 6px !important; border-radius: 16px !important; }
+}
+/* Touch devices: keep the Normal board cells comfortable to tap. */
+@media (pointer: coarse) {
+  .tic-large { min-height: 44px !important; min-width: 44px !important; }
+}

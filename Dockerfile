@@ -11,4 +11,4 @@ COPY static ./static
 
 EXPOSE 8080
 
-CMD ["python", "SBA.py", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["python", "SBA.py", "--web", "--host", "0.0.0.0", "--port", "8080"]
