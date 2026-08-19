@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import QRectF, Qt, QThread, QTimer, Signal
+    from PySide6.QtCore import QEasingCurve, QRectF, Qt, QThread, QTimer, QVariantAnimation, Signal
     from PySide6.QtGui import QColor, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
@@ -47,17 +47,42 @@ def t(en: str, zh: str) -> str:
     return f'{en} — {zh}'
 
 
-# Material Design 3 (light) palette, matching static/styles.css.
-X_COLOR = '#6750A4'
-O_COLOR = '#B3261E'
-CELL_EMPTY = '#F3EDF7'
-CELL_FILLED = '#ECE6F0'
-MACRO_ACTIVE = 'rgba(103, 80, 164, 0.10)'
-MACRO_WON_X = 'rgba(103, 80, 164, 0.14)'
-MACRO_WON_O = 'rgba(179, 38, 30, 0.10)'
-GRID_LINE = '#CAC4D0'
-MACRO_LINE = '#79747E'
-FLASH = '#6750A4'
+# Board palettes. BoardWidget paints from the active palette; the native dark
+# glass fallback theme switches ACTIVE_THEME to 'DARK'.
+PALETTE = {
+    'LIGHT': {
+        'x': '#6750A4',
+        'o': '#B3261E',
+        'cell_empty': '#F3EDF7',
+        'cell_filled': '#ECE6F0',
+        'macro_active': 'rgba(103, 80, 164, 0.10)',
+        'macro_won_x': 'rgba(103, 80, 164, 0.14)',
+        'macro_won_o': 'rgba(179, 38, 30, 0.10)',
+        'grid_line': '#CAC4D0',
+        'macro_line': '#79747E',
+        'flash': '#6750A4',
+        'win_fill_x': '#6750A4',
+        'win_fill_o': '#B3261E',
+        'win_mark': '#FFFFFF',
+    },
+    'DARK': {
+        'x': '#D0BCFF',
+        'o': '#FFB4AB',
+        'cell_empty': '#211F26',
+        'cell_filled': '#2B2930',
+        'macro_active': 'rgba(208, 188, 255, 0.12)',
+        'macro_won_x': 'rgba(208, 188, 255, 0.16)',
+        'macro_won_o': 'rgba(255, 180, 171, 0.14)',
+        'grid_line': '#49454F',
+        'macro_line': '#938F99',
+        'flash': '#D0BCFF',
+        'win_fill_x': '#6750A4',
+        'win_fill_o': '#B3261E',
+        'win_mark': '#FFFFFF',
+    },
+}
+ACTIVE_THEME = 'LIGHT'  # flipped to 'DARK' by the native dark theme step.
+PAL = PALETTE[ACTIVE_THEME]
 
 AI_OPTIONS = {
     'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
@@ -151,7 +176,19 @@ QMessageBox QPushButton { min-width: 90px; }
 
 
 def _mark_color(player):
-    return QColor(X_COLOR if player == X else O_COLOR)
+    return QColor(PAL['x'] if player == X else PAL['o'])
+
+
+def _lerp_color(c1, c2, t):
+    """Linearly interpolate two QColor-compatible values by t in [0, 1]."""
+    a = QColor(c1)
+    b = QColor(c2)
+    return QColor(
+        int(a.red() + (b.red() - a.red()) * t),
+        int(a.green() + (b.green() - a.green()) * t),
+        int(a.blue() + (b.blue() - a.blue()) * t),
+        int(a.alpha() + (b.alpha() - a.alpha()) * t),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -172,13 +209,58 @@ class BoardWidget(QWidget):
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
+        self.setMouseTracking(True)
+        self._hover_macro = None
+        self._hover_blend = 0.0
+        self._hover_anim = QVariantAnimation(self)
+        self._hover_anim.setDuration(180)
+        self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._hover_anim.valueChanged.connect(self._on_hover_anim)
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
+        self._hover_anim.stop()
+        self._hover_macro = None
+        self._hover_blend = 0.0
         self.update()
+
+    def _on_hover_anim(self, value):
+        self._hover_blend = float(value)
+        self.update()
+
+    def _macro_at(self, px, py):
+        if not isinstance(self.game, UltimateGame):
+            return None
+        n, cell, ox, oy = self._grid()
+        col = int((px - ox) // (cell + self.GAP))
+        row = int((py - oy) // (cell + self.GAP))
+        if not (0 <= row < n and 0 <= col < n):
+            return None
+        return (row // 3) * 3 + (col // 3)
+
+    def mouseMoveEvent(self, event):
+        if isinstance(self.game, UltimateGame):
+            m = self._macro_at(event.position().x(), event.position().y())
+            if m != self._hover_macro:
+                self._hover_macro = m
+                target = 1.0 if (m is not None and self.game.macro[m] in (X, O)) else 0.0
+                self._hover_anim.stop()
+                self._hover_anim.setStartValue(self._hover_blend)
+                self._hover_anim.setEndValue(target)
+                self._hover_anim.start()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        if self._hover_macro is not None:
+            self._hover_macro = None
+            self._hover_anim.stop()
+            self._hover_anim.setStartValue(self._hover_blend)
+            self._hover_anim.setEndValue(0.0)
+            self._hover_anim.start()
+        super().leaveEvent(event)
 
     def flash(self, move):
         self.flash_cell = move
@@ -241,18 +323,19 @@ class BoardWidget(QWidget):
 
     def _paint_cell(self, painter, rect, mark, is_flash):
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(CELL_FILLED if mark else CELL_EMPTY))
+        painter.setBrush(QColor(PAL['cell_filled'] if mark else PAL['cell_empty']))
         painter.drawRoundedRect(rect, 4, 4)
         if mark in (X, O):
             self._paint_mark(painter, rect, mark)
         if is_flash:
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(FLASH), 3))
+            painter.setPen(QPen(QColor(PAL['flash']), 3))
             painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 4, 4)
 
-    def _paint_mark(self, painter, rect, player):
+    def _paint_mark(self, painter, rect, player, color=None):
         pad = rect.width() * 0.22
-        pen = QPen(_mark_color(player), max(2.0, rect.width() * 0.09))
+        color = _mark_color(player) if color is None else QColor(color)
+        pen = QPen(color, max(2.0, rect.width() * 0.09))
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
@@ -302,7 +385,7 @@ class BoardWidget(QWidget):
             self._paint_cell(painter, rect, self.game.board[i],
                              self.flash_cell == i)
             centers.append(rect.center())
-        painter.setPen(QPen(QColor(GRID_LINE), 1.5))
+        painter.setPen(QPen(QColor(PAL['grid_line']), 1.5))
         for i in range(1, 3):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
@@ -323,11 +406,11 @@ class BoardWidget(QWidget):
         for m in range(9):
             rect = self._macro_rect(m, cell, ox, oy)
             if self.game.macro[m] == X:
-                painter.setBrush(QColor(MACRO_WON_X))
+                painter.setBrush(QColor(PAL['macro_won_x']))
             elif self.game.macro[m] == O:
-                painter.setBrush(QColor(MACRO_WON_O))
+                painter.setBrush(QColor(PAL['macro_won_o']))
             elif m == self.game.active_macro and self.game.macro_open(m):
-                painter.setBrush(QColor(MACRO_ACTIVE))
+                painter.setBrush(QColor(PAL['macro_active']))
             else:
                 continue
             painter.setPen(Qt.NoPen)
@@ -347,31 +430,44 @@ class BoardWidget(QWidget):
                 self._paint_cell(painter, rect, self.game.micro[m][i],
                                  self.flash_cell == (m, i))
         # grid lines
-        painter.setPen(QPen(QColor(GRID_LINE), 1))
+        painter.setPen(QPen(QColor(PAL['grid_line']), 1))
         for i in range(1, 9):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
             painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
             painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
-        painter.setPen(QPen(QColor(MACRO_LINE), 2))
+        painter.setPen(QPen(QColor(PAL['macro_line']), 2))
         for i in (3, 6):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
             painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
             painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
-        # won macro badges
+        # won macro chunks: fill with the player's color and show a white
+        # mark; hovering reveals the underlying cells (blend 0 = filled,
+        # 1 = fully revealed)
         for m in range(9):
             if self.game.macro[m] in (X, O):
+                winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
-                pad = rect.width() * 0.18
-                badge = QRectF(rect.left() + pad, rect.top() + pad,
-                               rect.width() - 2 * pad, rect.height() - 2 * pad)
-                self._paint_mark(painter, badge, self.game.macro[m])
+                blend = self._hover_blend if m == self._hover_macro else 0.0
+                fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
+                fill.setAlpha(int(230 * (1.0 - blend)))
+                if fill.alpha() > 0:
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(fill)
+                    painter.drawRoundedRect(rect, 10, 10)
+                mark = QColor(PAL['win_mark'])
+                mark.setAlpha(int(255 * (1.0 - blend)))
+                if mark.alpha() > 0:
+                    pad = rect.width() * 0.18
+                    badge = QRectF(rect.left() + pad, rect.top() + pad,
+                                   rect.width() - 2 * pad, rect.height() - 2 * pad)
+                    self._paint_mark(painter, badge, winner, mark)
                 line = micro_win_line(self.game.micro[m])
                 if line is not None:
+                    line_color = _lerp_color(PAL['win_mark'], _mark_color(winner), blend)
                     self._paint_win_line(painter, line, micro_centers[m],
-                                         _mark_color(self.game.macro[m]),
-                                         cell * 0.12, rect)
+                                         line_color, cell * 0.12, rect)
         # overall macro win line
         whole = micro_win_line(self.game.macro)
         if whole:
@@ -738,7 +834,7 @@ class GamePage(QWidget):
                 action = t('AI thinking...', 'AI 思考中')
             self.status_text.setText(f'Player {player} · {action}')
         self.status_mark.setStyleSheet(
-            'color: ' + (X_COLOR if result == X else O_COLOR) + '; font-size: 20px; font-weight: 700;')
+            'color: ' + (PAL['x'] if result == X else PAL['o']) + '; font-size: 20px; font-weight: 700;')
         game_text = 'Normal' if isinstance(self.game, NormalGame) else 'Ultimate'
         mode_text = {'pvp': 'PvP', 'pvc': 'PvC', 'cvc': 'CvC'}[self.session['mode']]
         x_type, o_type = side_types(self.session)
