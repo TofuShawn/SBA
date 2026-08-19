@@ -162,12 +162,13 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`
 - [NiceGUI](https://nicegui.io) - reactive web UI framework (bundles Quasar / Tailwind) / 響應式網頁框架
 - [PyTorch](https://pytorch.org) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
 - [NumPy](https://numpy.org) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
-- [PyQt-SiliconUI](https://github.com/ChinaIceF/PyQt-SiliconUI)（[PySide6 fork](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)，branch `PySide6`，commit `6445d42`）- desktop UI library / 桌面版 UI 函式庫（GPLv3，vendored 於 `vendor/siui/`）
+- [PyQt-SiliconUI](https://github.com/ChinaIceF/PyQt-SiliconUI) by [ChinaIceF](https://github.com/ChinaIceF) - the original PyQt5 UI library this desktop theme is based on / 桌面主題所基於的原版 PyQt5 UI 函式庫（GPLv3）
+- [PyQt-SiliconUI (PySide6 fork)](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI) by [MayBeLaterOrNot](https://github.com/MayBeLaterOrNot) - PySide6 port used by the desktop app (branch `PySide6`, commit `6445d42`), vendored under `vendor/siui/` / 桌面版使用的 PySide6 移植版（GPLv3，隨附於 `vendor/siui/`）
 
 ---
 
 ## License / 授權
 
-This project is released under the [MIT License](LICENSE). See the [LICENSE](LICENSE) file for details / 本專案以 [MIT 授權](LICENSE) 釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
+This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
 
-The vendored `vendor/siui/` directory contains code from PyQt-SiliconUI, which is licensed under **GPLv3**（see `vendor/siui/LICENSE`）；distributing the combined desktop application must comply with GPLv3 / 隨附的 `vendor/siui/` 內含 PyQt-SiliconUI 程式碼，採用 **GPLv3** 授權（見 `vendor/siui/LICENSE`），發行整合後的桌面程式需遵循 GPLv3 條款。
+The desktop app bundles PyQt-SiliconUI（GPLv3）under `vendor/siui/`, so the combined work is distributed under GPLv3 / 桌面版隨附 PyQt-SiliconUI（GPLv3，見 `vendor/siui/LICENSE`），合併作品因此以 GPLv3 發行。

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — NiceGUI web UI.
 
@@ -578,4 +578,3 @@ def run():
 
 if __name__ == '__main__':
     run()
-

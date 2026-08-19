@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """AlphaZero-style neural-guided MCTS for (Ultimate) Tic Tac Toe.
 

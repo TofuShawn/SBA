@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — game rules and board helpers.
 
@@ -194,5 +194,4 @@ def win_badge_svg(player):
                  'stroke-width="12" stroke-linecap="round"/>')
     return (f'<svg class="macro-win-svg" viewBox="0 0 100 100" '
             f'xmlns="http://www.w3.org/2000/svg">{inner}</svg>')
-
 

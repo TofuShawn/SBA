@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """Ultimate Tic Tac Toe — AI engines and the AI assistant analysis.
 
@@ -660,4 +660,3 @@ def move_text(move):
     m, i = move
     r, c = divmod(i, 3)
     return f'B{m + 1} ({r + 1},{c + 1})'
-
