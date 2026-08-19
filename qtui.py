@@ -330,18 +330,6 @@ def _mark_color(player):
     return QColor(PAL['x'] if player == X else PAL['o'])
 
 
-def _lerp_color(c1, c2, t):
-    """Linearly interpolate two QColor-compatible values by t in [0, 1]."""
-    a = QColor(c1)
-    b = QColor(c2)
-    return QColor(
-        int(a.red() + (b.red() - a.red()) * t),
-        int(a.green() + (b.green() - a.green()) * t),
-        int(a.blue() + (b.blue() - a.blue()) * t),
-        int(a.alpha() + (b.alpha() - a.alpha()) * t),
-    )
-
-
 # ---------------------------------------------------------------------------
 # Board
 # ---------------------------------------------------------------------------
@@ -615,8 +603,9 @@ class BoardWidget(QWidget):
                                    rect.width() - 2 * pad, rect.height() - 2 * pad)
                     self._paint_mark(painter, badge, winner, mark)
                 line = micro_win_line(self.game.micro[m])
-                if line is not None:
-                    line_color = _lerp_color(PAL['win_mark'], _mark_color(winner), blend)
+                if line is not None and blend > 0:
+                    line_color = _mark_color(winner)
+                    line_color.setAlpha(int(255 * blend))
                     self._paint_win_line(painter, line, micro_centers[m],
                                          line_color, cell * 0.12, rect)
         # overall macro win line
