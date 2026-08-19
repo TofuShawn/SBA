@@ -1,1 +1,5 @@
+# PySide6 for the desktop UI / 桌面版依賴
 pyside6>=6.6
+
+# PyQt-SiliconUI (PySide6 fork) is vendored under vendor/siui/ (GPLv3);
+# no pip install needed / PyQt-SiliconUI（PySide6 fork）已隨附於 vendor/siui/（GPLv3），無需另行安裝

@@ -93,6 +93,136 @@ def _glass_shadow(widget):
     effect.setColor(QColor(0, 0, 0, 100))
     widget.setGraphicsEffect(effect)
 
+
+# ---------------------------------------------------------------------------
+# PyQt-SiliconUI integration (optional; vendored under vendor/siui, GPLv3)
+# ---------------------------------------------------------------------------
+SIUI = None
+
+
+def _load_siui():
+    """Load the vendored PyQt-SiliconUI (PySide6 fork) when present."""
+    global SIUI
+    siui_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor', 'siui')
+    if not os.path.isdir(os.path.join(siui_root, 'silicon')):
+        return None
+    if siui_root not in sys.path:
+        sys.path.insert(0, siui_root)
+    try:
+        import silicon
+        from silicon import SiGlobal
+        import icons as si_icons
+        SiGlobal.icons = si_icons.ICON_DICT(
+            os.path.join(siui_root, 'icons', 'icons.dat'), SiGlobal.colorset.SVG_HEX)
+        SIUI = silicon
+        log.info('PyQt-SiliconUI loaded (%s)', siui_root)
+    except Exception as e:  # noqa: BLE001
+        log.warning('PyQt-SiliconUI unavailable, using native dark theme: %s', e)
+        SIUI = None
+    return SIUI
+
+
+def _init_siui_runtime():
+    """Create the SiliconUI floating tooltip window (needs a QApplication)."""
+    if SIUI is None:
+        return
+    try:
+        from silicon import SiGlobal
+        from silicon.SiHint import FloatingWindow
+        SiGlobal.floating_window = FloatingWindow()
+        SiGlobal.floating_window.setWindowOpacity(0)
+        SiGlobal.floating_window.show()
+    except Exception as e:  # noqa: BLE001
+        log.warning('SiliconUI runtime init failed: %s', e)
+
+
+_load_siui()
+
+if SIUI is not None:
+    from silicon.SiComboBox import SiComboBox as _SiComboBoxBase
+
+    class _SiCombo(_SiComboBoxBase):
+        """Adapter exposing the QComboBox-style API used by the menus."""
+        currentIndexChanged = Signal(int)
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self._labels = []
+            self._data = []
+            self._current = 0
+            self.valueChanged.connect(self._on_value)
+
+        def _on_value(self, value):
+            try:
+                self._current = self._data.index(value)
+            except ValueError:
+                pass
+            self.currentIndexChanged.emit(self._current)
+
+        def addItem(self, label, data):
+            self._labels.append(label)
+            self._data.append(data)
+            self.addOption(label, data)
+            if len(self._data) == 1:
+                self.setOption(label)
+
+        def currentData(self):
+            return self._data[self._current] if self._data else None
+
+        def currentIndex(self):
+            return self._current
+
+
+def _si_combo(parent=None):
+    if SIUI is not None:
+        try:
+            return _SiCombo(parent)
+        except Exception:  # noqa: BLE001
+            pass
+    return QComboBox(parent)
+
+
+def _si_button(text, parent=None, primary=False):
+    if SIUI is not None:
+        from silicon.SiButton import SiButton
+        btn = SiButton(parent)
+        btn.setText(text)
+        if primary:
+            btn.setStrong(True)
+        return btn
+    btn = QPushButton(text, parent)
+    if primary:
+        btn.setObjectName('primary')
+    return btn
+
+
+def _si_set_enabled(btn, enabled):
+    """Enable/disable a button (SiButton needs its inner layer toggled too)."""
+    btn.setEnabled(enabled)
+    if SIUI is not None:
+        try:
+            btn.layer_front.setEnabled(enabled)
+        except AttributeError:
+            pass
+
+
+if SIUI is not None:
+    try:
+        from silicon import SiGlobal as _SiG
+        cs = _SiG.colorset
+        PAL.update({
+            'cell_empty': cs.BG_GRAD_HEX[1],
+            'cell_filled': cs.BG_GRAD_HEX[3],
+            'grid_line': cs.BG_GRAD_HEX[4],
+            'macro_line': cs.BG_GRAD_HEX[4],
+            'macro_active': 'rgba(82, 56, 154, 0.14)',
+            'macro_won_x': 'rgba(82, 56, 154, 0.20)',
+            'macro_won_o': 'rgba(218, 52, 98, 0.16)',
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+
 AI_OPTIONS = {
     'AlphaZero': 'AlphaZero — Neural MCTS（神經網路MCTS）',
     'Random': 'Random — 隨機',
@@ -568,30 +698,30 @@ class MenuPage(QWidget):
             row.addWidget(widget)
             return row
 
-        self.game_type = QComboBox()
+        self.game_type = _si_combo()
         self.game_type.addItem('Normal Tic Tac Toe (普通井字棋)', 'normal')
         self.game_type.addItem('Ultimate Tic Tac Toe (終極井字棋)', 'ultimate')
         card_lay.addLayout(field_row(t('Game Type', '遊戲類型'), self.game_type))
 
-        self.mode = QComboBox()
+        self.mode = _si_combo()
         self.mode.addItem('PvP (玩家對玩家)', 'pvp')
         self.mode.addItem('Player vs Computer (玩家對電腦)', 'pvc')
         self.mode.addItem('Computer vs Computer (電腦對電腦)', 'cvc')
         self.mode.currentIndexChanged.connect(lambda _: self._update_visibility())
         card_lay.addLayout(field_row(t('Mode', '模式'), self.mode))
 
-        self.first = QComboBox()
+        self.first = _si_combo()
         self.first.addItem(t('You move first — X', '你先手 — X'), 'human')
         self.first.addItem(t('Computer moves first — O', '電腦先手 — O'), 'computer')
         self.first.currentIndexChanged.connect(lambda _: self._update_visibility())
         card_lay.addLayout(field_row(t('First Player', '先手'), self.first))
 
-        self.ai_x = QComboBox()
+        self.ai_x = _si_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_x.addItem(label, key)
         card_lay.addLayout(field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x))
 
-        self.ai_o = QComboBox()
+        self.ai_o = _si_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_o.addItem(label, key)
         self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
@@ -625,8 +755,7 @@ class MenuPage(QWidget):
         self.web_status.setObjectName('muted')
         card_lay.addWidget(self.web_status)
 
-        start_btn = QPushButton(t('Start Game', '開始遊戲'))
-        start_btn.setObjectName('primary')
+        start_btn = _si_button(t('Start Game', '開始遊戲'), primary=True)
         start_btn.clicked.connect(self._on_start)
         card_lay.addWidget(start_btn)
 
@@ -710,7 +839,7 @@ class GamePage(QWidget):
         top_title.setObjectName('title')
         top.addWidget(top_title)
         top.addStretch(1)
-        back_btn = QPushButton(t('Back to Menu', '返回選單'))
+        back_btn = _si_button(t('Back to Menu', '返回選單'))
         back_btn.clicked.connect(self.back_requested.emit)
         top.addWidget(back_btn)
         root.addLayout(top)
@@ -728,7 +857,7 @@ class GamePage(QWidget):
         self.board.cell_clicked.connect(self.on_cell_click)
         board_col.addWidget(self.board, 1)
         btn_row = QHBoxLayout()
-        new_btn = QPushButton(t('New Game', '新遊戲'))
+        new_btn = _si_button(t('New Game', '新遊戲'))
         new_btn.clicked.connect(self.new_game)
         btn_row.addWidget(new_btn)
         btn_row.addStretch(1)
@@ -801,7 +930,7 @@ class GamePage(QWidget):
         self.auto_switch.setChecked(True)
         self.auto_switch.toggled.connect(self.on_auto_toggled)
         cvc_lay.addWidget(self.auto_switch)
-        self.step_btn = QPushButton(t('Step / Next Move', '下一步'))
+        self.step_btn = _si_button(t('Step / Next Move', '下一步'))
         self.step_btn.clicked.connect(self.run_ai)
         self.step_btn.setEnabled(False)
         cvc_lay.addWidget(self.step_btn)
@@ -969,7 +1098,7 @@ class GamePage(QWidget):
             return
         ai_turn = not self.game.is_over() and is_ai_turn(self.session)
         auto = self.session.get('cvc_auto', True)
-        self.step_btn.setEnabled(not auto and ai_turn and not self.busy)
+        _si_set_enabled(self.step_btn, not auto and ai_turn and not self.busy)
 
     # -- assistant ---------------------------------------------------------
 
@@ -1124,6 +1253,7 @@ def main(argv=None):
         logging.getLogger().setLevel(logging.DEBUG)
     app = QApplication(sys.argv[:1])
     app.setApplicationName('SBA')
+    _init_siui_runtime()
     window = MainWindow(web_enabled=args.web, port=args.port)
     window.show()
     return app.exec()

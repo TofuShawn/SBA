@@ -25,6 +25,7 @@
 - **CvC controls / 電腦對戰控制**：速度（0.1-2.0s）、自動播放、手動「下一步」
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
 - **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
+- **SiliconUI desktop theme / 桌面版 SiliconUI 主題**：PySide6 桌面版使用 [PyQt-SiliconUI](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)（PySide6 fork）的深色玻璃主題；該套件缺失時自動退回內建深色玻璃樣式
 - **Headless self-test suite / 無頭自測**（54 項檢查）與 **Docker** 映像
 
 ---
@@ -45,6 +46,9 @@ pip install -r requirements.txt
 ```bash
 pip install -r requirements-qt.txt
 ```
+
+PyQt-SiliconUI（PySide6 fork）已隨專案 vendoring 於 `vendor/siui/`（GPLv3），
+無需另外安裝；若刪除該目錄，桌面版會自動退回內建深色玻璃樣式。
 
 **Optional - AlphaZero / 選用 - AlphaZero**：神經網路引擎需要 `torch` 與 `numpy`（CPU 版 PyTorch 即可，模型很小）。只有要使用或訓練 AlphaZero 才需要安裝：
 
@@ -68,6 +72,9 @@ python SBA.py --qt
 # same as: / 等同於
 python qtui.py
 ```
+
+桌面版預設使用 SiliconUI 深色玻璃主題（按鈕與下拉選單來自 PyQt-SiliconUI）。
+若 `vendor/siui/` 不存在，會退回內建深色玻璃 QSS 主題，功能不受影響。
 
 ### 2. NiceGUI web app (opt-in) / Web 版（選用）
 
@@ -130,6 +137,7 @@ docker run -p 8080:8080 sba
 | `qtui.py` | PySide6 desktop UI (menu, board, assistant panel, CvC controls, web switch) / 桌面版介面 |
 | `alphazero.py` | AlphaZero neural MCTS (training + evaluation) / AlphaZero 訓練與評估 |
 | `static/styles.css` | Material Design 3 stylesheet / 樣式表 |
+| `vendor/siui/` | Vendored PyQt-SiliconUI runtime (`silicon/` + `icons/`, GPLv3) / 隨附的 SiliconUI 執行時期（GPLv3） |
 | `run.bat` | Local Windows launcher (not tracked in git) / 本地 Windows 啟動檔（未納入 git） |
 | `Dockerfile` | Container image (CPU-only torch) / 容器映像（CPU 版 torch） |
 | `requirements.txt` | Core Python dependencies / 核心 Python 依賴 |
@@ -154,9 +162,12 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`
 - [NiceGUI](https://nicegui.io) - reactive web UI framework (bundles Quasar / Tailwind) / 響應式網頁框架
 - [PyTorch](https://pytorch.org) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
 - [NumPy](https://numpy.org) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
+- [PyQt-SiliconUI](https://github.com/ChinaIceF/PyQt-SiliconUI)（[PySide6 fork](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)，branch `PySide6`，commit `6445d42`）- desktop UI library / 桌面版 UI 函式庫（GPLv3，vendored 於 `vendor/siui/`）
 
 ---
 
 ## License / 授權
 
 This project is released under the [MIT License](LICENSE). See the [LICENSE](LICENSE) file for details / 本專案以 [MIT 授權](LICENSE) 釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
+
+The vendored `vendor/siui/` directory contains code from PyQt-SiliconUI, which is licensed under **GPLv3**（see `vendor/siui/LICENSE`）；distributing the combined desktop application must comply with GPLv3 / 隨附的 `vendor/siui/` 內含 PyQt-SiliconUI 程式碼，採用 **GPLv3** 授權（見 `vendor/siui/LICENSE`），發行整合後的桌面程式需遵循 GPLv3 條款。
