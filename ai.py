@@ -17,8 +17,6 @@ from game import (
     NormalGame, UltimateGame, apply_move, apply_clone_result, count_threats,
 )
 
-AI_TYPES = ['Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS', 'MCTS+RAVE', 'AlphaZero', 'Solver']
-
 # ============================================================
 # AI engines
 # ============================================================
@@ -440,7 +438,6 @@ def _tt_key(game):
 
 def _move_order_score(game, move):
     player = game.current
-    opp = O if player == X else X
     g = game.clone()
     apply_move(g, move)
     if g.result() == player:
@@ -490,7 +487,7 @@ def _negamax_tt(game, depth, alpha, beta):
     key = _tt_key(game)
     entry = _TT.get(key)
     if entry is not None and entry[0] >= depth:
-        d, flag, score, _ = entry
+        _, flag, score, _ = entry
         if flag == 0:
             return score
         if flag == -1:
@@ -611,7 +608,6 @@ def blocks_immediate_win(game, move):
 
 def reason_for_move(game, move):
     player = game.current
-    opp = O if player == X else X
     g = game.clone()
     apply_move(g, move)
     if g.result() == player:
@@ -633,7 +629,6 @@ def reason_for_move(game, move):
 
 def compute_analysis(game, mcts_budget):
     player = game.current
-    opp = O if player == X else X
     items = []
     if isinstance(game, NormalGame):
         table = build_tablebase()
