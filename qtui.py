@@ -25,8 +25,8 @@ import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import QEasingCurve, QRectF, QSize, Qt, QThread, QTimer, QVariantAnimation, Signal
-    from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtCore import QEasingCurve, QPoint, QRectF, QSize, Qt, QThread, QTimer, QVariantAnimation, Signal
+    from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
@@ -371,6 +371,10 @@ class BoardWidget(QWidget):
         self._hover_anim.setDuration(180)
         self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._hover_anim.valueChanged.connect(self._on_hover_anim)
+        self._hover_poll = QTimer(self)
+        self._hover_poll.setInterval(80)
+        self._hover_poll.timeout.connect(self._sync_hover_from_cursor)
+        self._hover_poll.start()
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
@@ -407,6 +411,36 @@ class BoardWidget(QWidget):
                 self._hover_anim.setEndValue(target)
                 self._hover_anim.start()
         super().mouseMoveEvent(event)
+
+    def _sync_hover_from_cursor(self):
+        """Re-derive the hovered chunk from the real cursor position.
+
+        Some top-level windows (e.g. the SiliconUI tooltip) can swallow
+        mouse-move events, freezing the reveal on the first chunk. Repainting
+        with the actual cursor keeps the reveal following the pointer.
+        """
+        if self.game is None or not self.isVisible():
+            return
+        pos = QCursor.pos()
+        if pos == QPoint(0, 0):  # offscreen/synthetic renders have no cursor
+            return
+        local = self.mapFromGlobal(pos)
+        if not self.rect().contains(local):
+            if self._hover_macro is not None:
+                self._hover_macro = None
+                self._hover_anim.stop()
+                self._hover_anim.setStartValue(self._hover_blend)
+                self._hover_anim.setEndValue(0.0)
+                self._hover_anim.start()
+            return
+        m = self._macro_at(local.x(), local.y())
+        if m != self._hover_macro:
+            self._hover_macro = m
+            self._hover_anim.stop()
+            target = 1.0 if (m is not None and self.game.macro[m] in (X, O)) else 0.0
+            self._hover_anim.setStartValue(self._hover_blend)
+            self._hover_anim.setEndValue(target)
+            self._hover_anim.start()
 
     def leaveEvent(self, event):
         if self._hover_macro is not None:
@@ -467,6 +501,7 @@ class BoardWidget(QWidget):
     def paintEvent(self, event):
         if self.game is None:
             return
+        self._sync_hover_from_cursor()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         if isinstance(self.game, UltimateGame):
