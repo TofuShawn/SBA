@@ -1118,7 +1118,7 @@ class GamePage(QWidget):
             return
         self.cvc_timer.stop()
         self.pvc_timer.stop()
-        s['cvc_paused'] = k < len(moves)
+        s['cvc_paused'] = s['mode'] == 'cvc' and k < len(moves)
         self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
         for mv in moves[:k]:
             apply_move(self.game, mv)
@@ -1132,9 +1132,12 @@ class GamePage(QWidget):
         self.refresh()
         self.trigger_analysis()
         self.update_cvc_controls()
-        if (not s.get('cvc_paused', False) and s['mode'] == 'cvc'
+        if (s['mode'] == 'cvc' and not s.get('cvc_paused', False)
                 and not self.game.is_over() and is_ai_turn(self.session)):
             self.cvc_timer.start()
+        elif (s['mode'] == 'pvc' and not self.game.is_over()
+                and is_ai_turn(self.session)):
+            self.pvc_timer.start(300)
 
     def _render_history(self):
         s = self.session
@@ -1264,17 +1267,22 @@ class GamePage(QWidget):
         self.refresh()
         worker = AIWorker(self.game.clone(), ai_type,
                           self.session['mcts'], self.session.get('minimax_depth', 3))
-        worker.move_ready.connect(self.on_ai_done)
-        worker.move_failed.connect(self.on_ai_failed)
+        gen = self.gen
+        worker.move_ready.connect(lambda move, g=gen: self.on_ai_done(move, g))
+        worker.move_failed.connect(lambda msg, g=gen: self.on_ai_failed(msg, g))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
-    def on_ai_done(self, move):
+    def on_ai_done(self, move, gen=None):
+        if gen is not None and gen != self.gen:
+            return  # position changed while the engine was thinking: drop it
         self.busy = False
         self.apply_move(move)
 
-    def on_ai_failed(self, message):
+    def on_ai_failed(self, message, gen=None):
+        if gen is not None and gen != self.gen:
+            return
         self.busy = False
         log.error('AI move failed: %s', message)
         self.refresh()
@@ -1368,7 +1376,7 @@ class GamePage(QWidget):
         self.analysis_busy = False
         s = self.session or {}
         history = s.get('history', [])
-        if gid == self.game_id and 0 <= step < len(history) \
+        if gid == self.game_id and gen == self.gen and 0 <= step < len(history) \
                 and history[step] is None:
             history[step] = tuple(rates)
             self._render_history()

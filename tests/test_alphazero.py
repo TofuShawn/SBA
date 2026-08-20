@@ -1,5 +1,7 @@
 """AlphaZero smoke tests (tiny nets / few sims)."""
 
+import random
+
 import alphazero
 from game import X, O, EMPTY, NormalGame, UltimateGame
 from ai import get_ai_move
@@ -28,3 +30,19 @@ def test_az_dispatch_and_terminal_values():
     gwu = UltimateGame()
     gwu.macro = [X, X, X] + [EMPTY] * 6
     assert alphazero.terminal_value(gwu) == -1.0
+
+
+def test_train_eval_every_schedule(monkeypatch, capsys):
+    fast = lambda game, model, budget=800, batch_size=16: random.choice(
+        game.legal_moves())
+    monkeypatch.setattr(alphazero, 'alphazero_move', fast)
+    alphazero.train('ultimate', games=6, sims=3, eval_every=2, eval_games=1,
+                    quiet=False, save=False)
+    out = capsys.readouterr().out
+    assert out.count('win=') == 3
+
+
+def test_select_move_zero_counts_safe():
+    model = alphazero.AZNet(3)
+    g = NormalGame()
+    assert alphazero.select_move(g, model, budget=0, temp=1.0) in g.legal_moves()

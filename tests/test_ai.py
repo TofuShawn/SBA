@@ -1,17 +1,23 @@
 """AI engine correctness, sanity, and termination tests."""
 
+import math
 import random
 import threading
 
+import pytest
+
+import ai
 from ai import (
     get_basic_move, minimax_move_normal, mcts_move, solver_move,
     minimax_pro_move, mcts_rave_move, mcts_grave_move, build_tablebase,
     _board_key, get_ai_move, opening_book_move, build_micro_tablebase,
     _rollout_move, reset_engine_caches, _REUSE, _fork_count, _sym_images,
     mcts_move_parallel, _D4, position_win_rate, position_win_rates,
-    flat_mcts_move,
+    flat_mcts_move, analyze_position, set_engine_config, _diff_move,
 )
-from game import X, O, EMPTY, NormalGame, UltimateGame, apply_move
+from game import (
+    X, O, EMPTY, NormalGame, UltimateGame, BitUltimateGame, apply_move,
+)
 
 
 def test_basic_takes_winning_move():
@@ -268,3 +274,97 @@ def test_pvc_termination():
                     apply_move(game, get_ai_move(game, ai, 300))
                 guard += 1
             assert game.is_over() and guard <= 500
+
+
+def test_alphazero_falls_back_without_model(monkeypatch):
+    monkeypatch.setattr(ai, 'load_az_model', lambda game: None)
+    g = NormalGame()
+    assert get_ai_move(g, 'AlphaZero', 30) in g.legal_moves()
+
+
+def test_tree_reuse_across_opponent_reply(monkeypatch):
+    set_engine_config({'engine': {'opening_book': False}})
+    seen = []
+    orig = ai.mcts_search
+
+    def spy(game, iterations, c=None, prev_root=None, pool=None):
+        seen.append(prev_root is not None)
+        return orig(game, iterations, c, prev_root, pool)
+
+    monkeypatch.setattr(ai, 'mcts_search', spy)
+    g = NormalGame()
+    m1 = get_ai_move(g, 'MCTS', 40)
+    apply_move(g, m1)
+    reply = ai._REUSE_LAST['MCTS'].children[0].move
+    apply_move(g, reply)
+    get_ai_move(g, 'MCTS', 40)
+    assert seen == [False, True]
+
+
+def test_dynamic_uct_uses_this_search_visits(monkeypatch):
+    set_engine_config({'engine': {'opening_book': False}})
+    calls = []
+
+    def spy(c, rv, it):
+        calls.append((rv, it))
+        return c
+
+    monkeypatch.setattr(ai, '_uct_scale', spy)
+    g = NormalGame()
+    m1 = get_ai_move(g, 'MCTS', 40)
+    apply_move(g, m1)
+    apply_move(g, ai._REUSE_LAST['MCTS'].children[0].move)
+    get_ai_move(g, 'MCTS', 40)
+    assert calls
+    assert all(rv <= it for rv, it in calls)
+
+
+def test_diff_move():
+    a = NormalGame()
+    b = NormalGame()
+    b.make_move(4)
+    assert _diff_move(a, b) == 4
+    b2 = NormalGame()
+    b2.make_move(0)
+    b2.make_move(8)
+    assert _diff_move(a, b2) is None  # two new cells
+    ua = UltimateGame()
+    ub = UltimateGame()
+    ub.make_move(4, 4)
+    assert _diff_move(ua, ub) == (4, 4)
+    assert _diff_move(BitUltimateGame.from_game(ua), ub) == (4, 4)
+    ub2 = UltimateGame()
+    ub2.make_move(0, 0)
+    ub2.make_move(1, 1)
+    assert _diff_move(ua, ub2) is None  # two new cells
+    assert _diff_move(ub, ua) is None   # a removal is not a forward move
+
+
+def test_ultimate_terminal_score_prefers_faster_win():
+    from ai import _minimax_ultimate
+    g = UltimateGame()
+    g.macro = [X, X, X] + [EMPTY] * 6
+    assert _minimax_ultimate(g, 5, -math.inf, math.inf, True, X) == 100000 - 5
+    assert _minimax_ultimate(g, 2, -math.inf, math.inf, True, X) == 100000 - 2
+    assert _minimax_ultimate(g, 5, -math.inf, math.inf, True, O) == 5 - 100000
+
+
+def test_parallel_mcts_terminal_returns_none():
+    g = NormalGame()
+    g.board = [X] * 9
+    assert mcts_move_parallel(g, 20, 2) is None
+
+
+def test_tt_max_is_dynamic():
+    set_engine_config({'engine': {'tt_max': 10}})
+    gu = UltimateGame()
+    assert minimax_pro_move(gu, depth=3) in gu.legal_moves()
+    assert len(ai._get_tt()) <= 10
+
+
+def test_analyze_ultimate_bitboard_path():
+    set_engine_config({'engine': {'bitboard': True}})
+    gu = UltimateGame()
+    items, rates = analyze_position(gu, 200)
+    assert abs(sum(rates) - 1.0) < 1e-6
+    assert items and all(0.0 <= it['pct'] <= 1.0 for it in items)

@@ -361,6 +361,7 @@ def main_page():
             session['analysis_gen'] += 1
             render_board()
             refresh_status()
+            update_cvc_controls()
             trigger_analysis()
             if game.is_over():
                 show_result()
@@ -381,21 +382,25 @@ def main_page():
             update_cvc_controls()
             return True
 
-        async def finish_ai_move(ai_type, budget, depth):
+        async def finish_ai_move(ai_type, budget, depth, g0=None):
+            if g0 is None:
+                g0 = game
             try:
                 move = await asyncio.to_thread(
-                    get_ai_move, game, ai_type, budget, depth)
+                    get_ai_move, g0, ai_type, budget, depth)
             except Exception as e:
                 log.error('AI move error (%s): %s', ai_type, e)
-                if session.get('ai_busy') == id(game):
+                if session.get('ai_busy') == id(g0):
                     session['ai_busy'] = None
                     refresh_status()
                 return
-            if session.get('ai_busy') == id(game):
+            if g0 is not session['game']:
+                return  # rewound/restarted while thinking: drop the stale move
+            if session.get('ai_busy') == id(g0):
                 session['ai_busy'] = None
-            side = game.current
+            side = g0.current
             log.info('AI move: %s (%s) -> %s [%s]', side, ai_type, move_text(move),
-                     'Normal' if isinstance(game, NormalGame) else 'Ultimate')
+                     'Normal' if isinstance(g0, NormalGame) else 'Ultimate')
             apply_ai_move(move)
 
         def step_ai_move():
@@ -409,7 +414,7 @@ def main_page():
             ai_type = x_type if game.current == X else o_type
             session['ai_busy'] = id(game)
             background_tasks.create(finish_ai_move(
-                ai_type, session['mcts'], session.get('minimax_depth', 3)))
+                ai_type, session['mcts'], session.get('minimax_depth', 3), game))
             refresh_status()
             return False
 
@@ -433,6 +438,7 @@ def main_page():
             next_btn.set_enabled(rewound or (
                 ai_turn and session.get('ai_busy') is None))
             pause_btn.set_text(t('Resume', '繼續') if paused else t('Pause', '暫停'))
+            pause_btn.set_icon('play_arrow' if paused else 'pause')
 
         def on_speed_change(e):
             speed = float(e.value)
@@ -451,16 +457,19 @@ def main_page():
             render_history()
 
         def go_to_step(k):
+            nonlocal game
             moves = session['moves']
             k = max(0, min(int(k), len(moves)))
             if k == session['step']:
                 return
-            game_timer.stop()
-            session['cvc_paused'] = k < len(moves)
+            if session['mode'] == 'cvc':
+                game_timer.deactivate()
+            session['cvc_paused'] = session['mode'] == 'cvc' and k < len(moves)
             g = NormalGame() if session['game_type'] == 'normal' else UltimateGame()
             for mv in moves[:k]:
                 apply_move(g, mv)
             session['game'] = g
+            game = g
             session['step'] = k
             session['analysis_gen'] += 1
             render_board()
@@ -468,9 +477,11 @@ def main_page():
             update_cvc_controls()
             render_history()
             trigger_analysis()
-            if (not session.get('cvc_paused', False) and session['mode'] == 'cvc'
+            if (session['mode'] == 'cvc' and not session.get('cvc_paused', False)
                     and not g.is_over() and is_ai_turn(session)):
-                game_timer.start()
+                game_timer.activate()
+            elif session['mode'] == 'pvc' and not g.is_over():
+                game_timer.activate()
 
         def render_history():
             moves = session['moves']
@@ -499,13 +510,10 @@ def main_page():
         def on_pause_click():
             session['cvc_paused'] = not session.get('cvc_paused', False)
             if session['cvc_paused']:
-                game_timer.stop()
-                pause_btn.set_text(t('Resume', '繼續'))
-            else:
-                pause_btn.set_text(t('Pause', '暫停'))
-                if (session['mode'] == 'cvc' and not game.is_over()
-                        and is_ai_turn(session)):
-                    game_timer.start()
+                game_timer.deactivate()
+            elif (session['mode'] == 'cvc' and not game.is_over()
+                    and is_ai_turn(session)):
+                game_timer.activate()
             update_cvc_controls()
 
         def step_btn_click():
@@ -569,16 +577,21 @@ def main_page():
                     ui.spinner(size='sm')
                     ui.label(t('Analyzing...', '分析中...')).classes('text-caption')
             budget = session['mcts'] if isinstance(snapshot, UltimateGame) else 0
-            items, rates = await asyncio.to_thread(
-                analyze_position, snapshot, budget)
-            if gid == session['game_id'] and 0 <= step < len(session['history']) \
+            try:
+                items, rates = await asyncio.to_thread(
+                    analyze_position, snapshot, budget)
+            except Exception as e:
+                log.error('Analysis failed: %s', e)
+                items, rates = [], (0.5, 0.0, 0.5)
+            finally:
+                session['analyzing'] = False
+            if gid == session['game_id'] and gen == session['analysis_gen'] \
+                    and 0 <= step < len(session['history']) \
                     and session['history'][step] is None:
                 session['history'][step] = tuple(rates)
                 render_history()
             if session['game'] is not current_game:
-                session['analyzing'] = False
                 return
-            session['analyzing'] = False
             if (gen == session['analysis_gen'] and session['screen'] == 'game'
                     and session['assistant_enabled']):
                 render_analysis(items, rates)

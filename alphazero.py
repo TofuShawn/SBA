@@ -326,7 +326,10 @@ def select_move(game, model, budget=800, temp=0.0, c_puct=1.5,
             return best_m
         return pool[0]
     p = n ** (1.0 / temp)
-    p /= p.sum()
+    total = p.sum()
+    if total <= 0:
+        return random.choice(moves)
+    p /= total
     return moves[int(np.random.choice(len(moves), p=p))]
 
 
@@ -437,7 +440,7 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             optimizer.step()
             total_loss += float(loss_p + loss_v)
         model.eval()
-        if not quiet and (it % max(1, games // 10) == 0 or it == games):
+        if not quiet and (it % max(1, eval_every) == 0 or it == games):
             el = time.time() - start
             w, d, l = evaluate()
             print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'

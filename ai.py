@@ -17,6 +17,7 @@ Maintenance notes:
 - AlphaZero falls back to MCTS when no trained model exists (see models/).
 """
 
+import logging
 import math
 import os
 import random
@@ -25,8 +26,11 @@ import time
 
 from game import (
     X, O, EMPTY, LINES,
-    NormalGame, UltimateGame, apply_move, apply_clone_result, count_threats,
+    NormalGame, UltimateGame, BitUltimateGame,
+    apply_move, apply_clone_result, count_threats,
 )
+
+log = logging.getLogger('ai')
 
 
 # ============================================================
@@ -232,7 +236,7 @@ def _minimax_ultimate(game, depth, alpha, beta, maximizing, ai_player):
     if result is not None:
         if result == 'D':
             return 0
-        return 100000 if result == ai_player else -100000
+        return 100000 - depth if result == ai_player else depth - 100000
     if depth == 0:
         return eval_ultimate(game, ai_player)
     if maximizing:
@@ -351,6 +355,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
         root_state = game.clone()
         root = (pool.acquire(root_state, None, None, None)
                 if pool is not None else MCTSNode(root_state, None, None, None))
+    start_visits = root.visits
     root_sym = set()
     for it in range(iterations):
         node = root
@@ -360,7 +365,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
                 break
             if not node.children:
                 break
-            node = node.best_child(_uct_scale(c, root.visits, iterations))
+            node = node.best_child(_uct_scale(c, root.visits - start_visits, iterations))
             apply_move(state, node.move)
         if node.untried and _can_expand(node):
             m = _pop_untried(node, root_sym, node is root)
@@ -549,6 +554,37 @@ def _uct_scale(c, root_visits, iterations):
 
 _REUSE = {}
 
+# The subtree right after the engine's own move, per engine. Tree reuse uses
+# it to locate the opponent's reply and descend into the matching child.
+_REUSE_LAST = {}
+
+
+def _diff_move(old_state, new_game):
+    """Return the single move leading from old_state to new_game, else None.
+
+    Used by tree reuse: _REUSE_LAST holds the position right after the
+    engine's own move, so a current position one opponent reply later differs
+    by exactly one filled cell. Rewinds, branches, and different games yield
+    None (fresh search).
+    """
+    if isinstance(new_game, NormalGame):
+        if not isinstance(old_state, NormalGame):
+            return None
+        diff = [i for i in range(9) if old_state.board[i] != new_game.board[i]]
+        if len(diff) != 1 or new_game.board[diff[0]] == EMPTY:
+            return None
+        return diff[0]
+    if not hasattr(old_state, 'micro'):
+        return None
+    diffs = []
+    for m in range(9):
+        for i in range(9):
+            if old_state.micro[m][i] != new_game.micro[m][i]:
+                diffs.append((m, i))
+    if len(diffs) != 1 or new_game.micro[diffs[0][0]][diffs[0][1]] == EMPTY:
+        return None
+    return diffs[0]
+
 
 def _d4_perms():
     """Eight D4 permutations of the 9 cells of a 3x3 grid."""
@@ -589,6 +625,7 @@ def _sym_images(move):
 def reset_engine_caches():
     """Drop module-level search caches (used by self-tests/bench)."""
     _REUSE.clear()
+    _REUSE_LAST.clear()
     _get_tt().clear()
     _get_killers().clear()
 
@@ -718,6 +755,7 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
     else:
         root_state = game.clone()
         root = RAVENode(root_state, None, None, None)
+    start_visits = root.visits
     root_sym = set()
     for it in range(iterations):
         node = root
@@ -727,7 +765,7 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 break
             if not node.children:
                 break
-            node = node.best_child(_uct_scale(c, root.visits, iterations), k)
+            node = node.best_child(_uct_scale(c, root.visits - start_visits, iterations), k)
             apply_move(state, node.move)
         rollout_moves = []
         if node.untried and _can_expand(node):
@@ -836,6 +874,7 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
         root_state = game.clone()
         root = GraveNode(root_state, None, None, None)
         root.ref = root
+    start_visits = root.visits
     root_sym = set()
     for it in range(iterations):
         node = root
@@ -845,7 +884,7 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                 break
             if not node.children:
                 break
-            node = node.best_child(_uct_scale(c, root.visits, iterations), k)
+            node = node.best_child(_uct_scale(c, root.visits - start_visits, iterations), k)
             apply_move(state, node.move)
         rollout_moves = []
         if node.untried and _can_expand(node):
@@ -908,7 +947,8 @@ def mcts_grave_move(game, iterations):
 # Minimax Pro: negamax + transposition table + iterative deepening
 # ---------------------------------------------------------------
 
-_TT_MAX = cfg_engine('tt_max', 300000)
+def _tt_max():
+    return cfg_engine('tt_max', 300000)
 
 # The transposition table and killer moves are per-thread so concurrent
 # browser sessions using Minimax Pro (web runs AI via asyncio.to_thread) do
@@ -1033,7 +1073,7 @@ def _negamax_tt(game, depth, alpha, beta):
         flag = 1
     elif best >= beta:
         flag = -1
-    if len(_get_tt()) < _TT_MAX:
+    if len(_get_tt()) < _tt_max():
         _get_tt()[key] = (depth, flag, best, best_move)
     return best
 
@@ -1064,7 +1104,8 @@ def minimax_pro_move(game, depth=5, time_limit=8.0):
     for d in range(1, depth + 1):
         alpha, beta = -math.inf, math.inf
         if use_asp and d > 1 and prev_val is not None:
-            alpha, beta = prev_val - 50, prev_val + 50
+            margin = max(200, int(abs(prev_val) * 0.1))
+            alpha, beta = prev_val - margin, prev_val + margin
         bm, bv = search_root(d, alpha, beta)
         if bm is None:
             return best_move
@@ -1168,7 +1209,6 @@ def _mcts_move(game, ai_type, budget):
         return mcts_move_parallel(game, budget, cfg_engine('workers', 4))
     reuse = cfg_engine('tree_reuse', True)
     if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
-        from game import BitUltimateGame
         search_game = BitUltimateGame.from_game(game)
     else:
         search_game = game
@@ -1178,6 +1218,13 @@ def _mcts_move(game, ai_type, budget):
     if reuse:
         key = (ai_type, _tt_key(game))
         prev = _REUSE.pop(key, None)
+        if prev is None:
+            last = _REUSE_LAST.get(ai_type)
+            if last is not None:
+                reply = _diff_move(last.state, game)
+                if reply is not None:
+                    prev = next((c for c in last.children
+                                 if c.move == reply), None)
     if ai_type == 'MCTS':
         root = mcts_search(search_game, budget, prev_root=prev, pool=pool)
     elif ai_type == 'MCTS+RAVE':
@@ -1191,6 +1238,7 @@ def _mcts_move(game, ai_type, budget):
         child = next((c for c in root.children if c.move == move), None)
         if child is not None:
             _REUSE[(ai_type, _tt_key(g))] = child
+            _REUSE_LAST[ai_type] = child
             if len(_REUSE) > cfg_engine('reuse_cache', 32):
                 _REUSE.pop(next(iter(_REUSE)))
     if pool is not None:
@@ -1202,9 +1250,13 @@ def mcts_move_parallel(game, iterations, workers=4):
     """Run several independent MCTS searches and merge their root stats."""
     chunk = max(1, iterations // workers)
     results = []
+    if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
+        base = BitUltimateGame.from_game(game)
+    else:
+        base = game
 
     def work():
-        results.append(mcts_search(game.clone(), chunk))
+        results.append(mcts_search(base.clone(), chunk))
 
     threads = [threading.Thread(target=work) for _ in range(workers)]
     for t in threads:
@@ -1218,7 +1270,8 @@ def mcts_move_parallel(game, iterations, workers=4):
             s[0] += c.visits
             s[1] += c.wins
     if not stats:
-        return random.choice(game.legal_moves())
+        moves = game.legal_moves()
+        return random.choice(moves) if moves else None
     best_move = max(stats, key=lambda m: stats[m][1] / max(1, stats[m][0]))
     best_ratio = stats[best_move][1] / max(1, stats[best_move][0])
     for m, (v, w) in stats.items():
@@ -1362,7 +1415,11 @@ def analyze_position(game, mcts_budget):
                      ((0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0)))
         return items, rates
     else:
-        root = mcts_search(game, mcts_budget)
+        if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
+            search_game = BitUltimateGame.from_game(game)
+        else:
+            search_game = game
+        root = mcts_search(search_game, mcts_budget)
         for child in sorted(root.children,
                             key=lambda c: (-c.visits, -c.wins / max(1, c.visits)))[:5]:
             if child.visits == 0:
@@ -1405,7 +1462,11 @@ def position_win_rates(game, mcts_budget):
                 (0.0, 1.0, 0.0) if best == 0 else (0.0, 0.0, 1.0))
         return (0.0, 0.0, 1.0) if best > 0 else (
             (0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0))
-    root = mcts_search(game, mcts_budget)
+    if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
+        search_game = BitUltimateGame.from_game(game)
+    else:
+        search_game = game
+    root = mcts_search(search_game, mcts_budget)
     return _rates_from_root(root, game)
 
 

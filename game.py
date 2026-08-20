@@ -223,6 +223,8 @@ class BitUltimateGame:
 
     def make_move(self, m, i):
         bit = 1 << (m * 9 + i)
+        if (self.x | self.o) & bit:
+            raise ValueError('cell is occupied')
         if self.current == X:
             self.x |= bit
         else:
@@ -272,7 +274,9 @@ class BitUltimateGame:
 
     @property
     def macro(self):
-        return [X if self.mx & (1 << m) else (O if self.mo & (1 << m) else EMPTY)
+        return [X if self.mx & (1 << m) else
+                (O if self.mo & (1 << m) else
+                 ('D' if self._micro_bits(m) == 0x1FF else EMPTY))
                 for m in range(9)]
 
 
@@ -326,7 +330,7 @@ def win_segment(line, coord):
 def macro_center(m):
     r, c = divmod(m, 3)
     return 100.0 / 6 * (2 * c + 1), 100.0 / 6 * (2 * r + 1)
-
+ 
 
 def win_badge_svg(player):
     if player == X:

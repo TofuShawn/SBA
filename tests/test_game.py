@@ -2,6 +2,8 @@
 
 import random
 
+import pytest
+
 from game import (
     X, O, EMPTY,
     NormalGame, UltimateGame, BitUltimateGame, apply_move,
@@ -93,3 +95,18 @@ def test_bitboard_equivalence():
             b.make_move(*m)
             steps += 1
         assert a.result() == b.result()
+
+
+def test_bitboard_occupied_cell_raises():
+    b = BitUltimateGame()
+    b.make_move(0, 0)
+    with pytest.raises(ValueError):
+        b.make_move(0, 0)
+
+
+def test_bitboard_drawn_macro_displays_D():
+    g = UltimateGame()
+    g.micro[0] = [X, O, X, X, O, O, O, X, X]
+    g.macro[0] = 'D'
+    b = BitUltimateGame.from_game(g)
+    assert b.macro[0] == 'D'
