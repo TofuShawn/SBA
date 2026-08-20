@@ -28,7 +28,7 @@ try:
     from PySide6.QtCore import (QEasingCurve, QRectF, QSize, Qt, QThread,
                                 QTimer, QVariantAnimation, Signal)
     from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
-    from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
+    from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
@@ -874,13 +874,13 @@ class GamePage(QWidget):
         ctrl_bar.setObjectName('card')
         ctrl_lay = QHBoxLayout(ctrl_bar)
         ctrl_lay.setContentsMargins(8, 6, 8, 6)
-        self.revert_btn = _si_button(t('Revert', '回退'))
+        self.revert_btn = QPushButton(t('Revert', '回退'))
         self.revert_btn.clicked.connect(self.on_revert_clicked)
         ctrl_lay.addWidget(self.revert_btn)
-        self.pause_btn = _si_button(t('Pause', '暫停'))
+        self.pause_btn = QPushButton(t('Pause', '暫停'))
         self.pause_btn.clicked.connect(self.on_pause_clicked)
         ctrl_lay.addWidget(self.pause_btn)
-        self.next_btn = _si_button(t('Next Step', '下一步'))
+        self.next_btn = QPushButton(t('Next Step', '下一步'))
         self.next_btn.clicked.connect(self.on_step_clicked)
         ctrl_lay.addWidget(self.next_btn)
         self.hist_slider = QSlider(Qt.Horizontal)
@@ -976,7 +976,7 @@ class GamePage(QWidget):
         hint = QLabel(t('Click a move to highlight it', '點擊棋步可在棋盤上標示'))
         hint.setObjectName('muted')
         az_lay.addWidget(hint)
-        panel.addWidget(az_card)
+        panel.addWidget(az_card, 1)
 
         # CvC controls card
         self.cvc_card = QFrame()
@@ -1007,7 +1007,7 @@ class GamePage(QWidget):
         panel_widget.setObjectName('sidePanel')
         _glass_shadow(panel_widget)
         panel_widget.setLayout(panel)
-        panel_widget.setFixedWidth(320)
+        panel_widget.setFixedWidth(340)
         body.addWidget(panel_widget)
         root.addLayout(body, 1)
 
@@ -1037,6 +1037,15 @@ class GamePage(QWidget):
         self.hist_x_series.attachAxis(self.hist_axis_y)
         self.hist_ref.attachAxis(self.hist_axis)
         self.hist_ref.attachAxis(self.hist_axis_y)
+        self.hist_dot = QScatterSeries()
+        self.hist_dot.setName(t('Current', '目前'))
+        self.hist_dot.setMarkerSize(10.0)
+        self.hist_dot.setColor(QColor('#B3261E'))
+        self.hist_dot.setBorderColor(QColor('#B3261E'))
+        self.hist_chart.addSeries(self.hist_dot)
+        self.hist_dot.attachAxis(self.hist_axis)
+        self.hist_dot.attachAxis(self.hist_axis_y)
+        self.hist_x_series.setPointsVisible(True)
         self.hist_chart_view = QChartView(self.hist_chart)
         self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
         self.hist_chart_view.setMinimumHeight(200)
@@ -1116,10 +1125,12 @@ class GamePage(QWidget):
         self.hist_label.setText(f'{self.step_idx} / {n}')
         self.hist_x_series.clear()
         self.hist_ref.clear()
+        self.hist_dot.clear()
         for k, (x, d, o) in enumerate(history):
             self.hist_x_series.append(k, x * 100.0)
             self.hist_ref.append(k, 50.0)
         if history:
+            self.hist_dot.append(self.step_idx, history[self.step_idx][0] * 100.0)
             self.hist_axis.setRange(0, max(1, len(history) - 1))
             self.hist_axis_y.setRange(0, 100)
 
@@ -1294,9 +1305,9 @@ class GamePage(QWidget):
         auto = self.session.get('cvc_auto', True)
         paused = self.session.get('cvc_paused', False)
         self.revert_btn.setEnabled(self.step_idx > 0)
-        _si_set_enabled(self.pause_btn, True)
+        self.pause_btn.setEnabled(True)
         self.pause_btn.setText(t('Resume', '繼續') if paused else t('Pause', '暫停'))
-        _si_set_enabled(self.next_btn, rewound or (ai_turn and not self.busy))
+        self.next_btn.setEnabled(rewound or (ai_turn and not self.busy))
 
     # -- assistant ---------------------------------------------------------
 

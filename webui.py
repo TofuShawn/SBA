@@ -475,6 +475,16 @@ def main_page():
             hist_chart.options['xAxis']['data'] = list(range(len(history)))
             hist_chart.options['series'][0]['data'] = [
                 round(x * 100, 1) for x, _, _ in history]
+            if history:
+                hist_chart.options['series'][0]['markPoint'] = {
+                    'data': [{
+                        'coord': [session['step'],
+                                  round(history[session['step']][0] * 100, 1)],
+                        'symbol': 'circle', 'symbolSize': 10,
+                        'itemStyle': {'color': '#B3261E'},
+                    }]}
+            else:
+                hist_chart.options['series'][0]['markPoint'] = {'data': []}
             hist_chart.update()
 
         def on_pause_click():
@@ -617,6 +627,11 @@ def main_page():
                               on_click=start_game).props('flat')
             with ui.column().classes('w-full max-w-sm gap-3 sm:w-80 sm:max-w-none'):
                 with ui.card().classes('w-full'):
+                    analysis_ui = ui.column().classes('gap-1')
+                    ui.label(t('Click a move to highlight it on the board',
+                               '點擊棋步可在棋盤上標示')).classes(
+                        'text-caption text-grey q-mb-xs')
+                with ui.card().classes('w-full'):
                     with ui.column().classes('gap-1'):
                         ui.label(t('Game Info', '遊戲資訊')).classes('text-subtitle1')
                         header_info = ui.label('').classes('text-caption text-grey')
@@ -649,11 +664,6 @@ def main_page():
                                 on_click=step_btn_click).props('flat')
                             step_btn.mark('step-btn')
                             step_btn.disable()
-                with ui.card().classes('w-full'):
-                    analysis_ui = ui.column().classes('gap-1')
-                    ui.label(t('Click a move to highlight it on the board',
-                               '點擊棋步可在棋盤上標示')).classes(
-                        'text-caption text-grey q-mb-xs')
 
         # Bottom: win-rate chart (single line; above 50% = X favored) + steps
         with ui.card().classes('w-full'):
@@ -664,9 +674,10 @@ def main_page():
                 'yAxis': {'type': 'value', 'min': 0, 'max': 100, 'name': '%'},
                 'series': [{
                     'name': t('X win rate', 'X 勝率'),
-                    'type': 'line', 'smooth': True, 'data': [],
+                    'type': 'line', 'smooth': True, 'showSymbol': True, 'data': [],
                     'itemStyle': {'color': '#6750A4'},
                     'lineStyle': {'color': '#6750A4'},
+                    'markPoint': {'data': []},
                     'markLine': {
                         'silent': True,
                         'symbol': 'none',
