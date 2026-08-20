@@ -471,8 +471,6 @@ def main_page():
             hist_chart.options['xAxis']['data'] = list(range(len(history)))
             hist_chart.options['series'][0]['data'] = [
                 round(x * 100, 1) for x, _, _ in history]
-            hist_chart.options['series'][1]['data'] = [
-                round(o * 100, 1) for _, _, o in history]
             hist_chart.update()
             hist_list.clear()
             with hist_list:
@@ -606,6 +604,20 @@ def main_page():
                     status_spinner = ui.spinner(size='sm')
                     status_spinner.set_visibility(False)
                     status_text = ui.label('').classes('text-h6')
+                with ui.row().classes('w-full items-center gap-2'):
+                    revert_btn = ui.button(
+                        t('Revert', '回退'), icon='undo',
+                        on_click=lambda: go_to_step(session['step'] - 1)).props('flat')
+                    pause_btn = ui.button(
+                        t('Pause', '暫停'), icon='pause',
+                        on_click=on_pause_click).props('flat')
+                    next_btn = ui.button(
+                        t('Next Step', '下一步'), icon='skip_next',
+                        on_click=on_next_click).props('flat')
+                    hist_slider = ui.slider(min=0, max=0, value=0).props('label-always')
+                    hist_slider.classes('flex-1')
+                    hist_slider.on_value_change(lambda e: go_to_step(int(e.value)))
+                    hist_slider_label = ui.label('0 / 0').classes('text-caption text-grey')
                 board_ui = ui.element('div').classes('board-wrap')
                 render_board()
                 with ui.row().classes('gap-2'):
@@ -651,39 +663,29 @@ def main_page():
                     ui.label(t('Click a move to highlight it on the board',
                                '點擊棋步可在棋盤上標示')).classes(
                         'text-caption text-grey q-mb-xs')
-                with ui.card().classes('w-full'):
-                    with ui.column().classes('gap-1'):
-                        ui.label(t('History & Controls', '歷史與控制')).classes('text-subtitle1')
-                        hist_chart = ui.echart({
-                            'grid': {'left': 40, 'right': 16, 'top': 28, 'bottom': 24},
-                            'xAxis': {'type': 'category', 'data': [],
-                                      'name': t('Step', '步')},
-                            'yAxis': {'type': 'value', 'min': 0, 'max': 100, 'name': '%'},
-                            'series': [
-                                {'name': 'X', 'type': 'line', 'smooth': True, 'data': [],
-                                 'itemStyle': {'color': '#6750A4'},
-                                 'lineStyle': {'color': '#6750A4'}},
-                                {'name': 'O', 'type': 'line', 'smooth': True, 'data': [],
-                                 'itemStyle': {'color': '#B3261E'},
-                                 'lineStyle': {'color': '#B3261E'}},
-                            ],
-                            'legend': {'show': True, 'top': 0},
-                        }).classes('w-full').style('height: 160px')
-                        hist_slider = ui.slider(min=0, max=0, value=0).props('label-always')
-                        hist_slider.on_value_change(lambda e: go_to_step(int(e.value)))
-                        hist_slider_label = ui.label('0 / 0').classes(
-                            'text-caption text-grey')
-                        with ui.row().classes('gap-2'):
-                            revert_btn = ui.button(
-                                t('Revert', '回退'), icon='undo',
-                                on_click=lambda: go_to_step(session['step'] - 1)).props('flat')
-                            pause_btn = ui.button(
-                                t('Pause', '暫停'), icon='pause',
-                                on_click=on_pause_click).props('flat')
-                            next_btn = ui.button(
-                                t('Next Step', '下一步'), icon='skip_next',
-                                on_click=on_next_click).props('flat')
-                        hist_list = ui.list().props('dense').classes('w-full')
+
+        # Bottom: win-rate chart (single line; above 50% = X favored) + steps
+        with ui.card().classes('w-full'):
+            hist_chart = ui.echart({
+                'grid': {'left': 40, 'right': 16, 'top': 24, 'bottom': 24},
+                'xAxis': {'type': 'category', 'data': [],
+                          'name': t('Step', '步')},
+                'yAxis': {'type': 'value', 'min': 0, 'max': 100, 'name': '%'},
+                'series': [{
+                    'name': t('X win rate', 'X 勝率'),
+                    'type': 'line', 'smooth': True, 'data': [],
+                    'itemStyle': {'color': '#6750A4'},
+                    'lineStyle': {'color': '#6750A4'},
+                    'markLine': {
+                        'silent': True,
+                        'symbol': 'none',
+                        'data': [{'yAxis': 50}],
+                        'lineStyle': {'type': 'dashed', 'color': '#79747E'},
+                    },
+                }],
+                'legend': {'show': True, 'top': 0},
+            }).classes('w-full').style('height: 140px')
+            hist_list = ui.list().props('dense').classes('w-full')
 
         refresh_status()
         trigger_analysis()
