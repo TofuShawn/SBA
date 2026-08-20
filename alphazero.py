@@ -1,13 +1,16 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""AlphaZero-style neural-guided MCTS for (Ultimate) Tic Tac Toe.
+"""AlphaZero-style neural-guided MCTS for Tic Tac Toe.
 
 Self-contained: works with any game object exposing the SBA.py interface
 (NormalGame / UltimateGame): board/micro+macro, legal_moves(), is_over(),
 result(), clone(), make_move(...), current.
 
-Training (Ultimate only; Normal Tic Tac Toe is a solved game and is not supported):
+The CLI trains/evaluates the Ultimate model (recommended — Normal Tic Tac
+Toe is a solved game); the train()/load_model() functions also accept
+'normal' and will use models/az_normal.pt:
+
     python alphazero.py train --games 400 --sims 80
 
 Evaluation vs random:
@@ -16,7 +19,8 @@ Evaluation vs random:
 Models are saved to ./models/az_<game>.pt
 
 Maintenance notes:
-- Training/evaluation are Ultimate-only (decision D4).
+- The CLI targets Ultimate (decision D4); Normal support is kept in the
+  library functions only, for experimentation on a solved game.
 - Without a trained model in models/, the engine falls back to MCTS.
 """
 

@@ -532,8 +532,8 @@ def _sym_images(move):
 def reset_engine_caches():
     """Drop module-level search caches (used by self-tests/bench)."""
     _REUSE.clear()
-    _TT.clear()
-    _KILLERS.clear()
+    _get_tt().clear()
+    _get_killers().clear()
 
 
 # ---------------------------------------------------------------
@@ -851,9 +851,26 @@ def mcts_grave_move(game, iterations):
 # Minimax Pro: negamax + transposition table + iterative deepening
 # ---------------------------------------------------------------
 
-_TT = {}
 _TT_MAX = cfg_engine('tt_max', 300000)
-_KILLERS = {}
+
+# The transposition table and killer moves are per-thread so concurrent
+# browser sessions using Minimax Pro (web runs AI via asyncio.to_thread) do
+# not clear each other's caches; each thread still gets full search speed.
+_tls = threading.local()
+
+
+def _get_tt():
+    tt = getattr(_tls, 'tt', None)
+    if tt is None:
+        tt = _tls.tt = {}
+    return tt
+
+
+def _get_killers():
+    killers = getattr(_tls, 'killers', None)
+    if killers is None:
+        killers = _tls.killers = {}
+    return killers
 
 
 def _tt_key(game):
@@ -900,7 +917,7 @@ def _order_moves(game, tt_move=None, depth=None):
             if m == tt_move:
                 scored[i] = (s + 10 ** 9, m)
     if depth is not None and cfg_engine('use_killers', True):
-        for k in _KILLERS.get(depth, []):
+        for k in _get_killers().get(depth, []):
             for i, (s, m) in enumerate(scored):
                 if m == k:
                     scored[i] = (s + 10 ** 8, m)
@@ -917,7 +934,7 @@ def _negamax_tt(game, depth, alpha, beta):
     if depth == 0:
         return eval_ultimate(game, game.current)
     key = _tt_key(game)
-    entry = _TT.get(key)
+    entry = _get_tt().get(key)
     if entry is not None and entry[0] >= depth:
         _, flag, score, _ = entry
         if flag == 0:
@@ -947,26 +964,27 @@ def _negamax_tt(game, depth, alpha, beta):
         if alpha >= beta:
             if (cfg_engine('use_killers', True) and depth >= 2
                     and best_move is not None and best_move != tt_move):
-                _KILLERS.setdefault(depth, [])
-                if best_move not in _KILLERS[depth]:
-                    _KILLERS[depth].append(best_move)
-                    if len(_KILLERS[depth]) > 2:
-                        _KILLERS[depth].pop(0)
+                killers = _get_killers()
+                killers.setdefault(depth, [])
+                if best_move not in killers[depth]:
+                    killers[depth].append(best_move)
+                    if len(killers[depth]) > 2:
+                        killers[depth].pop(0)
             break
     flag = 0
     if best <= alpha0:
         flag = 1
     elif best >= beta:
         flag = -1
-    if len(_TT) < _TT_MAX:
-        _TT[key] = (depth, flag, best, best_move)
+    if len(_get_tt()) < _TT_MAX:
+        _get_tt()[key] = (depth, flag, best, best_move)
     return best
 
 
 def minimax_pro_move(game, depth=5, time_limit=8.0):
     """Normal: perfect full search. Ultimate: ID negamax + TT + time cap."""
-    _TT.clear()
-    _KILLERS.clear()
+    _get_tt().clear()
+    _get_killers().clear()
     if isinstance(game, NormalGame):
         return minimax_move_normal(game)[0]
     start = time.time()

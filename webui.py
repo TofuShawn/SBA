@@ -62,7 +62,12 @@ def main_page():
         sid = str(uuid.uuid4())
         app.storage.user['sid'] = sid
         SESSIONS[sid] = new_session()
+        if len(SESSIONS) > 500:  # backstop: drop the oldest session
+            SESSIONS.pop(next(iter(SESSIONS)))
     session = SESSIONS[sid]
+    # Drop this browser's session when it disconnects so a long-running
+    # server does not accumulate one entry per visitor.
+    app.on_disconnect(lambda _client, sid=sid: SESSIONS.pop(sid, None))
     cell_refs = {}
 
     ui.colors(primary='#6750A4', secondary='#625B71', accent='#B3261E')
@@ -470,23 +475,28 @@ def main_page():
                     ui.label(t('Assistant disabled', '助手已關閉')).classes(
                         'text-caption text-grey')
 
+        # One dialog for the whole page lifetime (reused every game) so the
+        # DOM does not accumulate a new dialog after each finished game.
+        with ui.dialog() as result_dialog:
+            with ui.card():
+                result_title = ui.label('').classes('text-h5')
+                ui.label(t('What would you like to do?', '你想做什麼？')).classes(
+                    'text-body2 text-grey')
+                with ui.row().classes('gap-2'):
+                    ui.button(t('Play Again', '再玩一次'),
+                              on_click=lambda: (result_dialog.close(), start_game()))
+                    ui.button(t('Back to Menu', '返回選單'),
+                              on_click=lambda: (result_dialog.close(), show_menu()))
+
         def show_result():
             result = game.result()
             log.info('Game over: %s [%s]', result,
                      'Normal' if isinstance(game, NormalGame) else 'Ultimate')
-            title = (t("It's a draw!", '平局！') if result == 'D'
-                     else f'Player {result} wins! (玩家 {result} 獲勝！)')
+            result_title.set_text(
+                (t("It's a draw!", '平局！') if result == 'D'
+                 else f'Player {result} wins! (玩家 {result} 獲勝！)'))
             try:
-                with ui.dialog() as dlg, ui.card():
-                    ui.label(title).classes('text-h5')
-                    ui.label(t('What would you like to do?', '你想做什麼？')).classes(
-                        'text-body2 text-grey')
-                    with ui.row().classes('gap-2'):
-                        ui.button(t('Play Again', '再玩一次'),
-                                  on_click=lambda: (dlg.close(), start_game()))
-                        ui.button(t('Back to Menu', '返回選單'),
-                                  on_click=lambda: (dlg.close(), show_menu()))
-                dlg.open()
+                result_dialog.open()
             except RuntimeError:
                 pass
 

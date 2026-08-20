@@ -340,6 +340,21 @@ def self_test():
     pct = position_win_rate(gu4, 200)
     check('win rate: ultimate in [0,1]', 0.0 <= pct <= 1.0)
 
+    # thread-local TT: concurrent Minimax Pro calls must not corrupt each other
+    import threading as _th
+    _tt_ok = []
+
+    def _mp_worker():
+        g = UltimateGame()
+        _tt_ok.append(minimax_pro_move(g, depth=3) in g.legal_moves())
+
+    _threads = [_th.Thread(target=_mp_worker) for _ in range(2)]
+    for _t in _threads:
+        _t.start()
+    for _t in _threads:
+        _t.join()
+    check('thread-local TT: concurrent minimax pro works', all(_tt_ok))
+
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
     gu.micro[2] = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
