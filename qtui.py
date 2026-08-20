@@ -64,6 +64,7 @@ PALETTE = {
         'cell_empty': '#F3EDF7',
         'cell_filled': '#ECE6F0',
         'macro_active': 'rgba(103, 80, 164, 0.10)',
+        'active_outline': '#1976D2',
         'macro_won_x': 'rgba(103, 80, 164, 0.14)',
         'macro_won_o': 'rgba(179, 38, 30, 0.10)',
         'grid_line': '#CAC4D0',
@@ -79,6 +80,7 @@ PALETTE = {
         'cell_empty': '#211F26',
         'cell_filled': '#2B2930',
         'macro_active': 'rgba(208, 188, 255, 0.12)',
+        'active_outline': '#64B5F6',
         'macro_won_x': 'rgba(208, 188, 255, 0.16)',
         'macro_won_o': 'rgba(255, 180, 171, 0.14)',
         'grid_line': '#49454F',
@@ -593,6 +595,14 @@ class BoardWidget(QWidget):
             y = oy + i * (cell + self.GAP) - self.GAP / 2
             painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
             painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
+        # blue outline on the chunk the player must play in (Ultimate);
+        # drawn on top and slightly outside the chunk so cells don't cover it
+        if (self.game.active_macro is not None
+                and self.game.macro_open(self.game.active_macro)):
+            rect = self._macro_rect(self.game.active_macro, cell, ox, oy)
+            painter.setPen(QPen(QColor(PAL['active_outline']), 3))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(-2.5, -2.5, 2.5, 2.5), 10, 10)
         # won macro chunks: fill with the player's color and show a white
         # mark; hovering reveals the underlying cells (blend 0 = filled,
         # 1 = fully revealed)
