@@ -17,6 +17,7 @@ Maintenance notes:
 import math
 import os
 import random
+import threading
 import time
 
 from game import (
@@ -301,14 +302,53 @@ class MCTSNode:
         return best
 
 
-def mcts_search(game, iterations, c=None, prev_root=None):
+class NodePool:
+    """Reusable MCTSNode objects to reduce GC churn.
+
+    Only used when tree reuse is off — a retained subtree must never be
+    pooled while it is still referenced.
+    """
+
+    def __init__(self):
+        self._free = []
+
+    def acquire(self, state, move, parent, mover):
+        if self._free:
+            n = self._free.pop()
+            n.state = state
+            n.move = move
+            n.parent = parent
+            n.children = []
+            n.mover = mover
+            n.visits = 0
+            n.wins = 0.0
+            n.untried = [] if state.is_over() else state.legal_moves()
+            random.shuffle(n.untried)
+            return n
+        return MCTSNode(state, move, parent, mover)
+
+    def release(self, root):
+        stack = [root]
+        while stack:
+            n = stack.pop()
+            stack.extend(n.children)
+            n.children = []
+            self._free.append(n)
+
+
+_POOL = NodePool()
+
+
+def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
     c = cfg_engine('uct_c', 1.4) if c is None else c
     if prev_root is not None:
         root = prev_root
         root_state = root.state
     else:
         root_state = game.clone()
-        root = MCTSNode(root_state, None, None, None)
+        root = (pool.acquire(root_state, None, None, None)
+                if pool is not None else MCTSNode(root_state, None, None, None))
+    root_sym = set()
     for it in range(iterations):
         node = root
         state = root_state.clone()
@@ -320,12 +360,14 @@ def mcts_search(game, iterations, c=None, prev_root=None):
             node = node.best_child(_uct_scale(c, root.visits, iterations))
             apply_move(state, node.move)
         if node.untried and _can_expand(node):
-            m = node.untried.pop()
-            mover = state.current
-            apply_move(state, m)
-            child = MCTSNode(state.clone(), m, node, mover)
-            node.children.append(child)
-            node = child
+            m = _pop_untried(node, root_sym, node is root)
+            if m is not None:
+                mover = state.current
+                apply_move(state, m)
+                child = (pool.acquire(state.clone(), m, node, mover)
+                         if pool is not None else MCTSNode(state.clone(), m, node, mover))
+                node.children.append(child)
+                node = child
         result = state.result()
         while result is None:
             moves = state.legal_moves()
@@ -366,8 +408,13 @@ def _best_mcts_move(root, game, iterations):
 
 
 def mcts_move(game, iterations):
-    root = mcts_search(game, iterations)
-    return _best_mcts_move(root, game, iterations)
+    pool = (_POOL if (cfg_engine('object_pool', True)
+                      and not cfg_engine('tree_reuse', True)) else None)
+    root = mcts_search(game, iterations, pool=pool)
+    move = _best_mcts_move(root, game, iterations)
+    if pool is not None:
+        pool.release(root)
+    return move
 
 
 def _threat_cells(state, player):
@@ -423,6 +470,19 @@ def _can_expand(node):
     return len(node.children) < math.ceil(1.5 * math.sqrt(node.visits))
 
 
+def _pop_untried(node, root_sym, is_root):
+    """Pop an untried move, skipping D4-symmetric duplicates at the root."""
+    while node.untried:
+        m = node.untried.pop()
+        if cfg_engine('symmetry', False) and is_root:
+            img = _sym_images(m)
+            if img in root_sym:
+                continue
+            root_sym.add(img)
+        return m
+    return None
+
+
 def _uct_scale(c, root_visits, iterations):
     """Dynamic UCT: explore more early, exploit more as the search matures."""
     if cfg_engine('dynamic_uct', True):
@@ -431,6 +491,42 @@ def _uct_scale(c, root_visits, iterations):
 
 
 _REUSE = {}
+
+
+def _d4_perms():
+    """Eight D4 permutations of the 9 cells of a 3x3 grid."""
+    def rot(rc):
+        r, c = rc
+        return (c, 2 - r)
+
+    def ref(rc):
+        r, c = rc
+        return (2 - r, c)
+
+    def transform(f):
+        p = [0] * 9
+        for i in range(9):
+            r, c = f((i // 3, i % 3))
+            p[i] = r * 3 + c
+        return p
+
+    identity = lambda rc: rc
+    return [transform(f) for f in (
+        identity, rot, lambda rc: rot(rot(rc)), lambda rc: rot(rot(rot(rc))),
+        ref, lambda rc: ref(rot(rc)), lambda rc: ref(rot(rot(rc))),
+        lambda rc: ref(rot(rot(rot(rc)))),
+    )]
+
+
+_D4 = _d4_perms()
+
+
+def _sym_images(move):
+    """All D4 images of a Normal index or an Ultimate (m, i) move."""
+    if isinstance(move, tuple):
+        m, i = move
+        return tuple(sorted((_D4[t][m], _D4[t][i]) for t in range(8)))
+    return tuple(sorted(_D4[t][move] for t in range(8)))
 
 
 def reset_engine_caches():
@@ -565,6 +661,7 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
     else:
         root_state = game.clone()
         root = RAVENode(root_state, None, None, None)
+    root_sym = set()
     for it in range(iterations):
         node = root
         state = root_state.clone()
@@ -577,13 +674,14 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
             apply_move(state, node.move)
         rollout_moves = []
         if node.untried and _can_expand(node):
-            m = node.untried.pop()
-            mover = state.current
-            apply_move(state, m)
-            child = RAVENode(state.clone(), m, node, mover)
-            node.children.append(child)
-            node = child
-            rollout_moves.append(m)
+            m = _pop_untried(node, root_sym, node is root)
+            if m is not None:
+                mover = state.current
+                apply_move(state, m)
+                child = RAVENode(state.clone(), m, node, mover)
+                node.children.append(child)
+                node = child
+                rollout_moves.append(m)
         result = state.result()
         while result is None:
             moves = state.legal_moves()
@@ -681,6 +779,7 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
         root_state = game.clone()
         root = GraveNode(root_state, None, None, None)
         root.ref = root
+    root_sym = set()
     for it in range(iterations):
         node = root
         state = root_state.clone()
@@ -693,15 +792,16 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
             apply_move(state, node.move)
         rollout_moves = []
         if node.untried and _can_expand(node):
-            m = node.untried.pop()
-            mover = state.current
-            apply_move(state, m)
-            child = GraveNode(state.clone(), m, node, mover)
-            ref = node.ref if node.ref is not None else node
-            child.ref = ref if m in ref.rave else node
-            node.children.append(child)
-            node = child
-            rollout_moves.append(m)
+            m = _pop_untried(node, root_sym, node is root)
+            if m is not None:
+                mover = state.current
+                apply_move(state, m)
+                child = GraveNode(state.clone(), m, node, mover)
+                ref = node.ref if node.ref is not None else node
+                child.ref = ref if m in ref.rave else node
+                node.children.append(child)
+                node = child
+                rollout_moves.append(m)
         result = state.result()
         while result is None:
             moves = state.legal_moves()
@@ -946,17 +1046,26 @@ def opening_book_move(game):
 
 def _mcts_move(game, ai_type, budget):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
+    if (ai_type == 'MCTS' and cfg_engine('multithreaded', False)):
+        return mcts_move_parallel(game, budget, cfg_engine('workers', 4))
     reuse = cfg_engine('tree_reuse', True)
+    if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
+        from game import BitUltimateGame
+        search_game = BitUltimateGame.from_game(game)
+    else:
+        search_game = game
+    pool = (_POOL if (ai_type == 'MCTS'
+                      and cfg_engine('object_pool', True) and not reuse) else None)
     key, prev = None, None
     if reuse:
         key = (ai_type, _tt_key(game))
         prev = _REUSE.pop(key, None)
     if ai_type == 'MCTS':
-        root = mcts_search(game, budget, prev_root=prev)
+        root = mcts_search(search_game, budget, prev_root=prev, pool=pool)
     elif ai_type == 'MCTS+RAVE':
-        root = mcts_rave_search(game, budget, prev_root=prev)
+        root = mcts_rave_search(search_game, budget, prev_root=prev)
     else:
-        root = mcts_grave_search(game, budget, prev_root=prev)
+        root = mcts_grave_search(search_game, budget, prev_root=prev)
     move = _best_mcts_move(root, game, budget)
     if reuse:
         g = game.clone()
@@ -966,7 +1075,42 @@ def _mcts_move(game, ai_type, budget):
             _REUSE[(ai_type, _tt_key(g))] = child
             if len(_REUSE) > cfg_engine('reuse_cache', 32):
                 _REUSE.pop(next(iter(_REUSE)))
+    if pool is not None:
+        pool.release(root)
     return move
+
+
+def mcts_move_parallel(game, iterations, workers=4):
+    """Run several independent MCTS searches and merge their root stats."""
+    chunk = max(1, iterations // workers)
+    results = []
+
+    def work():
+        results.append(mcts_search(game.clone(), chunk))
+
+    threads = [threading.Thread(target=work) for _ in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stats = {}
+    for root in results:
+        for c in root.children:
+            s = stats.setdefault(c.move, [0, 0.0])
+            s[0] += c.visits
+            s[1] += c.wins
+    if not stats:
+        return random.choice(game.legal_moves())
+    best_move = max(stats, key=lambda m: stats[m][1] / max(1, stats[m][0]))
+    best_ratio = stats[best_move][1] / max(1, stats[best_move][0])
+    for m, (v, w) in stats.items():
+        if w / max(1, v) == best_ratio:
+            g = game.clone()
+            apply_move(g, m)
+            if g.result() == game.current:
+                best_move = m
+                break
+    return best_move
 
 
 def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):

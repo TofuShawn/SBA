@@ -139,8 +139,145 @@ class UltimateGame:
         return g
 
 
+class BitUltimateGame:
+    """Ultimate board stored as bit masks (X/O 81-bit, macro 9-bit).
+
+    Same interface as UltimateGame (legal_moves / make_move / result /
+    clone / current / active_macro / micro / macro) so the MCTS family can
+    search on the bit representation and hand moves back to the list UI.
+    """
+
+    __slots__ = ('x', 'o', 'mx', 'mo', 'current', 'active_macro')
+
+    def __init__(self):
+        self.x = 0
+        self.o = 0
+        self.mx = 0
+        self.mo = 0
+        self.current = X
+        self.active_macro = None
+
+    @classmethod
+    def from_game(cls, game):
+        g = cls()
+        for m in range(9):
+            for i in range(9):
+                c = game.micro[m][i]
+                if c == X:
+                    g.x |= 1 << (m * 9 + i)
+                elif c == O:
+                    g.o |= 1 << (m * 9 + i)
+            if game.macro[m] == X:
+                g.mx |= 1 << m
+            elif game.macro[m] == O:
+                g.mo |= 1 << m
+        g.current = game.current
+        g.active_macro = game.active_macro
+        return g
+
+    def clone(self):
+        g = BitUltimateGame()
+        g.x, g.o, g.mx, g.mo = self.x, self.o, self.mx, self.mo
+        g.current = self.current
+        g.active_macro = self.active_macro
+        return g
+
+    def _micro_bits(self, m):
+        return ((self.x | self.o) >> (m * 9)) & 0x1FF
+
+    @staticmethod
+    def _win_mask(mask):
+        for a, b, c in LINES:
+            line = (1 << a) | (1 << b) | (1 << c)
+            if mask & line == line:
+                return True
+        return False
+
+    def micro_winner(self, m):
+        base = m * 9
+        if self._win_mask((self.x >> base) & 0x1FF):
+            return X
+        if self._win_mask((self.o >> base) & 0x1FF):
+            return O
+        return None
+
+    def macro_open(self, m):
+        if (self.mx | self.mo) & (1 << m):
+            return False
+        return self._micro_bits(m) != 0x1FF
+
+    def legal_moves(self):
+        if self.active_macro is not None and self.macro_open(self.active_macro):
+            taken = self._micro_bits(self.active_macro)
+            m = self.active_macro
+            return [(m, i) for i in range(9) if not (taken >> i) & 1]
+        moves = []
+        for m in range(9):
+            if not self.macro_open(m):
+                continue
+            taken = self._micro_bits(m)
+            for i in range(9):
+                if not (taken >> i) & 1:
+                    moves.append((m, i))
+        return moves
+
+    def make_move(self, m, i):
+        bit = 1 << (m * 9 + i)
+        if self.current == X:
+            self.x |= bit
+        else:
+            self.o |= bit
+        w = self.micro_winner(m)
+        if w == X:
+            self.mx |= 1 << m
+        elif w == O:
+            self.mo |= 1 << m
+        self.active_macro = i if self.macro_open(i) else None
+        self.current = O if self.current == X else X
+
+    def winner(self):
+        for a, b, c in LINES:
+            line = (1 << a) | (1 << b) | (1 << c)
+            if self.mx & line == line:
+                return X
+            if self.mo & line == line:
+                return O
+        return None
+
+    def is_full(self):
+        return all(not self.macro_open(m) for m in range(9))
+
+    def result(self):
+        w = self.winner()
+        if w:
+            return w
+        if self.is_full():
+            return 'D'
+        return None
+
+    def is_over(self):
+        return self.result() is not None
+
+    @property
+    def micro(self):
+        out = []
+        for m in range(9):
+            row = []
+            base = m * 9
+            for i in range(9):
+                bit = 1 << (base + i)
+                row.append(X if self.x & bit else (O if self.o & bit else EMPTY))
+            out.append(row)
+        return out
+
+    @property
+    def macro(self):
+        return [X if self.mx & (1 << m) else (O if self.mo & (1 << m) else EMPTY)
+                for m in range(9)]
+
+
 def apply_move(game, move):
-    if isinstance(game, UltimateGame):
+    if isinstance(game, (UltimateGame, BitUltimateGame)):
         game.make_move(*move)
     else:
         game.make_move(move)

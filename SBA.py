@@ -121,7 +121,9 @@ def self_test():
     passed, failed = 0, 0
 
     from ai import (opening_book_move, build_micro_tablebase, _rollout_move,
-                    reset_engine_caches, _REUSE, _fork_count)
+                    reset_engine_caches, _REUSE, _fork_count, _sym_images,
+                    mcts_move_parallel, _D4)
+    from game import BitUltimateGame
     reset_engine_caches()
 
     def check(name, cond):
@@ -297,6 +299,35 @@ def self_test():
     gu2 = UltimateGame()
     check('minimax pro: legal move with killers/LMR/aspiration',
           minimax_pro_move(gu2, depth=3) in gu2.legal_moves())
+
+    # symmetry / 對稱性
+    check('symmetry: 8 distinct permutations', len({tuple(p) for p in _D4}) == 8)
+    check('symmetry: corner orbit under D4', set(_sym_images(0)) == {0, 2, 6, 8})
+
+    # bitboard equivalence / bitboard 等價性
+    same = True
+    for _ in range(5):
+        a = UltimateGame()
+        b = BitUltimateGame.from_game(a)
+        steps = 0
+        while not a.is_over() and steps < 60:
+            if set(a.legal_moves()) != set(b.legal_moves()):
+                same = False
+                break
+            m = random.choice(a.legal_moves())
+            apply_move(a, m)
+            b.make_move(*m)
+            steps += 1
+        if a.result() != b.result():
+            same = False
+        if not same:
+            break
+    check('bitboard: random games match the list board', same)
+
+    # multithreaded MCTS / 多執行緒 MCTS
+    gu3 = UltimateGame()
+    check('multithreaded MCTS: legal move',
+          mcts_move_parallel(gu3, 100, 2) in gu3.legal_moves())
 
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
