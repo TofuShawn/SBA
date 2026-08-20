@@ -30,6 +30,16 @@ import os
 import random
 import time
 
+# Windows + TheRock ROCm wheels: MIOpen (PyTorch's conv backend) keeps its
+# find-db and kernel cache in the system TEMP by default. When TEMP points at a
+# network/slow drive, the first conv2d can hang or raise
+# miopenStatusUnknownError, so pin the caches to the local project disk
+# (user-set overrides are respected).
+HERE = os.path.dirname(os.path.abspath(__file__))
+if os.name == 'nt':
+    os.environ.setdefault('MIOPEN_USER_DB_PATH', os.path.join(HERE, '.miopen'))
+    os.environ.setdefault('MIOPEN_CUSTOM_CACHE_DIR', os.path.join(HERE, '.miopen_cache'))
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -37,7 +47,6 @@ import torch.nn.functional as F
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(HERE, 'models')
 X = 'X'
 O = 'O'
@@ -259,6 +268,7 @@ def mcts_visit_counts(game, model, budget, c_puct=1.5):
 
 
 def select_move(game, model, budget=800, temp=0.0, c_puct=1.5):
+    model = model.to(DEVICE)  # callers may pass a CPU model
     root, counts = mcts_search(game, model, budget, c_puct)
     if not counts:
         return random.choice(game.legal_moves())

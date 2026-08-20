@@ -21,3 +21,7 @@ MINDMAP.txt
 .vscode/
 .idea/
 Thumbs.db
+
+# MIOpen cache (Windows ROCm) / MIOpen 快取（Windows ROCm）
+.miopen/
+.miopen_cache/

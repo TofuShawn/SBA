@@ -57,6 +57,10 @@ wsl -d Ubuntu --user root -- sh -c "cd /mnt/e/Project/SBA && /opt/sba/bin/python
   ```
 - 注意：TheRock 是 **nightly / rc 建置**（如 `2.10.0a0+rocm7.10.0a…`，以 PyTorch main 分支為主），
   穩定性不如正式版；若遇到問題可退回 WSL2 路徑。
+- **MIOpen 卡頓 / `miopenStatusUnknownError`**：Windows TheRock wheel 的 MIOpen 預設把 find-db 與
+  kernel cache 寫在系統 TEMP；若 TEMP 在網路磁碟（如 `Z:`），首次 `conv2d` 可能掛死或直接報錯。
+  `alphazero.py` 已在 import torch 前自動把快取指到專案內 `.miopen/`、`.miopen_cache/`
+  （可用 `MIOPEN_USER_DB_PATH` / `MIOPEN_CUSTOM_CACHE_DIR` 環境變數覆蓋）。
 
 ## Why WSL2 (fallback) / WSL2 作為備案
 - WSL2 仍是 AMD 官方支援的完整路徑，且本機已建好（Ubuntu 24.04 + ROCm 6.2.4 + PyTorch 2.5.1+rocm6.2）。
