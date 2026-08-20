@@ -28,6 +28,7 @@ try:
     from PySide6.QtCore import (QEasingCurve, QRectF, QSize, Qt, QThread,
                                 QTimer, QVariantAnimation, Signal)
     from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
@@ -844,6 +845,7 @@ class GamePage(QWidget):
         self.analysis_busy = False
         self.analysis_pending = False
         self.workers = []
+        self.step_idx = 0
         self.cvc_timer = QTimer(self)
         self.cvc_timer.timeout.connect(self.cvc_tick)
         self.pvc_timer = QTimer(self)
@@ -975,11 +977,69 @@ class GamePage(QWidget):
         self.auto_switch.setChecked(True)
         self.auto_switch.toggled.connect(self.on_auto_toggled)
         cvc_lay.addWidget(self.auto_switch)
-        self.step_btn = _si_button(t('Step / Next Move', '下一步'))
-        self.step_btn.clicked.connect(self.run_ai)
-        self.step_btn.setEnabled(False)
-        cvc_lay.addWidget(self.step_btn)
         panel.addWidget(self.cvc_card)
+
+        # History & controls card (all modes)
+        hist_card = QFrame()
+        hist_card.setObjectName('card')
+        _glass_shadow(hist_card)
+        hist_lay = QVBoxLayout(hist_card)
+        hist_title = QLabel(t('History & Controls', '歷史與控制'))
+        hist_title.setObjectName('cardTitle')
+        hist_lay.addWidget(hist_title)
+        self.hist_chart = QChart()
+        self.hist_chart.setTitle('')
+        self.hist_chart.setAnimationOptions(QChart.NoAnimation)
+        self.hist_chart.legend().setVisible(True)
+        self.hist_x_series = QLineSeries()
+        self.hist_x_series.setName('X')
+        self.hist_x_series.setColor(QColor(PAL['x']))
+        self.hist_o_series = QLineSeries()
+        self.hist_o_series.setName('O')
+        self.hist_o_series.setColor(QColor(PAL['o']))
+        self.hist_chart.addSeries(self.hist_x_series)
+        self.hist_chart.addSeries(self.hist_o_series)
+        self.hist_axis = QValueAxis()
+        self.hist_axis_y = QValueAxis()
+        self.hist_axis.setRange(0, 1)
+        self.hist_axis.setTitleText(t('Step', '步'))
+        self.hist_axis_y.setRange(0, 100)
+        self.hist_axis_y.setTitleText('%')
+        self.hist_chart.addAxis(self.hist_axis, Qt.AlignBottom)
+        self.hist_chart.addAxis(self.hist_axis_y, Qt.AlignLeft)
+        self.hist_x_series.attachAxis(self.hist_axis)
+        self.hist_x_series.attachAxis(self.hist_axis_y)
+        self.hist_o_series.attachAxis(self.hist_axis)
+        self.hist_o_series.attachAxis(self.hist_axis_y)
+        self.hist_chart_view = QChartView(self.hist_chart)
+        self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
+        self.hist_chart_view.setMinimumHeight(140)
+        hist_lay.addWidget(self.hist_chart_view)
+        slider_row = QHBoxLayout()
+        self.hist_slider = QSlider(Qt.Horizontal)
+        self.hist_slider.setRange(0, 0)
+        self.hist_slider.valueChanged.connect(self.go_to_step)
+        slider_row.addWidget(self.hist_slider, 1)
+        self.hist_label = QLabel('0 / 0')
+        self.hist_label.setObjectName('muted')
+        slider_row.addWidget(self.hist_label)
+        hist_lay.addLayout(slider_row)
+        ctrl_row = QHBoxLayout()
+        self.revert_btn = _si_button(t('Revert', '回退'))
+        self.revert_btn.clicked.connect(self.on_revert_clicked)
+        ctrl_row.addWidget(self.revert_btn)
+        self.pause_btn = _si_button(t('Pause', '暫停'))
+        self.pause_btn.clicked.connect(self.on_pause_clicked)
+        ctrl_row.addWidget(self.pause_btn)
+        self.next_btn = _si_button(t('Next Step', '下一步'))
+        self.next_btn.clicked.connect(self.on_step_clicked)
+        ctrl_row.addWidget(self.next_btn)
+        hist_lay.addLayout(ctrl_row)
+        self.hist_list = QListWidget()
+        self.hist_list.setMinimumHeight(110)
+        self.hist_list.itemClicked.connect(self.on_hist_clicked)
+        hist_lay.addWidget(self.hist_list)
+        panel.addWidget(hist_card)
 
         panel.addStretch(1)
         panel_widget = QWidget()
@@ -1002,6 +1062,10 @@ class GamePage(QWidget):
         s['game'] = self.game
         self.play_again_btn.setVisible(False)
         self.new_btn.setVisible(True)
+        s['moves'] = []
+        s['history'] = [tuple(position_win_rates(self.game, self._history_budget()))]
+        s['cvc_paused'] = False
+        self.step_idx = 0
         self.gen += 1
         self.busy = False
         self.analysis_busy = False
@@ -1012,8 +1076,67 @@ class GamePage(QWidget):
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
         self.board.set_game(self.game)
         self.analysis_list.clear()
+        self._render_history()
         self.refresh()
         self.after_move()
+
+    def _history_budget(self):
+        if isinstance(self.game, NormalGame):
+            return 0
+        return min(self.session.get('mcts', 800), 250)
+
+    def go_to_step(self, k):
+        """Jump to history step k (0..N) by replaying moves[:k]."""
+        s = self.session
+        moves = s['moves']
+        k = max(0, min(k, len(moves)))
+        if k == self.step_idx:
+            return
+        self.cvc_timer.stop()
+        self.pvc_timer.stop()
+        s['cvc_paused'] = k < len(moves)
+        self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
+        for mv in moves[:k]:
+            apply_move(self.game, mv)
+        s['game'] = self.game
+        self.step_idx = k
+        self.busy = False
+        self.gen += 1
+        self.board.set_game(self.game)
+        self._render_history()
+        self.refresh()
+        self.trigger_analysis()
+        self.update_cvc_controls()
+        if (not s.get('cvc_paused', False) and s['mode'] == 'cvc'
+                and s.get('cvc_auto', True) and not self.game.is_over()
+                and is_ai_turn(self.session)):
+            self.cvc_timer.start()
+
+    def _render_history(self):
+        s = self.session
+        moves = s.get('moves', [])
+        history = s.get('history', [])
+        n = len(moves)
+        self.hist_slider.blockSignals(True)
+        self.hist_slider.setRange(0, n)
+        self.hist_slider.setValue(self.step_idx)
+        self.hist_slider.blockSignals(False)
+        self.hist_label.setText(f'{self.step_idx} / {n}')
+        self.hist_list.clear()
+        for i, mv in enumerate(moves, start=1):
+            item = QListWidgetItem(f'{i}. {move_text(mv)}')
+            item.setData(Qt.UserRole, i)
+            self.hist_list.addItem(item)
+        if self.step_idx > 0:
+            self.hist_list.setCurrentRow(self.step_idx - 1)
+        self.hist_x_series.clear()
+        self.hist_o_series.clear()
+        for k, (x, d, o) in enumerate(history):
+            self.hist_x_series.append(k, x * 100.0)
+            self.hist_o_series.append(k, o * 100.0)
+        if history:
+            self.hist_axis.setRange(0, max(1, len(history) - 1))
+            self.hist_axis_y.setRange(0, 100)
 
     def refresh(self):
         if self.game is None:
@@ -1035,6 +1158,11 @@ class GamePage(QWidget):
             else:
                 action = t('AI thinking...', 'AI 思考中')
             self.status_text.setText(f'Player {player} · {action}')
+            moves = self.session.get('moves', [])
+            if self.step_idx < len(moves):
+                self.status_text.setText(
+                    f'{self.status_text.text()} · {t("history", "歷史")} '
+                    f'{self.step_idx}/{len(moves)}')
         self.status_mark.setStyleSheet(
             'color: ' + (PAL['x'] if result == X else PAL['o']) + '; font-size: 20px; font-weight: 700;')
         game_text = 'Normal' if isinstance(self.game, NormalGame) else 'Ultimate'
@@ -1061,8 +1189,17 @@ class GamePage(QWidget):
         apply_move(self.game, move)
         log.info('Move: %s -> %s [%s]', side, move_text(move),
                  'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
+        s = self.session
+        moves = s['moves']
+        if self.step_idx < len(moves):  # rewound: branch the history here
+            del moves[self.step_idx:]
+            del s['history'][self.step_idx + 1:]
+        moves.append(move)
+        s['history'].append(tuple(position_win_rates(self.game, self._history_budget())))
+        self.step_idx = len(moves)
         self.gen += 1
         self.board.set_game(self.game)
+        self._render_history()
         self.refresh()
         self.trigger_analysis()
         self.after_move()
@@ -1074,7 +1211,8 @@ class GamePage(QWidget):
             return
         if is_ai_turn(self.session):
             if self.session['mode'] == 'cvc':
-                if self.session.get('cvc_auto', True):
+                if (self.session.get('cvc_auto', True)
+                        and not self.session.get('cvc_paused', False)):
                     self.cvc_timer.start()
                 else:
                     self.update_cvc_controls()
@@ -1085,6 +1223,9 @@ class GamePage(QWidget):
 
     def cvc_tick(self):
         if self.session['mode'] != 'cvc':
+            self.cvc_timer.stop()
+            return
+        if self.session.get('cvc_paused', False):
             self.cvc_timer.stop()
             return
         if self.game.is_over() or self.busy or not is_ai_turn(self.session):
@@ -1130,17 +1271,52 @@ class GamePage(QWidget):
     def on_auto_toggled(self, checked):
         self.session['cvc_auto'] = checked
         self.update_cvc_controls()
-        if checked and self.session['mode'] == 'cvc' and is_ai_turn(self.session):
+        if (checked and self.session['mode'] == 'cvc' and is_ai_turn(self.session)
+                and not self.session.get('cvc_paused', False)):
             self.cvc_timer.start()
+
+    def on_revert_clicked(self):
+        self.go_to_step(self.step_idx - 1)
+
+    def on_pause_clicked(self):
+        s = self.session
+        s['cvc_paused'] = not s.get('cvc_paused', False)
+        if s['cvc_paused']:
+            self.cvc_timer.stop()
+            self.pause_btn.setText(t('Resume', '繼續'))
+        else:
+            self.pause_btn.setText(t('Pause', '暫停'))
+            if (s['mode'] == 'cvc' and not self.game.is_over()
+                    and is_ai_turn(self.session) and s.get('cvc_auto', True)):
+                self.cvc_timer.start()
+        self.update_cvc_controls()
+
+    def on_step_clicked(self):
+        if self.step_idx < len(self.session['moves']):
+            self.go_to_step(self.step_idx + 1)
+        else:
+            self.run_ai()
+
+    def on_hist_clicked(self, item):
+        k = item.data(Qt.UserRole)
+        if k is not None:
+            self.go_to_step(k)
 
     def update_cvc_controls(self):
         cvc = self.session is not None and self.session['mode'] == 'cvc'
         self.cvc_card.setVisible(cvc)
-        if not cvc or self.game is None:
+        self.pause_btn.setVisible(cvc)
+        self.next_btn.setVisible(cvc)
+        if self.game is None:
             return
+        rewound = self.step_idx < len(self.session.get('moves', []))
         ai_turn = not self.game.is_over() and is_ai_turn(self.session)
         auto = self.session.get('cvc_auto', True)
-        _si_set_enabled(self.step_btn, not auto and ai_turn and not self.busy)
+        paused = self.session.get('cvc_paused', False)
+        self.revert_btn.setEnabled(self.step_idx > 0)
+        _si_set_enabled(self.pause_btn, True)
+        self.pause_btn.setText(t('Resume', '繼續') if paused else t('Pause', '暫停'))
+        _si_set_enabled(self.next_btn, rewound or (ai_turn and not self.busy))
 
     # -- assistant ---------------------------------------------------------
 

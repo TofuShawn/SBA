@@ -179,6 +179,12 @@ def main_page():
     def start_game():
         session['game'] = (NormalGame() if session['game_type'] == 'normal'
                            else UltimateGame())
+        session['moves'] = []
+        budget = min(session.get('mcts', 800), 250) \
+            if session['game_type'] == 'ultimate' else 0
+        session['history'] = [tuple(position_win_rates(session['game'], budget))]
+        session['step'] = 0
+        session['cvc_paused'] = False
         session['analysis_gen'] += 1
         session['analyzing'] = False
         session['reanalyze'] = False
@@ -212,6 +218,10 @@ def main_page():
                           else t('thinking...', '思考中'))
                 status_spinner.set_visibility(thinking)
                 status_text.set_text(f'{side} · 🤔 {action}' if thinking else f'{side} · {action}')
+                if session['step'] < len(session['moves']):
+                    status_text.set_text(
+                        f'{status_text.text} · {t("history", "歷史")} '
+                        f"{session['step']}/{len(session['moves'])}")
             mode_text = {'pvp': 'PvP', 'pvc': 'PvC', 'cvc': 'CvC'}[session['mode']]
             game_text = 'Normal' if isinstance(game, NormalGame) else 'Ultimate'
             x_type, o_type = side_types(session)
@@ -325,6 +335,7 @@ def main_page():
             apply_move(game, move)
             log.info('Human move: %s -> %s [%s]', side, move_text(move),
                      'Normal' if isinstance(game, NormalGame) else 'Ultimate')
+            record_move(move)
             session['analysis_gen'] += 1
             render_board()
             refresh_status()
@@ -338,6 +349,7 @@ def main_page():
             if game.is_over() or move not in game.legal_moves():
                 return False
             apply_move(game, move)
+            record_move(move)
             session['analysis_gen'] += 1
             render_board()
             refresh_status()
@@ -382,13 +394,26 @@ def main_page():
         def ai_loop():
             if not session.get('cvc_auto', True):
                 return
+            if session.get('cvc_paused', False):
+                return
             step_ai_move()
 
         def update_cvc_controls():
+            cvc = session['mode'] == 'cvc'
+            pause_btn.set_visibility(cvc)
+            next_btn.set_visibility(cvc)
+            revert_btn.set_enabled(session['step'] > 0)
             if session['mode'] != 'cvc':
                 return
             ai_turn = not game.is_over() and is_ai_turn(session)
-            step_btn.set_enabled(not session.get('cvc_auto', True) and ai_turn)
+            paused = session.get('cvc_paused', False)
+            rewound = session['step'] < len(session['moves'])
+            step_btn.set_enabled(rewound or (
+                (not session.get('cvc_auto', True) or paused) and ai_turn
+                and session.get('ai_busy') is None))
+            next_btn.set_enabled(rewound or (
+                ai_turn and session.get('ai_busy') is None))
+            pause_btn.set_text(t('Resume', '繼續') if paused else t('Pause', '暫停'))
 
         def on_speed_change(e):
             speed = float(e.value)
@@ -399,6 +424,84 @@ def main_page():
         def on_auto_change(e):
             session['cvc_auto'] = e.value
             update_cvc_controls()
+
+        def record_move(move):
+            moves = session['moves']
+            if session['step'] < len(moves):  # rewound: branch the history
+                del moves[session['step']:]
+                del session['history'][session['step'] + 1:]
+            moves.append(move)
+            budget = min(session.get('mcts', 800), 250) \
+                if isinstance(game, UltimateGame) else 0
+            session['history'].append(tuple(position_win_rates(game, budget)))
+            session['step'] = len(moves)
+            render_history()
+
+        def go_to_step(k):
+            moves = session['moves']
+            k = max(0, min(int(k), len(moves)))
+            if k == session['step']:
+                return
+            game_timer.stop()
+            session['cvc_paused'] = k < len(moves)
+            g = NormalGame() if session['game_type'] == 'normal' else UltimateGame()
+            for mv in moves[:k]:
+                apply_move(g, mv)
+            session['game'] = g
+            session['step'] = k
+            session['analysis_gen'] += 1
+            render_board()
+            refresh_status()
+            update_cvc_controls()
+            render_history()
+            trigger_analysis()
+            if (not session.get('cvc_paused', False) and session['mode'] == 'cvc'
+                    and session.get('cvc_auto', True) and not g.is_over()
+                    and is_ai_turn(session)):
+                game_timer.start()
+
+        def render_history():
+            moves = session['moves']
+            history = session['history']
+            n = len(moves)
+            hist_slider.min = 0
+            hist_slider.max = n
+            hist_slider.value = session['step']
+            hist_slider_label.set_text(f"{session['step']} / {n}")
+            hist_chart.options['xAxis']['data'] = list(range(len(history)))
+            hist_chart.options['series'][0]['data'] = [
+                round(x * 100, 1) for x, _, _ in history]
+            hist_chart.options['series'][1]['data'] = [
+                round(o * 100, 1) for _, _, o in history]
+            hist_chart.update()
+            hist_list.clear()
+            with hist_list:
+                for i, mv in enumerate(moves, start=1):
+                    with ui.item().props('clickable').on(
+                            'click', lambda k=i: go_to_step(k)):
+                        with ui.item_section():
+                            ui.label(f'{i}. {move_text(mv)}')
+
+        def on_pause_click():
+            session['cvc_paused'] = not session.get('cvc_paused', False)
+            if session['cvc_paused']:
+                game_timer.stop()
+                pause_btn.set_text(t('Resume', '繼續'))
+            else:
+                pause_btn.set_text(t('Pause', '暫停'))
+                if (session['mode'] == 'cvc' and session.get('cvc_auto', True)
+                        and not game.is_over() and is_ai_turn(session)):
+                    game_timer.start()
+            update_cvc_controls()
+
+        def step_btn_click():
+            if session['step'] < len(session['moves']):
+                go_to_step(session['step'] + 1)
+            else:
+                step_ai_move()
+
+        def on_next_click():
+            step_btn_click()
 
         def render_analysis(items, rates):
             analysis_ui.clear()
@@ -540,7 +643,7 @@ def main_page():
                             auto_switch.on_value_change(on_auto_change)
                             step_btn = ui.button(
                                 t('Step / Next Move', '下一步'), icon='skip_next',
-                                on_click=step_ai_move).props('flat')
+                                on_click=step_btn_click).props('flat')
                             step_btn.mark('step-btn')
                             step_btn.disable()
                 with ui.card().classes('w-full'):
@@ -548,10 +651,44 @@ def main_page():
                     ui.label(t('Click a move to highlight it on the board',
                                '點擊棋步可在棋盤上標示')).classes(
                         'text-caption text-grey q-mb-xs')
+                with ui.card().classes('w-full'):
+                    with ui.column().classes('gap-1'):
+                        ui.label(t('History & Controls', '歷史與控制')).classes('text-subtitle1')
+                        hist_chart = ui.echart({
+                            'grid': {'left': 40, 'right': 16, 'top': 28, 'bottom': 24},
+                            'xAxis': {'type': 'category', 'data': [],
+                                      'name': t('Step', '步')},
+                            'yAxis': {'type': 'value', 'min': 0, 'max': 100, 'name': '%'},
+                            'series': [
+                                {'name': 'X', 'type': 'line', 'smooth': True, 'data': [],
+                                 'itemStyle': {'color': '#6750A4'},
+                                 'lineStyle': {'color': '#6750A4'}},
+                                {'name': 'O', 'type': 'line', 'smooth': True, 'data': [],
+                                 'itemStyle': {'color': '#B3261E'},
+                                 'lineStyle': {'color': '#B3261E'}},
+                            ],
+                            'legend': {'show': True, 'top': 0},
+                        }).classes('w-full').style('height: 160px')
+                        hist_slider = ui.slider(min=0, max=0, value=0).props('label-always')
+                        hist_slider.on_value_change(lambda e: go_to_step(int(e.value)))
+                        hist_slider_label = ui.label('0 / 0').classes(
+                            'text-caption text-grey')
+                        with ui.row().classes('gap-2'):
+                            revert_btn = ui.button(
+                                t('Revert', '回退'), icon='undo',
+                                on_click=lambda: go_to_step(session['step'] - 1)).props('flat')
+                            pause_btn = ui.button(
+                                t('Pause', '暫停'), icon='pause',
+                                on_click=on_pause_click).props('flat')
+                            next_btn = ui.button(
+                                t('Next Step', '下一步'), icon='skip_next',
+                                on_click=on_next_click).props('flat')
+                        hist_list = ui.list().props('dense').classes('w-full')
 
         refresh_status()
         trigger_analysis()
         update_cvc_controls()
+        render_history()
         game_timer = ui.timer(max(0.05, session.get('cvc_speed', 0.4)), ai_loop)
 
     show_menu()
