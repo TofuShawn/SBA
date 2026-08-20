@@ -425,6 +425,9 @@ def mcts_move(game, iterations):
     return move
 
 
+_LINE_BITS = [(1 << a) | (1 << b) | (1 << c) for a, b, c in LINES]
+
+
 def _threat_cells(state, player):
     """Cells where `player` would win immediately by playing there."""
     if isinstance(state, NormalGame):
@@ -434,6 +437,22 @@ def _threat_cells(state, player):
             vals = (cells[a], cells[b], cells[c])
             if vals.count(player) == 2 and EMPTY in vals:
                 res.append((a, b, c)[vals.index(EMPTY)])
+        return res
+    if isinstance(state, BitUltimateGame):
+        res = []
+        pbits = state.x if player == X else state.o
+        obits = state.o if player == X else state.x
+        closed = state.mx | state.mo
+        for m in range(9):
+            if closed & (1 << m):
+                continue
+            base = m * 9
+            mb = (pbits >> base) & 0x1FF
+            ob = (obits >> base) & 0x1FF
+            for line in _LINE_BITS:
+                if (mb & line).bit_count() == 2 and ((mb | ob) & line) != line:
+                    empty = line & ~(mb | ob)
+                    res.append((m, empty.bit_length() - 1))
         return res
     res = []
     for m in range(9):
