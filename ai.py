@@ -278,16 +278,25 @@ class MCTSNode:
         return best
 
 
-def mcts_search(game, iterations):
-    root_state = game.clone()
-    root = MCTSNode(root_state, None, None, None)
-    for _ in range(iterations):
+def mcts_search(game, iterations, c=None, prev_root=None):
+    c = cfg_engine('uct_c', 1.4) if c is None else c
+    if prev_root is not None:
+        root = prev_root
+        root_state = root.state
+    else:
+        root_state = game.clone()
+        root = MCTSNode(root_state, None, None, None)
+    for it in range(iterations):
         node = root
         state = root_state.clone()
-        while node.untried == [] and node.children:
-            node = node.best_child(1.4)
+        while True:
+            if bool(node.untried) and _can_expand(node):
+                break
+            if not node.children:
+                break
+            node = node.best_child(_uct_scale(c, root.visits, iterations))
             apply_move(state, node.move)
-        if node.untried:
+        if node.untried and _can_expand(node):
             m = node.untried.pop()
             mover = state.current
             apply_move(state, m)
@@ -299,7 +308,8 @@ def mcts_search(game, iterations):
             moves = state.legal_moves()
             if not moves:
                 break
-            apply_move(state, random.choice(moves))
+            m = _rollout_move(state, moves)
+            apply_move(state, m)
             result = state.result()
         while node is not None:
             node.visits += 1
@@ -308,6 +318,12 @@ def mcts_search(game, iterations):
             elif result == 'D':
                 node.wins += 0.5
             node = node.parent
+        if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
+                and root.children):
+            top = max(root.children, key=lambda c: c.visits)
+            if root.visits and top.visits / root.visits > 0.6 \
+                    and top.wins / top.visits > 0.55:
+                break
     return root
 
 
@@ -329,6 +345,75 @@ def _best_mcts_move(root, game, iterations):
 def mcts_move(game, iterations):
     root = mcts_search(game, iterations)
     return _best_mcts_move(root, game, iterations)
+
+
+def _threat_cells(state, player):
+    """Cells where `player` would win immediately by playing there."""
+    if isinstance(state, NormalGame):
+        cells = state.board
+        res = []
+        for a, b, c in LINES:
+            vals = (cells[a], cells[b], cells[c])
+            if vals.count(player) == 2 and EMPTY in vals:
+                res.append((a, b, c)[vals.index(EMPTY)])
+        return res
+    res = []
+    for m in range(9):
+        if not state.macro_open(m):
+            continue
+        cells = state.micro[m]
+        for a, b, c in LINES:
+            vals = (cells[a], cells[b], cells[c])
+            if vals.count(player) == 2 and EMPTY in vals:
+                res.append((m, (a, b, c)[vals.index(EMPTY)]))
+    return res
+
+
+def _rollout_move(state, moves=None):
+    """Win/block-biased rollout policy (falls back to random when disabled)."""
+    if moves is None:
+        moves = state.legal_moves()
+    if not moves:
+        return None
+    if not cfg_engine('rollout_heuristic', True):
+        return random.choice(moves)
+    legal = set(moves)
+    current = state.current
+    opp = O if current == X else X
+    wins = [w for w in _threat_cells(state, current) if w in legal]
+    if wins:
+        return random.choice(wins)
+    threats = set(t for t in _threat_cells(state, opp) if t in legal)
+    if not threats:
+        return random.choice(moves)
+    if len(threats) == 1:
+        return next(iter(threats))
+    return random.choice(moves)  # multiple threats: cannot block them all
+
+
+def _can_expand(node):
+    """Progressive-widening gate: limit expansions as a node's visits grow."""
+    if not cfg_engine('progressive_widening', False):
+        return True
+    if node.visits == 0:
+        return True
+    return len(node.children) < math.ceil(1.5 * math.sqrt(node.visits))
+
+
+def _uct_scale(c, root_visits, iterations):
+    """Dynamic UCT: explore more early, exploit more as the search matures."""
+    if cfg_engine('dynamic_uct', True):
+        return c * (0.6 + 0.4 * (1.0 - root_visits / max(1, iterations)))
+    return c
+
+
+_REUSE = {}
+
+
+def reset_engine_caches():
+    """Drop module-level search caches (used by self-tests/bench)."""
+    _REUSE.clear()
+    _TT.clear()
 
 
 # ---------------------------------------------------------------
@@ -447,17 +532,27 @@ class RAVENode:
         return best
 
 
-def mcts_rave_search(game, iterations, c=1.4, k=150):
-    root_state = game.clone()
-    root = RAVENode(root_state, None, None, None)
-    for _ in range(iterations):
+def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
+    c = cfg_engine('uct_c', 1.4) if c is None else c
+    k = cfg_engine('rave_k', 150) if k is None else k
+    if prev_root is not None:
+        root = prev_root
+        root_state = root.state
+    else:
+        root_state = game.clone()
+        root = RAVENode(root_state, None, None, None)
+    for it in range(iterations):
         node = root
         state = root_state.clone()
-        while node.untried == [] and node.children:
-            node = node.best_child(c, k)
+        while True:
+            if bool(node.untried) and _can_expand(node):
+                break
+            if not node.children:
+                break
+            node = node.best_child(_uct_scale(c, root.visits, iterations), k)
             apply_move(state, node.move)
         rollout_moves = []
-        if node.untried:
+        if node.untried and _can_expand(node):
             m = node.untried.pop()
             mover = state.current
             apply_move(state, m)
@@ -470,7 +565,7 @@ def mcts_rave_search(game, iterations, c=1.4, k=150):
             moves = state.legal_moves()
             if not moves:
                 break
-            m = random.choice(moves)
+            m = _rollout_move(state, moves)
             apply_move(state, m)
             rollout_moves.append(m)
             result = state.result()
@@ -493,6 +588,12 @@ def mcts_rave_search(game, iterations, c=1.4, k=150):
                 else:
                     amaf[m] = [1, amaf_win]
             node = node.parent
+        if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
+                and root.children):
+            top = max(root.children, key=lambda c: c.visits)
+            if root.visits and top.visits / root.visits > 0.6 \
+                    and top.wins / top.visits > 0.55:
+                break
     return root
 
 
@@ -546,18 +647,28 @@ class GraveNode:
         return best
 
 
-def mcts_grave_search(game, iterations, c=1.4, k=150):
-    root_state = game.clone()
-    root = GraveNode(root_state, None, None, None)
-    root.ref = root
-    for _ in range(iterations):
+def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
+    c = cfg_engine('uct_c', 1.4) if c is None else c
+    k = cfg_engine('rave_k', 150) if k is None else k
+    if prev_root is not None:
+        root = prev_root
+        root_state = root.state
+    else:
+        root_state = game.clone()
+        root = GraveNode(root_state, None, None, None)
+        root.ref = root
+    for it in range(iterations):
         node = root
         state = root_state.clone()
-        while node.untried == [] and node.children:
-            node = node.best_child(c, k)
+        while True:
+            if bool(node.untried) and _can_expand(node):
+                break
+            if not node.children:
+                break
+            node = node.best_child(_uct_scale(c, root.visits, iterations), k)
             apply_move(state, node.move)
         rollout_moves = []
-        if node.untried:
+        if node.untried and _can_expand(node):
             m = node.untried.pop()
             mover = state.current
             apply_move(state, m)
@@ -572,7 +683,7 @@ def mcts_grave_search(game, iterations, c=1.4, k=150):
             moves = state.legal_moves()
             if not moves:
                 break
-            m = random.choice(moves)
+            m = _rollout_move(state, moves)
             apply_move(state, m)
             rollout_moves.append(m)
             result = state.result()
@@ -598,6 +709,12 @@ def mcts_grave_search(game, iterations, c=1.4, k=150):
                     else:
                         rave[m] = [1, amaf_win]
             node = node.parent
+        if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
+                and root.children):
+            top = max(root.children, key=lambda c: c.visits)
+            if root.visits and top.visits / root.visits > 0.6 \
+                    and top.wins / top.visits > 0.55:
+                break
     return root
 
 
@@ -764,6 +881,31 @@ def opening_book_move(game):
     return None
 
 
+def _mcts_move(game, ai_type, budget):
+    """Run an MCTS-family search, reusing the previous tree when enabled."""
+    reuse = cfg_engine('tree_reuse', True)
+    key, prev = None, None
+    if reuse:
+        key = (ai_type, _tt_key(game))
+        prev = _REUSE.pop(key, None)
+    if ai_type == 'MCTS':
+        root = mcts_search(game, budget, prev_root=prev)
+    elif ai_type == 'MCTS+RAVE':
+        root = mcts_rave_search(game, budget, prev_root=prev)
+    else:
+        root = mcts_grave_search(game, budget, prev_root=prev)
+    move = _best_mcts_move(root, game, budget)
+    if reuse:
+        g = game.clone()
+        apply_move(g, move)
+        child = next((c for c in root.children if c.move == move), None)
+        if child is not None:
+            _REUSE[(ai_type, _tt_key(g))] = child
+            if len(_REUSE) > cfg_engine('reuse_cache', 32):
+                _REUSE.pop(next(iter(_REUSE)))
+    return move
+
+
 def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
     if cfg_engine('opening_book', True) and ai_type in _BOOK_ENGINES:
         book_move = opening_book_move(game)
@@ -779,12 +921,8 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
         return minimax_move_ultimate(game, depth=minimax_depth)
     if ai_type == 'Minimax Pro':
         return minimax_pro_move(game, depth=minimax_depth)
-    if ai_type == 'MCTS':
-        return mcts_move(game, mcts_budget)
-    if ai_type == 'MCTS+RAVE':
-        return mcts_rave_move(game, mcts_budget)
-    if ai_type == 'MCTS+GRAVE':
-        return mcts_grave_move(game, mcts_budget)
+    if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
+        return _mcts_move(game, ai_type, mcts_budget)
     if ai_type == 'Solver':
         return solver_move(game, mcts_budget)
     if ai_type == 'AlphaZero':

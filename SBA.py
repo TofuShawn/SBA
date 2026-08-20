@@ -120,7 +120,9 @@ def self_test():
     random.seed(12345)
     passed, failed = 0, 0
 
-    from ai import opening_book_move, build_micro_tablebase
+    from ai import (opening_book_move, build_micro_tablebase, _rollout_move,
+                    reset_engine_caches, _REUSE)
+    reset_engine_caches()
 
     def check(name, cond):
         nonlocal passed, failed
@@ -267,6 +269,26 @@ def self_test():
     # 4 marks -> X to move; X has a two-in-a-row with the third cell open.
     check('micro tablebase: immediate win is +1',
           tb[_board_key([X, X, EMPTY, O, EMPTY, O, EMPTY, EMPTY, EMPTY])] == 1)
+
+    # heuristic rollout / 啟發式 rollout
+    g = NormalGame()
+    g.board = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
+    g.current = X
+    check('rollout: takes an immediate win', _rollout_move(g) == 2)
+    g = NormalGame()
+    g.board = [X, X, EMPTY, O, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
+    g.current = O
+    check('rollout: blocks the opponent win', _rollout_move(g) == 2)
+
+    # tree reuse / 樹重用
+    g = NormalGame()
+    m1 = get_ai_move(g, 'MCTS', 100)
+    apply_move(g, m1)
+    m2 = get_ai_move(g, 'MCTS', 100)
+    check('tree reuse: second move is legal', m2 in g.legal_moves())
+    check('tree reuse: cache populated', len(_REUSE) > 0)
+    reset_engine_caches()
+    check('tree reuse: cache clears', len(_REUSE) == 0)
 
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
