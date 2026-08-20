@@ -1225,38 +1225,54 @@ def compute_analysis(game, mcts_budget):
     return items
 
 
-def position_win_rate(game, mcts_budget):
-    """Whole-game win rate (draw counts 0.5) for the side to move, 0..1.
+def position_win_rates(game, mcts_budget):
+    """(X win, draw, O win) probabilities for the current position.
 
-    Normal uses the perfect tablebase; Ultimate uses an MCTS root search.
+    Normal uses the perfect tablebase; Ultimate derives the three rates from
+    a single MCTS root search.
     """
     result = game.result()
     if result is not None:
-        return 1.0 if result == game.current else (0.5 if result == 'D' else 0.0)
+        if result == X:
+            return (1.0, 0.0, 0.0)
+        if result == O:
+            return (0.0, 0.0, 1.0)
+        return (0.0, 1.0, 0.0)
     if isinstance(game, NormalGame):
         table = build_tablebase()
+        best = -1
         for m in game.legal_moves():
             board = game.board[:]
             board[m] = game.current
-            val = -table[_board_key(board)]
-            if val > 0:
-                return 1.0
-            if val == 0:
-                return 0.5
-        return 0.0
+            best = max(best, -table[_board_key(board)])
+        if game.current == X:
+            return (1.0, 0.0, 0.0) if best > 0 else (
+                (0.0, 1.0, 0.0) if best == 0 else (0.0, 0.0, 1.0))
+        return (0.0, 0.0, 1.0) if best > 0 else (
+            (0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0))
     root = mcts_search(game, mcts_budget)
-    player = game.current
-    total_visits = 0
-    total_score = 0.0
+    tot_x = tot_o = tot = 0.0
     for child in root.children:
         if child.visits == 0:
             continue
-        total_visits += child.visits
-        if child.mover == player:
-            total_score += child.wins
+        w = child.wins / child.visits
+        tot += child.visits
+        if child.mover == X:
+            tot_x += child.visits * w
+            tot_o += child.visits * (1.0 - w)
         else:
-            total_score += child.visits - child.wins
-    return total_score / total_visits if total_visits else 0.5
+            tot_o += child.visits * w
+            tot_x += child.visits * (1.0 - w)
+    if tot == 0:
+        return (0.5, 0.0, 0.5)
+    x, o = tot_x / tot, tot_o / tot
+    return (x, max(0.0, 1.0 - x - o), o)
+
+
+def position_win_rate(game, mcts_budget):
+    """Whole-game win rate (draw counts 0.5) for the side to move, 0..1."""
+    x, d, o = position_win_rates(game, mcts_budget)
+    return (x + 0.5 * d) if game.current == X else (o + 0.5 * d)
 
 
 def move_text(move):

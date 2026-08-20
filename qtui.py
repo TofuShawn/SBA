@@ -43,7 +43,7 @@ from game import (
     X, O,
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
-from ai import get_ai_move, compute_analysis, position_win_rate, move_text
+from ai import get_ai_move, compute_analysis, position_win_rates, move_text
 from SBA import (
     AI_OPTIONS, current_side_type, is_ai_turn, log, new_session,
     side_label, side_types, t,
@@ -662,11 +662,11 @@ class AnalysisWorker(QThread):
     def run(self):
         try:
             items = compute_analysis(self.game, self.budget)
-            pct = position_win_rate(self.game, self.budget)
-            self.result_ready.emit(items, pct)
+            rates = position_win_rates(self.game, self.budget)
+            self.result_ready.emit(items, rates)
         except Exception as e:  # noqa: BLE001
             log.error('Analysis failed: %s', e)
-            self.result_ready.emit([], 0.5)
+            self.result_ready.emit([], (0.5, 0.0, 0.5))
 
 
 # ---------------------------------------------------------------------------
@@ -912,8 +912,25 @@ class GamePage(QWidget):
         az_title = QLabel(t('Best Moves', '最佳棋步'))
         az_title.setObjectName('cardTitle')
         az_lay.addWidget(az_title)
+        self.win_bar = QWidget()
+        self.win_bar.setFixedHeight(14)
+        self.win_bar_lay = QHBoxLayout(self.win_bar)
+        self.win_bar_lay.setContentsMargins(0, 0, 0, 0)
+        self.win_bar_lay.setSpacing(0)
+        self.bar_x = QFrame()
+        self.bar_x.setStyleSheet('background: #6750A4; border-radius: 4px 0 0 4px;')
+        self.bar_d = QFrame()
+        self.bar_d.setStyleSheet('background: #938F99;')
+        self.bar_o = QFrame()
+        self.bar_o.setStyleSheet('background: #B3261E; border-radius: 0 4px 4px 0;')
+        for _b in (self.bar_x, self.bar_d, self.bar_o):
+            _b.setMinimumWidth(0)
+        self.win_bar_lay.addWidget(self.bar_x, 1)
+        self.win_bar_lay.addWidget(self.bar_d, 1)
+        self.win_bar_lay.addWidget(self.bar_o, 1)
+        az_lay.addWidget(self.win_bar)
         self.analysis_pct = QLabel('')
-        self.analysis_pct.setStyleSheet('font-size: 15px; font-weight: 700; color: #D0BCFF;')
+        self.analysis_pct.setStyleSheet('font-size: 13px; color: #CAC4D0;')
         az_lay.addWidget(self.analysis_pct)
         self.analysis_list = QListWidget()
         self.analysis_list.setMinimumHeight(160)
@@ -1119,6 +1136,7 @@ class GamePage(QWidget):
             self.trigger_analysis()
         else:
             self.analysis_list.clear()
+            self.win_bar.setVisible(False)
             self.analysis_pct.setText('—')
             self.analysis_list.addItem(t('Assistant disabled', '助手已關閉'))
 
@@ -1135,22 +1153,27 @@ class GamePage(QWidget):
         snapshot = self.game.clone()
         worker = AnalysisWorker(snapshot, self.session['mcts'])
         worker.result_ready.connect(
-            lambda items, pct, g=gen: self.on_analysis_done(items, pct, g))
+            lambda items, rates, g=gen: self.on_analysis_done(items, rates, g))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
-    def on_analysis_done(self, items, pct, gen):
+    def on_analysis_done(self, items, rates, gen):
         self.analysis_busy = False
         if gen == self.gen and self.session.get('assistant_enabled', True):
-            self.render_analysis(items, pct)
+            self.render_analysis(items, rates)
         if self.analysis_pending:
             self.analysis_pending = False
             self.trigger_analysis()
 
-    def render_analysis(self, items, pct):
+    def render_analysis(self, items, rates):
         self.analysis_list.clear()
-        self.analysis_pct.setText(t('Win rate', '整局勝率') + f': {pct:.0%}')
+        x, d, o = rates
+        self.win_bar.setVisible(True)
+        self.win_bar_lay.setStretchFactor(self.bar_x, int(x * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_d, int(d * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_o, int(o * 1000))
+        self.analysis_pct.setText(f'X {x:.0%} · 和 {d:.0%} · O {o:.0%}')
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
             return

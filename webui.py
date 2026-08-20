@@ -35,7 +35,7 @@ from game import (
     win_badge_svg, micro_win_line, line_coords, win_segment, macro_center,
 )
 from ai import (
-    get_ai_move, compute_analysis, position_win_rate, move_text,
+    get_ai_move, compute_analysis, position_win_rates, move_text,
 )
 from SBA import (
     AI_OPTIONS, SESSIONS, current_side_type, is_ai_turn, log,
@@ -400,7 +400,7 @@ def main_page():
             session['cvc_auto'] = e.value
             update_cvc_controls()
 
-        def render_analysis(items, pct):
+        def render_analysis(items, rates):
             analysis_ui.clear()
             if not items:
                 with analysis_ui:
@@ -408,8 +408,17 @@ def main_page():
                         'text-caption text-grey')
                 return
             with analysis_ui:
-                ui.label(t('Win rate', '整局勝率') + f': {pct:.0%}').classes(
-                    'text-subtitle1 text-weight-bold')
+                x, d, o = rates
+                with ui.element('div').classes('w-full flex rounded overflow-hidden').style(
+                        'height: 14px; border: 1px solid rgba(0,0,0,0.08);'):
+                    ui.element('div').style(
+                        f'width:{max(x, 0.0) * 100:.1f}%; background:#6750A4;')
+                    ui.element('div').style(
+                        f'width:{max(d, 0.0) * 100:.1f}%; background:#938F99;')
+                    ui.element('div').style(
+                        f'width:{max(o, 0.0) * 100:.1f}%; background:#B3261E;')
+                ui.label(f'X {x:.0%} · 和 {d:.0%} · O {o:.0%}').classes(
+                    'text-caption text-grey')
                 ui.label(t('Best Moves', '最佳棋步')).classes('text-subtitle1 q-mb-xs')
                 for it in items[:5]:
                     pct = max(0.0, min(1.0, it['pct']))
@@ -442,14 +451,14 @@ def main_page():
                     ui.label(t('Analyzing...', '分析中...')).classes('text-caption')
             budget = session['mcts'] if isinstance(snapshot, UltimateGame) else 0
             items = await asyncio.to_thread(compute_analysis, snapshot, budget)
-            pct = await asyncio.to_thread(position_win_rate, snapshot, budget)
+            rates = await asyncio.to_thread(position_win_rates, snapshot, budget)
             if session['game'] is not current_game:
                 session['analyzing'] = False
                 return
             session['analyzing'] = False
             if (gen == session['analysis_gen'] and session['screen'] == 'game'
                     and session['assistant_enabled']):
-                render_analysis(items, pct)
+                render_analysis(items, rates)
             if session.get('reanalyze'):
                 session['reanalyze'] = False
                 background_tasks.create(start_analysis())

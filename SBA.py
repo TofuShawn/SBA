@@ -122,7 +122,8 @@ def self_test():
 
     from ai import (opening_book_move, build_micro_tablebase, _rollout_move,
                     reset_engine_caches, _REUSE, _fork_count, _sym_images,
-                    mcts_move_parallel, _D4, position_win_rate)
+                    mcts_move_parallel, _D4, position_win_rate,
+                    position_win_rates)
     from game import BitUltimateGame
     reset_engine_caches()
 
@@ -332,13 +333,18 @@ def self_test():
     # whole-game win rate / 整局勝率
     g = NormalGame()
     check('win rate: empty normal is a draw (0.5)', position_win_rate(g, 0) == 0.5)
+    check('win rates: empty normal is pure draw', position_win_rates(g, 0) == (0.0, 1.0, 0.0))
     g = NormalGame()
     g.board = [X, X, X, EMPTY, O, EMPTY, EMPTY, EMPTY, O]
     g.current = X
     check('win rate: won normal is 1.0', position_win_rate(g, 0) == 1.0)
+    check('win rates: won normal is X wins', position_win_rates(g, 0) == (1.0, 0.0, 0.0))
     gu4 = UltimateGame()
     pct = position_win_rate(gu4, 200)
     check('win rate: ultimate in [0,1]', 0.0 <= pct <= 1.0)
+    xr, dr, oro = position_win_rates(gu4, 200)
+    check('win rates: ultimate sums to 1',
+          abs(xr + dr + oro - 1.0) < 1e-6 and 0.0 <= xr <= 1.0 and 0.0 <= oro <= 1.0)
 
     # thread-local TT: concurrent Minimax Pro calls must not corrupt each other
     import threading as _th
