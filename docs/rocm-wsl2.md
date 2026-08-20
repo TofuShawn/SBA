@@ -33,3 +33,10 @@ wsl -d Ubuntu --user root -- sh -c "cd /mnt/e/Project/SBA && /opt/sba/bin/python
 ## Notes / 備註
 - `/dev/dri/renderD128` 已存在（顯示/渲染透傳正常）；ROCm 計算另需 `/dev/kfd`。
 - 若驅動更新後仍無 `/dev/kfd`，執行 `wsl --update` 再 `wsl --shutdown` 一次。
+
+## Why WSL2 (and not native Windows) / 為什麼用 WSL2
+- Windows 端已安裝 AMD ROCm/HIP SDK（`C:\Program Files\AMD\ROCm\6.2`，含 `hipcc`），
+  但 **PyTorch 官方沒有發佈 Windows 的 ROCm wheel**（rocm6.2–7.2 索引皆無 `win_amd64`）。
+- PyTorch 官方支援 ROCm 的路徑只有 **Linux（含 WSL2）**；原生 Windows 要吃 ROCm 需自行
+  從原始碼編譯 PyTorch（實驗性、耗時數小時，不建議）。
+- 因此本專案的 GPU 訓練走 **WSL2 Ubuntu**（已建好），只需更新 AMD 驅動讓 `/dev/kfd` 出現。
