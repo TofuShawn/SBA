@@ -380,6 +380,10 @@ class BoardWidget(QWidget):
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
+        self.update()
+
+    def reset_reveal(self):
+        """Clear the won-chunk reveal (used on new game / history jumps)."""
         self._reveal_anim.stop()
         self._revealed_macro = None
         self._reveal_blend = 0.0
@@ -1093,6 +1097,7 @@ class GamePage(QWidget):
         self.cvc_timer.setInterval(max(50, int(s.get('cvc_speed', 0.4) * 1000)))
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
         self.board.set_game(self.game)
+        self.board.reset_reveal()
         self.analysis_list.clear()
         self._render_history()
         self.refresh()
@@ -1121,6 +1126,7 @@ class GamePage(QWidget):
         self.busy = False
         self.gen += 1
         self.board.set_game(self.game)
+        self.board.reset_reveal()
         self._render_history()
         self.refresh()
         self.trigger_analysis()
