@@ -28,7 +28,7 @@
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
 - **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
 - **SiliconUI desktop theme / 桌面版 SiliconUI 主題**：PySide6 桌面版使用 [PyQt-SiliconUI](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)（PySide6 fork）的深色玻璃主題；該套件缺失時自動退回內建深色玻璃樣式
-- **Headless self-test suite / 無頭自測**（59 項檢查）與 **Docker** 映像
+- **Headless pytest suite / 無頭 pytest 測試**（36 tests）與 **Docker** 映像
 
 ---
 
@@ -103,7 +103,8 @@ python SBA.py --self-test
 # Windows: run.bat --self-test (local launcher, not tracked in git)
 ```
 
-Runs 59 headless checks covering rules, AI sanity, termination, and AlphaZero smoke tests / 執行 59 項無頭檢查，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試。
+Runs the pytest suite covering rules, AI sanity, termination, and AlphaZero
+smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試（需 `pip install pytest`，已列入 `requirements.txt`）。
 
 ### 2b. MCTS benchmark / MCTS 對戰測試
 

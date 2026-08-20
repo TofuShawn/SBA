@@ -22,19 +22,16 @@ Maintenance notes:
 """
 
 import logging
+import os
 import random
 import sys
 
 from game import (
-    X, O, EMPTY,
+    X, O,
     NormalGame, UltimateGame, apply_move,
-    win_badge_svg, line_coords, win_segment, macro_center,
 )
 from ai import (
-    get_basic_move, minimax_move_normal, mcts_move,
-    solver_move, minimax_pro_move, mcts_rave_move, mcts_grave_move,
-    build_tablebase, _board_key, get_ai_move, cfg_session,
-    set_engine_config,
+    get_ai_move, cfg_session,
 )
 
 log = logging.getLogger('SBA')
@@ -119,327 +116,6 @@ def side_label(kind):
 # Self-test
 # ============================================================
 
-def self_test():
-    set_engine_config({})  # ignore any user sba.toml overrides during tests
-    random.seed(12345)
-    passed, failed = 0, 0
-
-    from ai import (opening_book_move, build_micro_tablebase, _rollout_move,
-                    reset_engine_caches, _REUSE, _fork_count, _sym_images,
-                    mcts_move_parallel, _D4, position_win_rate,
-                    position_win_rates)
-    from game import BitUltimateGame
-    reset_engine_caches()
-
-    def check(name, cond):
-        nonlocal passed, failed
-        if cond:
-            passed += 1
-            print(f'  PASS  {name}')
-        else:
-            failed += 1
-            print(f'  FAIL  {name}')
-
-    g = NormalGame()
-    for mv in (0, 3, 1, 4, 2):
-        g.make_move(mv)
-    check('normal: X wins on top row', g.result() == X)
-
-    g = NormalGame()
-    for mv in (0, 1, 2, 4, 3, 5, 8, 6, 7):
-        g.make_move(mv)
-    check('normal: draw detected', g.result() == 'D' and g.is_full())
-    check('normal: no legal moves when full', g.legal_moves() == [])
-
-    g = UltimateGame()
-    g.make_move(0, 2)
-    check('ultimate: move routes to macro 2', g.active_macro == 2 and g.current == O)
-    moves = g.legal_moves()
-    check('ultimate: legal moves limited to macro 2',
-          len(moves) == 9 and all(m == 2 for m, _ in moves))
-
-    g = UltimateGame()
-    g.micro[0] = [X, O, X, X, O, O, O, X, X]
-    g.macro[0] = 'D'
-    g.active_macro = 0
-    g.current = X
-    check('ultimate: full macro board frees move choice',
-          any(m != 0 for m, _ in g.legal_moves()))
-
-    g = UltimateGame()
-    g.macro[4] = O
-    g.active_macro = 4
-    g.current = X
-    check('ultimate: won macro board frees move choice',
-          any(m != 4 for m, _ in g.legal_moves()))
-
-    g = UltimateGame()
-    g.micro[3] = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    g.make_move(3, 2)
-    check('ultimate: micro win claims macro cell', g.macro[3] == X)
-
-    g = UltimateGame()
-    g.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.micro[2] = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    g.make_move(2, 2)
-    check('ultimate: macro win detected', g.winner() == X)
-
-    g = UltimateGame()
-    g.macro = ['D'] * 9
-    for m in range(9):
-        g.micro[m] = [X, O, X, X, O, O, O, X, X]
-    check('ultimate: draw detected', g.result() == 'D' and g.is_full())
-
-    g = NormalGame()
-    g.board = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('basic: takes winning move', get_basic_move(g) == 2)
-
-    g = NormalGame()
-    g.board = [EMPTY, EMPTY, EMPTY, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('basic: blocks opponent win', get_basic_move(g) == 5)
-
-    s = new_session()
-    s['mode'] = 'pvc'
-    s['first_player'] = 'computer'
-    check('pvc: computer first makes AI play X', side_types(s) == (s['ai_o'], 'Human'))
-
-    g = NormalGame()
-    g.board = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    move, score = minimax_move_normal(g)
-    check('minimax: picks immediate win', move == 2 and score > 0)
-
-    wins, draws = 0, 0
-    for _ in range(6):
-        g = NormalGame()
-        while not g.is_over():
-            move = (minimax_move_normal(g)[0] if g.current == X
-                    else random.choice(g.legal_moves()))
-            g.make_move(move)
-        if g.result() == X:
-            wins += 1
-        elif g.result() == 'D':
-            draws += 1
-    check('minimax: X never loses to random (6 games)', wins + draws == 6)
-
-    g = NormalGame()
-    g.board = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('mcts: picks immediate win', mcts_move(g, 1500) == 2)
-
-    g = UltimateGame()
-    check('mcts: legal move on empty ultimate', mcts_move(g, 300) in g.legal_moves())
-
-    g = NormalGame()
-    g.board = [X, X, EMPTY, EMPTY, O, O, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    mv = solver_move(g)
-    b = g.board[:]
-    b[mv] = g.current
-    check('solver: picks a winning move', -build_tablebase()[_board_key(b)] == 1)
-    check('solver: tablebase covers reachable states', len(build_tablebase()) > 5000)
-    g = NormalGame()
-    check('solver: legal move on empty normal', get_ai_move(g, 'Solver', 300) in g.legal_moves())
-
-    g = NormalGame()
-    g.board = [X, X, EMPTY, EMPTY, O, O, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('minimax pro: normal immediate win', minimax_pro_move(g, depth=9) == 2)
-    check('mcts+rave: normal immediate win', mcts_rave_move(g, 1500) == 2)
-    check('mcts+grave: normal immediate win', mcts_grave_move(g, 1500) == 2)
-
-    # opening book / 開局書
-    g = NormalGame()
-    check('opening book: normal first move is corner/center', opening_book_move(g) in (0, 2, 4, 6, 8))
-    g2 = NormalGame()
-    g2.board[4] = O
-    g2.current = X
-    check('opening book: normal replies to center with a corner', opening_book_move(g2) in (0, 2, 6, 8))
-    g3 = NormalGame()
-    g3.board[0] = O
-    g3.current = X
-    check('opening book: normal replies to a corner with the center', opening_book_move(g3) == 4)
-    g4 = NormalGame()
-    g4.board = [X, O, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g4.current = O
-    check('opening book: no move after the booked plies', opening_book_move(g4) is None)
-    gu = UltimateGame()
-    check('opening book: ultimate first move is legal', opening_book_move(gu) in gu.legal_moves())
-
-    # micro endgame tablebase / micro 殘局表
-    tb = build_micro_tablebase()
-    check('micro tablebase: empty micro is a draw', tb[_board_key([EMPTY] * 9)] == 0)
-    # 4 marks -> X to move; X has a two-in-a-row with the third cell open.
-    check('micro tablebase: immediate win is +1',
-          tb[_board_key([X, X, EMPTY, O, EMPTY, O, EMPTY, EMPTY, EMPTY])] == 1)
-
-    # heuristic rollout / 啟發式 rollout
-    g = NormalGame()
-    g.board = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = X
-    check('rollout: takes an immediate win', _rollout_move(g) == 2)
-    g = NormalGame()
-    g.board = [X, X, EMPTY, O, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    g.current = O
-    check('rollout: blocks the opponent win', _rollout_move(g) == 2)
-
-    # tree reuse / 樹重用
-    g = NormalGame()
-    m1 = get_ai_move(g, 'MCTS', 100)
-    apply_move(g, m1)
-    m2 = get_ai_move(g, 'MCTS', 100)
-    check('tree reuse: second move is legal', m2 in g.legal_moves())
-    check('tree reuse: cache populated', len(_REUSE) > 0)
-    reset_engine_caches()
-    check('tree reuse: cache clears', len(_REUSE) == 0)
-
-    # eval / search refinements / 評估與剪枝細化
-    check('fork: empty board has no forks', _fork_count([EMPTY] * 9, X) == 0)
-    check('fork: center double-threat detected',
-          _fork_count([X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, X, X], X) == 1)
-    gu2 = UltimateGame()
-    check('minimax pro: legal move with killers/LMR/aspiration',
-          minimax_pro_move(gu2, depth=3) in gu2.legal_moves())
-
-    # symmetry / 對稱性
-    check('symmetry: 8 distinct permutations', len({tuple(p) for p in _D4}) == 8)
-    check('symmetry: corner orbit under D4', set(_sym_images(0)) == {0, 2, 6, 8})
-
-    # bitboard equivalence / bitboard 等價性
-    same = True
-    for _ in range(5):
-        a = UltimateGame()
-        b = BitUltimateGame.from_game(a)
-        steps = 0
-        while not a.is_over() and steps < 60:
-            if set(a.legal_moves()) != set(b.legal_moves()):
-                same = False
-                break
-            m = random.choice(a.legal_moves())
-            apply_move(a, m)
-            b.make_move(*m)
-            steps += 1
-        if a.result() != b.result():
-            same = False
-        if not same:
-            break
-    check('bitboard: random games match the list board', same)
-
-    # multithreaded MCTS / 多執行緒 MCTS
-    gu3 = UltimateGame()
-    check('multithreaded MCTS: legal move',
-          mcts_move_parallel(gu3, 100, 2) in gu3.legal_moves())
-
-    # whole-game win rate / 整局勝率
-    g = NormalGame()
-    check('win rate: empty normal is a draw (0.5)', position_win_rate(g, 0) == 0.5)
-    check('win rates: empty normal is pure draw', position_win_rates(g, 0) == (0.0, 1.0, 0.0))
-    g = NormalGame()
-    g.board = [X, X, X, EMPTY, O, EMPTY, EMPTY, EMPTY, O]
-    g.current = X
-    check('win rate: won normal is 1.0', position_win_rate(g, 0) == 1.0)
-    check('win rates: won normal is X wins', position_win_rates(g, 0) == (1.0, 0.0, 0.0))
-    gu4 = UltimateGame()
-    pct = position_win_rate(gu4, 200)
-    check('win rate: ultimate in [0,1]', 0.0 <= pct <= 1.0)
-    xr, dr, oro = position_win_rates(gu4, 200)
-    check('win rates: ultimate sums to 1',
-          abs(xr + dr + oro - 1.0) < 1e-6 and 0.0 <= xr <= 1.0 and 0.0 <= oro <= 1.0)
-
-    # thread-local TT: concurrent Minimax Pro calls must not corrupt each other
-    import threading as _th
-    _tt_ok = []
-
-    def _mp_worker():
-        g = UltimateGame()
-        _tt_ok.append(minimax_pro_move(g, depth=3) in g.legal_moves())
-
-    _threads = [_th.Thread(target=_mp_worker) for _ in range(2)]
-    for _t in _threads:
-        _t.start()
-    for _t in _threads:
-        _t.join()
-    check('thread-local TT: concurrent minimax pro works', all(_tt_ok))
-
-    gu = UltimateGame()
-    gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    gu.micro[2] = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    gu.active_macro = 2
-    gu.current = X
-    check('minimax pro: ultimate game-winning move', minimax_pro_move(gu, depth=4) == (2, 2))
-    check('mcts+rave: ultimate game-winning move', mcts_rave_move(gu, 2000) == (2, 2))
-    check('mcts+grave: ultimate game-winning move', mcts_grave_move(gu, 2000) == (2, 2))
-
-    seg = win_segment((0, 1, 2), line_coords)
-    check('geometry: horizontal line spans full width', seg == ((4, 20), (96, 20)))
-    seg = win_segment((0, 4, 8), line_coords)
-    check('geometry: diagonal line spans corners', seg == ((7, 7), (93, 93)))
-    seg = win_segment((0, 4, 8), macro_center)
-    check('geometry: macro diagonal spans corners', seg == ((7, 7), (93, 93)))
-    check('geometry: badge svg has cross/circle',
-          '<line' in win_badge_svg(X) and '<circle' in win_badge_svg(O))
-
-    import alphazero
-    m9 = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False)
-    check('alphazero: smoke train ultimate', m9 is not None)
-    g = UltimateGame()
-    check('alphazero: legal move ultimate', alphazero.select_move(g, m9, 20) in g.legal_moves())
-    g = NormalGame()
-    mv = get_ai_move(g, 'AlphaZero', 20)
-    check('alphazero: get_ai_move dispatches', mv in g.legal_moves())
-    az9 = alphazero.AZNet(9)  # random-init network: tests search mechanics only
-    gu = UltimateGame()
-    gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    gu.micro[2] = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    gu.active_macro = 2
-    gu.current = X
-    check('alphazero: ultimate game-winning move found',
-          alphazero.select_move(gu, az9, 60) == (2, 2))
-    gw = NormalGame()
-    gw.board = [X, X, X, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
-    check('alphazero: terminal value sign (normal win)',
-          alphazero.terminal_value(gw) == -1.0)
-    gwu = UltimateGame()
-    gwu.macro = [X, X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
-    check('alphazero: terminal value sign (ultimate win)',
-          alphazero.terminal_value(gwu) == -1.0)
-
-    for gt, ax, ao in (('normal', 'Random', 'Random'),
-                       ('ultimate', 'Random', 'Random'),
-                       ('ultimate', 'Minimax', 'Random'),
-                       ('normal', 'Solver', 'Random'),
-                       ('ultimate', 'Minimax Pro', 'Random'),
-                       ('ultimate', 'MCTS+RAVE', 'Random'),
-                       ('ultimate', 'MCTS+GRAVE', 'Random')):
-        game = NormalGame() if gt == 'normal' else UltimateGame()
-        guard = 0
-        while not game.is_over() and guard < 500:
-            ai = ax if game.current == X else ao
-            apply_move(game, get_ai_move(game, ai, 300))
-            guard += 1
-        check(f'cvc {gt} ({ax} vs {ao}) terminates', game.is_over() and guard <= 500)
-
-    for gt in ('normal', 'ultimate'):
-        for ai in ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
-                   'MCTS+RAVE', 'MCTS+GRAVE', 'Solver'):
-            game = NormalGame() if gt == 'normal' else UltimateGame()
-            guard = 0
-            while not game.is_over() and guard < 500:
-                if game.current == X:
-                    apply_move(game, random.choice(game.legal_moves()))
-                else:
-                    apply_move(game, get_ai_move(game, ai, 300))
-                guard += 1
-            check(f'pvc {gt} vs {ai} terminates', game.is_over() and guard <= 500)
-
-    print(f'\n{passed} passed, {failed} failed')
-    return 1 if failed else 0
-
-
 def _flag_arg(name, default=None):
     """Return the string following --name, or default when absent."""
     if name not in sys.argv:
@@ -520,7 +196,13 @@ def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
 
 def main():
     if '--self-test' in sys.argv:
-        sys.exit(self_test())
+        try:
+            import pytest
+        except ImportError:
+            print('pytest is required for --self-test:  python -m pip install pytest')
+            return 1
+        tests = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tests')
+        sys.exit(pytest.main(['-q', tests]))
     if '--train-az' in sys.argv:
         import alphazero
         rest = [a for a in sys.argv[1:] if a != '--train-az']

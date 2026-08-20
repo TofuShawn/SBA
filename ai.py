@@ -1046,9 +1046,44 @@ def alphazero_move(game, budget=800):
 
 _BOOK_ENGINES = {'Basic', 'Minimax', 'Minimax Pro', 'MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'}
 
+# Curated Ultimate openers: X's first move -> O's response (a cell in the
+# routed macro). All entries are validated against the legal moves before use.
+ULTIMATE_BOOK = {
+    (4, 4): [(4, 0), (4, 2), (4, 6), (4, 8)],
+    (4, 0): [(0, 4)],
+    (4, 2): [(2, 4)],
+    (4, 6): [(6, 4)],
+    (4, 8): [(8, 4)],
+    (0, 0): [(0, 4)],
+    (2, 2): [(2, 4)],
+    (6, 6): [(6, 4)],
+    (8, 8): [(8, 4)],
+    (0, 4): [(4, 0), (4, 8)],
+    (2, 4): [(4, 0), (4, 6)],
+    (6, 4): [(4, 2), (4, 8)],
+    (8, 4): [(4, 2), (4, 6)],
+}
+
+# Expose the Ultimate opening book through sba.toml ([engine.opening_book_ultimate],
+# keys like "4,4"); the dict above remains the built-in default.
+_CFG_DEFAULTS['engine']['opening_book_ultimate'] = ULTIMATE_BOOK
+
+
+def _ultimate_book():
+    """Config-backed Ultimate opening book (accepts tuple or 'm,i' keys)."""
+    out = {}
+    for k, v in (cfg_engine('opening_book_ultimate', ULTIMATE_BOOK) or {}).items():
+        if isinstance(k, str):
+            m, i = k.split(',')
+            key = (int(m.strip()), int(i.strip()))
+        else:
+            key = tuple(k)
+        out[key] = [tuple(r) for r in v]
+    return out
+
 
 def opening_book_move(game):
-    """Curated early-game moves (Normal: first two plies; Ultimate: first ply)."""
+    """Curated early-game moves (Normal: first two plies; Ultimate: first two)."""
     if isinstance(game, NormalGame):
         filled = sum(1 for c in game.board if c != EMPTY)
         if filled == 0 and game.current == X:
@@ -1057,8 +1092,16 @@ def opening_book_move(game):
             om = next(i for i, c in enumerate(game.board) if c == O)
             return 4 if om != 4 else random.choice((0, 2, 6, 8))
         return None
-    if all(c == EMPTY for row in game.micro for c in row):
+    filled = sum(1 for row in game.micro for c in row if c != EMPTY)
+    if filled == 0 and game.current == X:
         return random.choice(((4, 4), (0, 0), (2, 2), (6, 6), (8, 8), (4, 0)))
+    if filled == 1 and game.current == O:
+        x_move = next((m, i) for m in range(9) for i in range(9)
+                      if game.micro[m][i] == X)
+        legal = set(game.legal_moves())
+        picks = [r for r in _ultimate_book().get(x_move, ()) if r in legal]
+        if picks:
+            return random.choice(picks)
     return None
 
 
