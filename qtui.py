@@ -31,9 +31,8 @@ try:
     from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
-        QGraphicsDropShadowEffect, QListView, QListWidget, QListWidgetItem,
-        QMainWindow, QPushButton, QSizePolicy, QSlider, QStackedWidget,
-        QVBoxLayout, QWidget,
+        QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
+        QPushButton, QSizePolicy, QSlider, QStackedWidget, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -861,6 +860,10 @@ class GamePage(QWidget):
         top_title.setObjectName('title')
         top.addWidget(top_title)
         top.addStretch(1)
+        self.play_again_btn = _si_button(t('Play Again', '再玩一次'), primary=True)
+        self.play_again_btn.clicked.connect(self.new_game)
+        self.play_again_btn.setVisible(False)
+        top.addWidget(self.play_again_btn)
         back_btn = _si_button(t('Back to Menu', '返回選單'))
         back_btn.clicked.connect(self.back_requested.emit)
         top.addWidget(back_btn)
@@ -905,10 +908,6 @@ class GamePage(QWidget):
         self.new_btn = _si_button(t('New Game', '新遊戲'))
         self.new_btn.clicked.connect(self.new_game)
         btn_row.addWidget(self.new_btn)
-        self.play_again_btn = _si_button(t('Play Again', '再玩一次'), primary=True)
-        self.play_again_btn.clicked.connect(self.new_game)
-        self.play_again_btn.setVisible(False)
-        btn_row.addWidget(self.play_again_btn)
         btn_row.addStretch(1)
         board_col.addLayout(btn_row)
         body.addLayout(board_col, 1)
@@ -1040,14 +1039,8 @@ class GamePage(QWidget):
         self.hist_ref.attachAxis(self.hist_axis_y)
         self.hist_chart_view = QChartView(self.hist_chart)
         self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
-        self.hist_chart_view.setMinimumHeight(120)
+        self.hist_chart_view.setMinimumHeight(200)
         root.addWidget(self.hist_chart_view)
-        self.hist_list = QListWidget()
-        self.hist_list.setFlow(QListView.LeftToRight)
-        self.hist_list.setWrapping(True)
-        self.hist_list.setMaximumHeight(64)
-        self.hist_list.itemClicked.connect(self.on_hist_clicked)
-        root.addWidget(self.hist_list)
 
     # -- session flow ------------------------------------------------------
 
@@ -1121,13 +1114,6 @@ class GamePage(QWidget):
         self.hist_slider.setValue(self.step_idx)
         self.hist_slider.blockSignals(False)
         self.hist_label.setText(f'{self.step_idx} / {n}')
-        self.hist_list.clear()
-        for i, mv in enumerate(moves, start=1):
-            item = QListWidgetItem(f'{i}. {move_text(mv)}')
-            item.setData(Qt.UserRole, i)
-            self.hist_list.addItem(item)
-        if self.step_idx > 0:
-            self.hist_list.setCurrentRow(self.step_idx - 1)
         self.hist_x_series.clear()
         self.hist_ref.clear()
         for k, (x, d, o) in enumerate(history):
@@ -1295,11 +1281,6 @@ class GamePage(QWidget):
             self.go_to_step(self.step_idx + 1)
         else:
             self.run_ai()
-
-    def on_hist_clicked(self, item):
-        k = item.data(Qt.UserRole)
-        if k is not None:
-            self.go_to_step(k)
 
     def update_cvc_controls(self):
         cvc = self.session is not None and self.session['mode'] == 'cvc'

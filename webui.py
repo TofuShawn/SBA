@@ -78,6 +78,9 @@ def main_page():
             ui.icon('grid_on').classes('text-primary')
             ui.label('Ultimate Tic Tac Toe — 終極井字棋').classes('text-h6 q-ma-none')
         with ui.row().classes('items-center gap-4'):
+            play_again_btn = ui.button(t('Play Again', '再玩一次'), icon='replay',
+                                       on_click=start_game).props('unelevated')
+            play_again_btn.set_visibility(False)
             back_btn = ui.button(t('Back to Menu', '返回選單'), icon='arrow_back',
                                  on_click=lambda: show_menu())
             back_btn.set_visibility(False)
@@ -88,6 +91,7 @@ def main_page():
     def show_menu():
         session['screen'] = 'menu'
         back_btn.set_visibility(False)
+        play_again_btn.set_visibility(False)
         content.clear()
         with content:
             build_menu()
@@ -472,13 +476,6 @@ def main_page():
             hist_chart.options['series'][0]['data'] = [
                 round(x * 100, 1) for x, _, _ in history]
             hist_chart.update()
-            hist_list.clear()
-            with hist_list:
-                for i, mv in enumerate(moves, start=1):
-                    with ui.item().props('clickable').on(
-                            'click', lambda k=i: go_to_step(k)):
-                        with ui.item_section():
-                            ui.label(f'{i}. {move_text(mv)}')
 
         def on_pause_click():
             session['cvc_paused'] = not session.get('cvc_paused', False)
@@ -589,13 +586,8 @@ def main_page():
             result = game.result()
             log.info('Game over: %s [%s]', result,
                      'Normal' if isinstance(game, NormalGame) else 'Ultimate')
-            # No popup: show inline restart buttons under the board instead.
-            game_over_row.clear()
-            with game_over_row:
-                ui.button(t('Play Again', '再玩一次'), icon='replay',
-                          on_click=start_game)
-                ui.button(t('Back to Menu', '返回選單'),
-                          on_click=show_menu)
+            # No popup: the header Play Again button appears instead.
+            play_again_btn.set_visibility(True)
 
         with ui.row().classes('w-full justify-center gap-4 items-start flex-wrap sm:gap-6'):
             with ui.column().classes('items-center gap-3'):
@@ -623,7 +615,6 @@ def main_page():
                 with ui.row().classes('gap-2'):
                     ui.button(t('New Game', '新遊戲'), icon='replay',
                               on_click=start_game).props('flat')
-                game_over_row = ui.row().classes('gap-2')
             with ui.column().classes('w-full max-w-sm gap-3 sm:w-80 sm:max-w-none'):
                 with ui.card().classes('w-full'):
                     with ui.column().classes('gap-1'):
@@ -684,8 +675,7 @@ def main_page():
                     },
                 }],
                 'legend': {'show': True, 'top': 0},
-            }).classes('w-full').style('height: 140px')
-            hist_list = ui.list().props('dense').classes('w-full')
+            }).classes('w-full').style('height: 200px')
 
         refresh_status()
         trigger_analysis()
