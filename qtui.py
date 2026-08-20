@@ -139,6 +139,9 @@ def _init_siui_runtime():
         from silicon import SiGlobal
         from silicon.SiHint import FloatingWindow
         SiGlobal.floating_window = FloatingWindow()
+        # A tooltip must never steal mouse events from the board beneath it
+        # (it stays on top and follows the cursor).
+        SiGlobal.floating_window.setAttribute(Qt.WA_TransparentForMouseEvents)
         SiGlobal.floating_window.setWindowOpacity(0)
         SiGlobal.floating_window.show()
     except Exception as e:  # noqa: BLE001
@@ -877,9 +880,9 @@ class GamePage(QWidget):
         self.board.cell_clicked.connect(self.on_cell_click)
         board_col.addWidget(self.board, 1)
         btn_row = QHBoxLayout()
-        new_btn = _si_button(t('New Game', '新遊戲'))
-        new_btn.clicked.connect(self.new_game)
-        btn_row.addWidget(new_btn)
+        self.new_btn = _si_button(t('New Game', '新遊戲'))
+        self.new_btn.clicked.connect(self.new_game)
+        btn_row.addWidget(self.new_btn)
         self.play_again_btn = _si_button(t('Play Again', '再玩一次'), primary=True)
         self.play_again_btn.clicked.connect(self.new_game)
         self.play_again_btn.setVisible(False)
@@ -1002,6 +1005,7 @@ class GamePage(QWidget):
         self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
         s['game'] = self.game
         self.play_again_btn.setVisible(False)
+        self.new_btn.setVisible(True)
         self.gen += 1
         self.busy = False
         self.analysis_busy = False
@@ -1213,8 +1217,9 @@ class GamePage(QWidget):
         result = self.game.result()
         log.info('Game over: %s [%s]', result,
                  'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
-        # No popup: a prominent inline "Play Again" button appears instead.
+        # No popup: a prominent "Play Again" button replaces New Game.
         self.play_again_btn.setVisible(True)
+        self.new_btn.setVisible(False)
 
 # ---------------------------------------------------------------------------
 # Main window
