@@ -19,6 +19,7 @@
   - `MCTS` - Monte Carlo Tree Search with UCT / 蒙地卡羅樹搜尋（強度可調）
   - `MCTS+GRAVE` - Generalized RAVE (Cazenave 2015): shares RAVE stats through reference nodes, lower memory / 廣義 RAVE：透過 reference node 共享 RAVE 統計，省記憶體
   - ~~`MCTS+RAVE`~~ - hidden in the menu (superseded by MCTS+GRAVE; engine kept for tests and `--bench`) / 已停用（選單不可選，由 MCTS+GRAVE 取代；引擎保留供測試與 `--bench`）
+  - ~~`Flat MCTS`~~ - hidden in the menu (research/learning baseline: root-level playouts, no tree) / 已停用（選單不可選，研究/學習用基準：只做根層 rollout，無樹搜尋）
   - ~~`Solver`~~ - disabled in the menu (engine kept for the analysis panel) / 已停用（選單不可選，引擎保留供分析面板使用）
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
 - **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
@@ -122,7 +123,7 @@ python SBA.py --bench --games 10 --iters 200 --normal
 ```
 
 Available engines for `--ai-a`/`--ai-b`: Random, Basic, Minimax, Minimax Pro,
-MCTS, MCTS+RAVE, MCTS+GRAVE, Solver, AlphaZero. The first player alternates
+MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero. The first player alternates
 per game and per-match win rates are printed / `--ai-a`/`--ai-b` 可用引擎如上；
 每局輪換先手，輸出各組合勝率。
 

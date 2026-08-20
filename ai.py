@@ -4,12 +4,15 @@
 """Ultimate Tic Tac Toe — AI engines and the AI assistant analysis.
 
 Implements every computer opponent (Random, Basic, Minimax, Minimax Pro,
-MCTS, MCTS+RAVE, Solver, AlphaZero) plus the best-move analysis used by the
-AI assistant panel. Pure logic on top of game.py — no NiceGUI dependency.
+MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero) plus the
+best-move analysis used by the AI assistant panel. Pure logic on top of
+game.py — no NiceGUI dependency.
 
 Maintenance notes:
 - MCTS+RAVE is hidden from the menus but kept for tests and --bench
   (decision D8: MCTS+GRAVE supersedes it).
+- Flat MCTS is hidden from the menus too; it is a research/learning
+  baseline (root-level playouts, no tree).
 - Solver is menu-disabled but still used by the analysis panel (D3).
 - AlphaZero falls back to MCTS when no trained model exists (see models/).
 """
@@ -459,6 +462,60 @@ def _rollout_move(state, moves=None):
     if len(threats) == 1:
         return next(iter(threats))
     return random.choice(moves)  # multiple threats: cannot block them all
+
+
+# ---------------------------------------------------------------
+# Flat MCTS (research-only): root-level Monte Carlo, no tree
+# ---------------------------------------------------------------
+# Scores every legal move independently with random playouts from the
+# resulting position, using the same rollout policy as MCTS (so the bench
+# isolates the search structure). Hidden from the menus; kept for learning,
+# tests and --bench.
+
+def _flat_playout(game, player):
+    """Random playout from `game`; +1 win / 0.5 draw / 0 loss for `player`."""
+    g = game.clone()
+    guard = 0
+    while not g.is_over() and guard < 300:
+        moves = g.legal_moves()
+        if not moves:
+            break
+        apply_move(g, _rollout_move(g, moves))
+        guard += 1
+    r = g.result()
+    if r == 'D':
+        return 0.5
+    return 1.0 if r == player else 0.0
+
+
+def flat_mcts_move(game, iterations):
+    """Flat/root-level Monte Carlo: split the budget evenly across moves.
+
+    Each legal move is scored by ``iterations // len(moves)`` random playouts
+    from the position after that move; the move with the best average outcome
+    wins (ties prefer an immediate win). There is no tree, so it only looks
+    one ply ahead — useful as a learning baseline against real MCTS.
+    """
+    moves = game.legal_moves()
+    if not moves:
+        return None
+    per_move = max(1, iterations // len(moves))
+    player = game.current
+    avg = {}
+    for m in moves:
+        g = game.clone()
+        apply_move(g, m)
+        total = sum(_flat_playout(g, player) for _ in range(per_move))
+        avg[m] = total / per_move
+    best = max(avg, key=avg.get)
+    for m in avg:
+        if avg[m] == avg[best]:
+            g = game.clone()
+            apply_move(g, m)
+            if g.result() == game.current:
+                best = m
+                break
+    return best
 
 
 def _can_expand(node):
@@ -1191,6 +1248,8 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
         return minimax_pro_move(game, depth=minimax_depth)
     if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
         return _mcts_move(game, ai_type, mcts_budget)
+    if ai_type == 'Flat MCTS':
+        return flat_mcts_move(game, mcts_budget)
     if ai_type == 'Solver':
         return solver_move(game, mcts_budget)
     if ai_type == 'AlphaZero':

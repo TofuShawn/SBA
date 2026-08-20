@@ -99,6 +99,8 @@ AI_OPTIONS = {
     # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
     # successor (same bias term, lower memory). The engine stays available
     # through get_ai_move for self-tests and the --bench comparison.
+    # Flat MCTS (root-level playouts, no tree) is likewise hidden — it is a
+    # research/learning baseline, not a menu-worthy opponent.
 }
 
 
@@ -138,7 +140,8 @@ def _flag_value(name, default):
 
 
 BENCH_AI_NAMES = ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
-                  'MCTS+RAVE', 'MCTS+GRAVE', 'Solver', 'AlphaZero')
+                  'MCTS+RAVE', 'MCTS+GRAVE', 'Flat MCTS', 'Solver',
+                  'AlphaZero')
 
 
 def _play_match(x_ai, o_ai, game_type, iterations, depth):

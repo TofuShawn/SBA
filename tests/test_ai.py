@@ -9,6 +9,7 @@ from ai import (
     _board_key, get_ai_move, opening_book_move, build_micro_tablebase,
     _rollout_move, reset_engine_caches, _REUSE, _fork_count, _sym_images,
     mcts_move_parallel, _D4, position_win_rate, position_win_rates,
+    flat_mcts_move,
 )
 from game import X, O, EMPTY, NormalGame, UltimateGame, apply_move
 
@@ -55,6 +56,25 @@ def test_mcts_picks_immediate_win():
     g.board = [X, X, EMPTY] + [EMPTY] * 6
     g.current = X
     assert mcts_move(g, 1500) == 2
+
+
+def test_flat_mcts_picks_immediate_win():
+    g = NormalGame()
+    g.board = [X, X, EMPTY] + [EMPTY] * 6
+    g.current = X
+    assert flat_mcts_move(g, 2000) == 2
+
+
+def test_flat_mcts_blocks_immediate_loss():
+    g = NormalGame()
+    g.board = [X, EMPTY, EMPTY, O, O, EMPTY, EMPTY, EMPTY, EMPTY]
+    g.current = X
+    assert flat_mcts_move(g, 2000) == 5
+
+
+def test_flat_mcts_legal_move_on_ultimate():
+    g = UltimateGame()
+    assert flat_mcts_move(g, 600) in g.legal_moves()
 
 
 def test_mcts_legal_move_on_empty_ultimate():
