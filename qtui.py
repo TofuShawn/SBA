@@ -25,7 +25,7 @@ import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import QEasingCurve, QPoint, QRectF, QSize, Qt, QThread, QTimer, QVariantAnimation, Signal
+    from PySide6.QtCore import QPoint, QRectF, QSize, Qt, QThread, QTimer, Signal
     from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
@@ -366,30 +366,17 @@ class BoardWidget(QWidget):
         self._flash_timer.timeout.connect(self._clear_flash)
         self.setMouseTracking(True)
         self._hover_macro = None
-        self._hover_blend = 0.0
-        self._hover_anim = QVariantAnimation(self)
-        self._hover_anim.setDuration(180)
-        self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._hover_anim.valueChanged.connect(self._on_hover_anim)
         self._hover_poll = QTimer(self)
-        self._hover_poll.setInterval(80)
-        self._hover_poll.timeout.connect(self._sync_hover_from_cursor)
+        self._hover_poll.setInterval(200)
+        self._hover_poll.timeout.connect(self._poll_hover)
         self._hover_poll.start()
-        self._hover_pending = 0
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
-        self._hover_anim.stop()
         self._hover_macro = None
-        self._hover_blend = 0.0
-        self._hover_pending = 0
-        self.update()
-
-    def _on_hover_anim(self, value):
-        self._hover_blend = float(value)
         self.update()
 
     def _macro_at(self, px, py):
@@ -403,25 +390,19 @@ class BoardWidget(QWidget):
         return (row // 3) * 3 + (col // 3)
 
     def mouseMoveEvent(self, event):
-        if isinstance(self.game, UltimateGame):
+        if self.game is not None:
             m = self._macro_at(event.position().x(), event.position().y())
             if m != self._hover_macro:
                 self._hover_macro = m
-                target = 1.0 if (m is not None and self.game.macro[m] in (X, O)) else 0.0
-                self._hover_anim.stop()
-                self._hover_anim.setStartValue(self._hover_blend)
-                self._hover_anim.setEndValue(target)
-                self._hover_anim.start()
+                self.update()
         super().mouseMoveEvent(event)
 
-    def _sync_hover_from_cursor(self):
-        """Re-derive the hovered chunk from the real cursor position.
+    def _poll_hover(self):
+        """Repaint when the chunk under the real cursor changes.
 
-        Some top-level windows (e.g. the SiliconUI tooltip) can swallow
-        mouse-move events, freezing the reveal on the first chunk. Repainting
-        with the actual cursor keeps the reveal following the pointer. A
-        hysteresis of a few polls avoids flicker when the cursor sits on a
-        chunk boundary and the OS jitters by a pixel.
+        A slow poll only detects changes (there is no per-tick animation), so
+        it can neither flicker nor freeze the reveal if mouse-move events are
+        occasionally lost.
         """
         if self.game is None or not self.isVisible():
             return
@@ -429,30 +410,15 @@ class BoardWidget(QWidget):
         if pos == QPoint(0, 0):  # offscreen/synthetic renders have no cursor
             return
         local = self.mapFromGlobal(pos)
-        if not self.rect().contains(local):
-            m = None
-        else:
-            m = self._macro_at(local.x(), local.y())
-        if m == self._hover_macro:
-            self._hover_pending = 0
-            return
-        self._hover_pending += 1
-        if self._hover_pending >= 3:  # ~240ms steady in the new chunk
-            self._hover_pending = 0
+        m = (self._macro_at(local.x(), local.y())
+             if self.rect().contains(local) else None)
+        if m != self._hover_macro:
             self._hover_macro = m
-            self._hover_anim.stop()
-            target = 1.0 if (m is not None and self.game.macro[m] in (X, O)) else 0.0
-            self._hover_anim.setStartValue(self._hover_blend)
-            self._hover_anim.setEndValue(target)
-            self._hover_anim.start()
+            self.update()
 
     def leaveEvent(self, event):
-        if self._hover_macro is not None:
-            self._hover_macro = None
-            self._hover_anim.stop()
-            self._hover_anim.setStartValue(self._hover_blend)
-            self._hover_anim.setEndValue(0.0)
-            self._hover_anim.start()
+        self._hover_macro = None
+        self.update()
         super().leaveEvent(event)
 
     def flash(self, move):
@@ -650,24 +616,20 @@ class BoardWidget(QWidget):
             if self.game.macro[m] in (X, O):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
-                blend = self._hover_blend if m == self._hover_macro else 0.0
+                revealed = m == self._hover_macro
                 fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
-                fill.setAlpha(int(230 * (1.0 - blend)))
-                if fill.alpha() > 0:
+                if not revealed:
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(fill)
                     painter.drawRoundedRect(rect, 10, 10)
-                mark = QColor(PAL['win_mark'])
-                mark.setAlpha(int(255 * (1.0 - blend)))
-                if mark.alpha() > 0:
+                if not revealed:
                     pad = rect.width() * 0.18
                     badge = QRectF(rect.left() + pad, rect.top() + pad,
                                    rect.width() - 2 * pad, rect.height() - 2 * pad)
-                    self._paint_mark(painter, badge, winner, mark)
+                    self._paint_mark(painter, badge, winner, QColor(PAL['win_mark']))
                 line = micro_win_line(self.game.micro[m])
-                if line is not None and blend > 0:
+                if line is not None and revealed:
                     line_color = _mark_color(winner)
-                    line_color.setAlpha(int(255 * blend))
                     self._paint_win_line(painter, line, micro_centers[m],
                                          line_color, cell * 0.12, rect)
         # overall macro win line
