@@ -92,7 +92,7 @@ CLI flags / 指令參數：
 | `--port PORT` | Web port / Web 連接埠（預設 `8080`） |
 | `--debug` | Verbose backend logging / 後端詳細日誌 |
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
-| `--bench [--games N] [--iters N] [--normal]` | MCTS-family win-rate benchmark / MCTS 家族引擎勝率對戰測試 |
+| `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
 | `--train-az` | Alias for `alphazero.py train` / 等同執行 `alphazero.py train` |
 
 ### 2. Self-test / 自測
@@ -107,13 +107,19 @@ Runs 59 headless checks covering rules, AI sanity, termination, and AlphaZero sm
 ### 2b. MCTS benchmark / MCTS 對戰測試
 
 ```bash
-# round-robin: MCTS vs MCTS+RAVE vs MCTS+GRAVE on Ultimate / 終極模式三方循環賽
+# default: MCTS vs MCTS+RAVE vs MCTS+GRAVE round-robin on Ultimate / 預設終極模式循環賽
 python SBA.py --bench
+# pick your own matchup / 自訂對戰組合
+python SBA.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 40 --iters 400
+python SBA.py --bench --ai-a Minimax --ai-b MCTS+GRAVE --depth 4
 # smaller / faster, or Normal board / 較小規模或普通棋盤
 python SBA.py --bench --games 10 --iters 200 --normal
 ```
 
-Alternates the first player per game and prints per-match win rates / 每局輪換先手，輸出各組合勝率。
+Available engines for `--ai-a`/`--ai-b`: Random, Basic, Minimax, Minimax Pro,
+MCTS, MCTS+RAVE, MCTS+GRAVE, Solver, AlphaZero. The first player alternates
+per game and per-match win rates are printed / `--ai-a`/`--ai-b` 可用引擎如上；
+每局輪換先手，輸出各組合勝率。
 
 ### 3. Train / evaluate AlphaZero / 訓練與評估 AlphaZero
 

@@ -314,44 +314,81 @@ def self_test():
     return 1 if failed else 0
 
 
-def _flag_value(name, default):
+def _flag_arg(name, default=None):
+    """Return the string following --name, or default when absent."""
     if name not in sys.argv:
         return default
     i = sys.argv.index(name)
-    if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
+    if i + 1 < len(sys.argv):
         return sys.argv[i + 1]
     return default
 
 
-def bench(games=30, iterations=300, game_type='ultimate', seed=12345):
-    """Round-robin win-rate comparison of the MCTS family engines."""
+def _flag_value(name, default):
+    """Return the integer following --name, or default."""
+    raw = _flag_arg(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+BENCH_AI_NAMES = ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
+                  'MCTS+RAVE', 'MCTS+GRAVE', 'Solver', 'AlphaZero')
+
+
+def _play_match(x_ai, o_ai, game_type, iterations, depth):
+    game = NormalGame() if game_type == 'normal' else UltimateGame()
+    guard = 0
+    while not game.is_over() and guard < 1000:
+        ai = x_ai if game.current == X else o_ai
+        apply_move(game, get_ai_move(game, ai, iterations, depth))
+        guard += 1
+    return game.result()
+
+
+def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
+          ai_a=None, ai_b=None, depth=4):
+    """Win-rate comparison between two engines (MCTS family by default)."""
     random.seed(seed)
-    engines = ['MCTS', 'MCTS+RAVE', 'MCTS+GRAVE']
-    print(f'\nMCTS benchmark — {game_type} · {games} games/pair · {iterations} sims')
-    header = f'{"A":<12}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}{"A win%":>8}'
+    if (ai_a is None) != (ai_b is None):
+        print('--ai-a and --ai-b must be given together')
+        return 2
+    if ai_a is not None:
+        for name in (ai_a, ai_b):
+            if name not in BENCH_AI_NAMES:
+                print(f'Unknown AI: {name!r}. Choose from: {", ".join(BENCH_AI_NAMES)}')
+                return 2
+        matchups = [(ai_a, ai_b)]
+    else:
+        matchups = [('MCTS', 'MCTS+RAVE'), ('MCTS', 'MCTS+GRAVE'),
+                    ('MCTS+RAVE', 'MCTS+GRAVE')]
+    if len(matchups) == 1:
+        a, b = matchups[0]
+        print(f'\nBenchmark — {a} vs {b} · {game_type} · {games} games · '
+              f'{iterations} sims/move · depth {depth}')
+    else:
+        print(f'\nMCTS family benchmark — {game_type} · {games} games/pair · '
+              f'{iterations} sims/move')
+    header = f'{"A":<14}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}{"A win%":>8}'
     print(header)
     print('-' * len(header))
-    for i, a in enumerate(engines):
-        for b in engines[i + 1:]:
-            aw = dw = bw = 0
-            for k in range(games):
-                a_first = k % 2 == 0  # alternate who moves first per game
-                x_ai, o_ai = (a, b) if a_first else (b, a)
-                game = NormalGame() if game_type == 'normal' else UltimateGame()
-                guard = 0
-                while not game.is_over() and guard < 1000:
-                    ai = x_ai if game.current == X else o_ai
-                    apply_move(game, get_ai_move(game, ai, iterations))
-                    guard += 1
-                r = game.result()
-                if (r == X and a_first) or (r == O and not a_first):
-                    aw += 1
-                elif r == 'D':
-                    dw += 1
-                else:
-                    bw += 1
-            pct = 100.0 * aw / games
-            print(f'{a:<12}{b:<14}{aw:7d}{dw:6d}{bw:7d}{pct:7.1f}%')
+    for a, b in matchups:
+        aw = dw = bw = 0
+        for k in range(games):
+            a_first = k % 2 == 0  # alternate who moves first per game
+            x_ai, o_ai = (a, b) if a_first else (b, a)
+            r = _play_match(x_ai, o_ai, game_type, iterations, depth)
+            if (r == X and a_first) or (r == O and not a_first):
+                aw += 1
+            elif r == 'D':
+                dw += 1
+            else:
+                bw += 1
+        pct = 100.0 * aw / games
+        print(f'{a:<14}{b:<14}{aw:7d}{dw:6d}{bw:7d}{pct:7.1f}%')
     return 0
 
 
@@ -364,9 +401,12 @@ def main():
         sys.exit(alphazero.main(['train'] + rest))
     if '--bench' in sys.argv:
         sys.exit(bench(
-            games=int(_flag_value('--games', '30')),
-            iterations=int(_flag_value('--iters', '300')),
+            games=_flag_value('--games', 30),
+            iterations=_flag_value('--iters', 300),
             game_type='normal' if '--normal' in sys.argv else 'ultimate',
+            ai_a=_flag_arg('--ai-a'),
+            ai_b=_flag_arg('--ai-b'),
+            depth=_flag_value('--depth', 4),
         ))
     # When SBA.py is the entry script it is '__main__'; register it under the
     # canonical name so qtui.py / webui.py reuse this module instead of
