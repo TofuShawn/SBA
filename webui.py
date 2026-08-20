@@ -484,30 +484,17 @@ def main_page():
                     ui.label(t('Assistant disabled', '助手已關閉')).classes(
                         'text-caption text-grey')
 
-        # One dialog for the whole page lifetime (reused every game) so the
-        # DOM does not accumulate a new dialog after each finished game.
-        with ui.dialog() as result_dialog:
-            with ui.card():
-                result_title = ui.label('').classes('text-h5')
-                ui.label(t('What would you like to do?', '你想做什麼？')).classes(
-                    'text-body2 text-grey')
-                with ui.row().classes('gap-2'):
-                    ui.button(t('Play Again', '再玩一次'),
-                              on_click=lambda: (result_dialog.close(), start_game()))
-                    ui.button(t('Back to Menu', '返回選單'),
-                              on_click=lambda: (result_dialog.close(), show_menu()))
-
         def show_result():
             result = game.result()
             log.info('Game over: %s [%s]', result,
                      'Normal' if isinstance(game, NormalGame) else 'Ultimate')
-            result_title.set_text(
-                (t("It's a draw!", '平局！') if result == 'D'
-                 else f'Player {result} wins! (玩家 {result} 獲勝！)'))
-            try:
-                result_dialog.open()
-            except RuntimeError:
-                pass
+            # No popup: show inline restart buttons under the board instead.
+            game_over_row.clear()
+            with game_over_row:
+                ui.button(t('Play Again', '再玩一次'), icon='replay',
+                          on_click=start_game)
+                ui.button(t('Back to Menu', '返回選單'),
+                          on_click=show_menu)
 
         with ui.row().classes('w-full justify-center gap-4 items-start flex-wrap sm:gap-6'):
             with ui.column().classes('items-center gap-3'):
@@ -521,6 +508,7 @@ def main_page():
                 with ui.row().classes('gap-2'):
                     ui.button(t('New Game', '新遊戲'), icon='replay',
                               on_click=start_game).props('flat')
+                game_over_row = ui.row().classes('gap-2')
             with ui.column().classes('w-full max-w-sm gap-3 sm:w-80 sm:max-w-none'):
                 with ui.card().classes('w-full'):
                     with ui.column().classes('gap-1'):

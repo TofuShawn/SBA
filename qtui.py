@@ -30,8 +30,7 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
-        QMessageBox, QPushButton, QSizePolicy, QSlider, QStackedWidget,
-        QVBoxLayout, QWidget,
+        QPushButton, QSizePolicy, QSlider, QStackedWidget, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -881,6 +880,10 @@ class GamePage(QWidget):
         new_btn = _si_button(t('New Game', '新遊戲'))
         new_btn.clicked.connect(self.new_game)
         btn_row.addWidget(new_btn)
+        self.play_again_btn = _si_button(t('Play Again', '再玩一次'), primary=True)
+        self.play_again_btn.clicked.connect(self.new_game)
+        self.play_again_btn.setVisible(False)
+        btn_row.addWidget(self.play_again_btn)
         btn_row.addStretch(1)
         board_col.addLayout(btn_row)
         body.addLayout(board_col, 1)
@@ -998,6 +1001,7 @@ class GamePage(QWidget):
         s = self.session
         self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
         s['game'] = self.game
+        self.play_again_btn.setVisible(False)
         self.gen += 1
         self.busy = False
         self.analysis_busy = False
@@ -1207,18 +1211,10 @@ class GamePage(QWidget):
 
     def show_result(self):
         result = self.game.result()
-        title = (t("It's a draw!", '平局！') if result == 'D'
-                 else f'Player {result} wins! (玩家 {result} 獲勝！)')
-        box = QMessageBox(self)
-        box.setWindowTitle(title)
-        box.setText(title)
-        again = box.addButton(t('Play Again', '再玩一次'), QMessageBox.AcceptRole)
-        back = box.addButton(t('Back to Menu', '返回選單'), QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is again:
-            self.new_game()
-        else:
-            self.back_requested.emit()
+        log.info('Game over: %s [%s]', result,
+                 'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
+        # No popup: a prominent inline "Play Again" button appears instead.
+        self.play_again_btn.setVisible(True)
 
 # ---------------------------------------------------------------------------
 # Main window
