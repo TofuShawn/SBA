@@ -190,6 +190,8 @@ def eval_ultimate(game, player):
                     sign = 1 if sum(1 for c in cells if c == player) >= theirs else -1
                     score += 80 * v * sign
                     continue
+            score += 40 * _fork_count(cells, player)
+            score -= 40 * _fork_count(cells, opp)
             score += 3 * count_threats(cells, player)
             score -= 3 * count_threats(cells, opp)
             score += 0.5 * sum(1 for c in cells if c == player)
@@ -201,6 +203,24 @@ def eval_ultimate(game, player):
         if vals.count(opp) == 2 and EMPTY in vals:
             score -= 20
     return score
+
+
+def _fork_count(cells, player):
+    """Number of empty cells whose play creates >=2 winning lines for `player`."""
+    n = 0
+    for i, c in enumerate(cells):
+        if c != EMPTY:
+            continue
+        lines = 0
+        for a, b, d in LINES:
+            if i not in (a, b, d):
+                continue
+            others = [cells[j] for j in (a, b, d) if j != i]
+            if others.count(player) == 2:
+                lines += 1
+        if lines >= 2:
+            n += 1
+    return n
 
 
 def _minimax_ultimate(game, depth, alpha, beta, maximizing, ai_player):
@@ -234,6 +254,9 @@ def _minimax_ultimate(game, depth, alpha, beta, maximizing, ai_player):
 
 def minimax_move_ultimate(game, depth=3):
     player = game.current
+    legal = game.legal_moves()
+    if len(legal) <= 6:  # dynamic depth: near the end, search one ply deeper
+        depth += 1
 
     def order_key(m):
         g = game.clone()
@@ -241,7 +264,7 @@ def minimax_move_ultimate(game, depth=3):
         return eval_ultimate(g, player)
 
     best_moves, best_score = [], -math.inf
-    for m in sorted(game.legal_moves(), key=order_key, reverse=True):
+    for m in sorted(legal, key=order_key, reverse=True):
         g = game.clone()
         apply_move(g, m)
         score = _minimax_ultimate(g, depth - 1, -math.inf, math.inf, False, player)
@@ -414,6 +437,7 @@ def reset_engine_caches():
     """Drop module-level search caches (used by self-tests/bench)."""
     _REUSE.clear()
     _TT.clear()
+    _KILLERS.clear()
 
 
 # ---------------------------------------------------------------
@@ -729,6 +753,7 @@ def mcts_grave_move(game, iterations):
 
 _TT = {}
 _TT_MAX = cfg_engine('tt_max', 300000)
+_KILLERS = {}
 
 
 def _tt_key(game):
@@ -765,7 +790,7 @@ def _move_order_score(game, move):
     return score
 
 
-def _order_moves(game, tt_move=None):
+def _order_moves(game, tt_move=None, depth=None):
     moves = list(game.legal_moves())
     if len(moves) <= 1:
         return moves
@@ -774,6 +799,11 @@ def _order_moves(game, tt_move=None):
         for i, (s, m) in enumerate(scored):
             if m == tt_move:
                 scored[i] = (s + 10 ** 9, m)
+    if depth is not None and cfg_engine('use_killers', True):
+        for k in _KILLERS.get(depth, []):
+            for i, (s, m) in enumerate(scored):
+                if m == k:
+                    scored[i] = (s + 10 ** 8, m)
     scored.sort(key=lambda x: -x[0])
     return [m for _, m in scored]
 
@@ -800,14 +830,28 @@ def _negamax_tt(game, depth, alpha, beta):
             return score
     alpha0 = alpha
     best, best_move = -math.inf, None
-    for m in _order_moves(game, entry[3] if entry is not None else None):
+    tt_move = entry[3] if entry is not None else None
+    for idx, m in enumerate(_order_moves(game, tt_move, depth)):
         g = game.clone()
         apply_move(g, m)
-        val = -_negamax_tt(g, depth - 1, -beta, -alpha)
+        if (cfg_engine('use_lmr', True) and depth >= 4 and idx >= 2
+                and m != tt_move):
+            val = -_negamax_tt(g, depth - 2, -beta, -alpha)
+            if val > alpha:
+                val = -_negamax_tt(g, depth - 1, -beta, -alpha)
+        else:
+            val = -_negamax_tt(g, depth - 1, -beta, -alpha)
         if val > best:
             best, best_move = val, m
         alpha = max(alpha, val)
         if alpha >= beta:
+            if (cfg_engine('use_killers', True) and depth >= 2
+                    and best_move is not None and best_move != tt_move):
+                _KILLERS.setdefault(depth, [])
+                if best_move not in _KILLERS[depth]:
+                    _KILLERS[depth].append(best_move)
+                    if len(_KILLERS[depth]) > 2:
+                        _KILLERS[depth].pop(0)
             break
     flag = 0
     if best <= alpha0:
@@ -822,22 +866,41 @@ def _negamax_tt(game, depth, alpha, beta):
 def minimax_pro_move(game, depth=5, time_limit=8.0):
     """Normal: perfect full search. Ultimate: ID negamax + TT + time cap."""
     _TT.clear()
+    _KILLERS.clear()
     if isinstance(game, NormalGame):
         return minimax_move_normal(game)[0]
     start = time.time()
     best_move = random.choice(game.legal_moves())
-    for d in range(1, depth + 1):
-        best, best_val = best_move, -math.inf
+
+    def search_root(d, alpha, beta):
+        bm, bv = best_move, -math.inf
         for m in _order_moves(game):
             g = game.clone()
             apply_move(g, m)
-            val = -_negamax_tt(g, d - 1, -math.inf, math.inf)
-            if val > best_val:
-                best_val, best = val, m
+            val = -_negamax_tt(g, d - 1, -beta, -alpha)
+            if val > bv:
+                bv, bm = val, m
             if time.time() - start > time_limit:
+                return None, None
+        return bm, bv
+
+    use_asp = cfg_engine('use_aspiration', True)
+    prev_val = None
+    for d in range(1, depth + 1):
+        alpha, beta = -math.inf, math.inf
+        if use_asp and d > 1 and prev_val is not None:
+            alpha, beta = prev_val - 50, prev_val + 50
+        bm, bv = search_root(d, alpha, beta)
+        if bm is None:
+            return best_move
+        if (use_asp and d > 1 and prev_val is not None
+                and (bv <= alpha or bv >= beta)):
+            bm, bv = search_root(d, -math.inf, math.inf)
+            if bm is None:
                 return best_move
-        best_move = best
-        if abs(best_val) >= 100000 or time.time() - start > time_limit:
+        prev_val = bv
+        best_move = bm
+        if abs(bv) >= 100000 or time.time() - start > time_limit:
             break
     return best_move
 

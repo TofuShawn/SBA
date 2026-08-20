@@ -121,7 +121,7 @@ def self_test():
     passed, failed = 0, 0
 
     from ai import (opening_book_move, build_micro_tablebase, _rollout_move,
-                    reset_engine_caches, _REUSE)
+                    reset_engine_caches, _REUSE, _fork_count)
     reset_engine_caches()
 
     def check(name, cond):
@@ -289,6 +289,14 @@ def self_test():
     check('tree reuse: cache populated', len(_REUSE) > 0)
     reset_engine_caches()
     check('tree reuse: cache clears', len(_REUSE) == 0)
+
+    # eval / search refinements / 評估與剪枝細化
+    check('fork: empty board has no forks', _fork_count([EMPTY] * 9, X) == 0)
+    check('fork: center double-threat detected',
+          _fork_count([X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, X, X], X) == 1)
+    gu2 = UltimateGame()
+    check('minimax pro: legal move with killers/LMR/aspiration',
+          minimax_pro_move(gu2, depth=3) in gu2.legal_moves())
 
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
