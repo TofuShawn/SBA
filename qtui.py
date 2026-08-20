@@ -696,7 +696,9 @@ class MenuPage(QWidget):
         root.addStretch(1)
 
         def field_row(label_text, widget):
-            row = QHBoxLayout()
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
             lab = QLabel(label_text)
             lab.setObjectName('muted')
             lab.setWordWrap(True)
@@ -704,49 +706,51 @@ class MenuPage(QWidget):
             lab.setMaximumWidth(360)
             row.addWidget(lab, 0)
             row.addWidget(widget, 1)
-            return row
+            return row_widget, lab
 
         self.game_type = _si_combo()
         self.game_type.addItem('Normal Tic Tac Toe (普通井字棋)', 'normal')
         self.game_type.addItem('Ultimate Tic Tac Toe (終極井字棋)', 'ultimate')
-        card_lay.addLayout(field_row(t('Game Type', '遊戲類型'), self.game_type))
+        card_lay.addWidget(field_row(t('Game Type', '遊戲類型'), self.game_type)[0])
 
         self.mode = _si_combo()
         self.mode.addItem('PvP (玩家對玩家)', 'pvp')
         self.mode.addItem('Player vs Computer (玩家對電腦)', 'pvc')
         self.mode.addItem('Computer vs Computer (電腦對電腦)', 'cvc')
         self.mode.currentIndexChanged.connect(lambda _: self._update_visibility())
-        card_lay.addLayout(field_row(t('Mode', '模式'), self.mode))
+        card_lay.addWidget(field_row(t('Mode', '模式'), self.mode)[0])
 
         self.first = _si_combo()
         self.first.addItem(t('You move first — X', '你先手 — X'), 'human')
         self.first.addItem(t('Computer moves first — O', '電腦先手 — O'), 'computer')
         self.first.currentIndexChanged.connect(lambda _: self._update_visibility())
-        card_lay.addLayout(field_row(t('First Player', '先手'), self.first))
+        self.first_row, _ = field_row(t('First Player', '先手'), self.first)
+        card_lay.addWidget(self.first_row)
 
         self.ai_x = _si_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_x.addItem(label, key)
-        card_lay.addLayout(field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x))
+        self.ai_x_row, _ = field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x)
+        card_lay.addWidget(self.ai_x_row)
 
         self.ai_o = _si_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_o.addItem(label, key)
-        self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
-        card_lay.addLayout(self.ai_o_label)
+        self.ai_o_row, self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
+        card_lay.addWidget(self.ai_o_row)
 
         self.mcts = QSlider(Qt.Horizontal)
         self.mcts.setRange(200, 3000)
         self.mcts.setSingleStep(100)
         self.mcts.setValue(800)
-        card_lay.addLayout(field_row(t('MCTS Strength', 'MCTS 強度'),
-                                     self._slider_row(self.mcts)))
+        card_lay.addWidget(field_row(t('MCTS Strength', 'MCTS 強度'),
+                                     self._slider_row(self.mcts))[0])
 
         self.mm_depth = QSlider(Qt.Horizontal)
         self.mm_depth.setRange(2, 6)
         self.mm_depth.setValue(4)
-        card_lay.addLayout(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
-                                     self._slider_row(self.mm_depth)))
+        card_lay.addWidget(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
+                                     self._slider_row(self.mm_depth))[0])
 
         self.assistant = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant.setChecked(True)
@@ -782,18 +786,16 @@ class MenuPage(QWidget):
 
     def _update_visibility(self):
         mode = self.mode.currentData()
-        self.first.setVisible(mode == 'pvc')
-        self.ai_x.setVisible(mode == 'cvc')
-        self.ai_o.setVisible(mode in ('pvc', 'cvc'))
+        self.first_row.setVisible(mode == 'pvc')
+        self.ai_x_row.setVisible(mode == 'cvc')
+        self.ai_o_row.setVisible(mode in ('pvc', 'cvc'))
         if mode == 'pvc':
             label = (t('Computer (X) — AI Level', '電腦 (X) — AI 等級')
                      if self.first.currentData() == 'computer'
                      else t('Computer (O) — AI Level', '電腦 (O) — AI 等級'))
         else:
             label = t('Player O — AI Level', '玩家 O — AI 等級')
-        item = self.ai_o_label.itemAt(0)
-        if item and item.widget():
-            item.widget().setText(label)
+        self.ai_o_label.setText(label)
 
     def _on_web_toggled(self, checked):
         self.web_toggled.emit(checked)
