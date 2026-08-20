@@ -35,12 +35,25 @@ from game import (
     win_badge_svg, micro_win_line, line_coords, win_segment, macro_center,
 )
 from ai import (
-    get_ai_move, compute_analysis, position_win_rates, move_text,
+    get_ai_move, analyze_position, position_win_rates, move_text,
 )
 from SBA import (
     AI_OPTIONS, SESSIONS, current_side_type, is_ai_turn, log,
     new_session, side_label, side_types, t,
 )
+
+
+def _history_point(game):
+    """Win-rate triplet for the current position.
+
+    Exact (Normal tablebase, or any terminal position) is computed inline;
+    a non-terminal Ultimate position defers to the assistant's full-budget
+    search (the None placeholder is filled when the analysis completes).
+    """
+    if isinstance(game, NormalGame) or game.is_over():
+        return tuple(position_win_rates(game, 0))
+    return None
+
 
 # Serve static/styles.css as a real stylesheet (external <link>, no inline blob).
 app.add_static_files('/assets', Path(__file__).parent / 'static')
@@ -189,10 +202,9 @@ def main_page():
     def start_game():
         session['game'] = (NormalGame() if session['game_type'] == 'normal'
                            else UltimateGame())
+        session['game_id'] += 1
         session['moves'] = []
-        budget = min(session.get('mcts', 800), 250) \
-            if session['game_type'] == 'ultimate' else 0
-        session['history'] = [tuple(position_win_rates(session['game'], budget))]
+        session['history'] = [_history_point(session['game'])]
         session['step'] = 0
         session['cvc_paused'] = False
         session['analysis_gen'] += 1
@@ -434,9 +446,7 @@ def main_page():
                 del moves[session['step']:]
                 del session['history'][session['step'] + 1:]
             moves.append(move)
-            budget = min(session.get('mcts', 800), 250) \
-                if isinstance(game, UltimateGame) else 0
-            session['history'].append(tuple(position_win_rates(game, budget)))
+            session['history'].append(_history_point(game))
             session['step'] = len(moves)
             render_history()
 
@@ -472,8 +482,9 @@ def main_page():
             hist_slider_label.set_text(f"{session['step']} / {n}")
             hist_chart.options['xAxis']['data'] = list(range(len(history)))
             hist_chart.options['series'][0]['data'] = [
-                round(x * 100, 1) for x, _, _ in history]
-            if history:
+                (round(point[0] * 100, 1) if point is not None else None)
+                for point in history]
+            if history and history[session['step']] is not None:
                 hist_chart.options['series'][0]['markPoint'] = {
                     'data': [{
                         'coord': [session['step'],
@@ -548,6 +559,8 @@ def main_page():
             if current_game is None:
                 return
             gen = session['analysis_gen']
+            step = session['step']
+            gid = session['game_id']
             session['analyzing'] = True
             snapshot = current_game.clone()
             analysis_ui.clear()
@@ -556,8 +569,12 @@ def main_page():
                     ui.spinner(size='sm')
                     ui.label(t('Analyzing...', '分析中...')).classes('text-caption')
             budget = session['mcts'] if isinstance(snapshot, UltimateGame) else 0
-            items = await asyncio.to_thread(compute_analysis, snapshot, budget)
-            rates = await asyncio.to_thread(position_win_rates, snapshot, budget)
+            items, rates = await asyncio.to_thread(
+                analyze_position, snapshot, budget)
+            if gid == session['game_id'] and 0 <= step < len(session['history']) \
+                    and session['history'][step] is None:
+                session['history'][step] = tuple(rates)
+                render_history()
             if session['game'] is not current_game:
                 session['analyzing'] = False
                 return

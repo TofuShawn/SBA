@@ -1301,7 +1301,43 @@ def reason_for_move(game, move):
         return ('Corner', '角落')
     return ('Positional', '位置')
 
-def compute_analysis(game, mcts_budget):
+def _rates_from_root(root, game):
+    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root."""
+    tot_x = tot_o = tot = 0.0
+    for child in root.children:
+        if child.visits == 0:
+            continue
+        w = child.wins / child.visits
+        tot += child.visits
+        if child.mover == X:
+            tot_x += child.visits * w
+            tot_o += child.visits * (1.0 - w)
+        else:
+            tot_o += child.visits * w
+            tot_x += child.visits * (1.0 - w)
+    if tot == 0:
+        return (0.5, 0.0, 0.5)
+    x, o = tot_x / tot, tot_o / tot
+    return (x, max(0.0, 1.0 - x - o), o)
+
+
+def analyze_position(game, mcts_budget):
+    """(items, rates) for the current position from ONE analysis.
+
+    ``items`` is the top-moves list used by the assistant panel and ``rates``
+    is the (X win, draw, O win) triplet used by the win-rate chart. Both are
+    derived from the same search (tablebase on Normal, one MCTS root on
+    Ultimate) so callers no longer run two separate searches.
+    """
+    result = game.result()
+    if result is not None:
+        if result == X:
+            rates = (1.0, 0.0, 0.0)
+        elif result == O:
+            rates = (0.0, 0.0, 1.0)
+        else:
+            rates = (0.0, 1.0, 0.0)
+        return [], rates
     player = game.current
     items = []
     if isinstance(game, NormalGame):
@@ -1313,6 +1349,18 @@ def compute_analysis(game, mcts_budget):
             pct = 1.0 if val > 0 else (0.5 if val == 0 else 0.0)
             items.append({'move': m, 'pct': pct, 'reason': reason_for_move(game, m)})
         items.sort(key=lambda it: -it['pct'])
+        best = -1
+        for m in game.legal_moves():
+            board = game.board[:]
+            board[m] = game.current
+            best = max(best, -table[_board_key(board)])
+        if game.current == X:
+            rates = ((1.0, 0.0, 0.0) if best > 0 else
+                     ((0.0, 1.0, 0.0) if best == 0 else (0.0, 0.0, 1.0)))
+        else:
+            rates = ((0.0, 0.0, 1.0) if best > 0 else
+                     ((0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0)))
+        return items, rates
     else:
         root = mcts_search(game, mcts_budget)
         for child in sorted(root.children,
@@ -1324,7 +1372,12 @@ def compute_analysis(game, mcts_budget):
                 'pct': child.wins / child.visits,
                 'reason': reason_for_move(game, child.move),
             })
-    return items
+        return items, _rates_from_root(root, game)
+
+
+def compute_analysis(game, mcts_budget):
+    """Top-moves list for the assistant panel (see analyze_position)."""
+    return analyze_position(game, mcts_budget)[0]
 
 
 def position_win_rates(game, mcts_budget):
@@ -1353,22 +1406,7 @@ def position_win_rates(game, mcts_budget):
         return (0.0, 0.0, 1.0) if best > 0 else (
             (0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0))
     root = mcts_search(game, mcts_budget)
-    tot_x = tot_o = tot = 0.0
-    for child in root.children:
-        if child.visits == 0:
-            continue
-        w = child.wins / child.visits
-        tot += child.visits
-        if child.mover == X:
-            tot_x += child.visits * w
-            tot_o += child.visits * (1.0 - w)
-        else:
-            tot_o += child.visits * w
-            tot_x += child.visits * (1.0 - w)
-    if tot == 0:
-        return (0.5, 0.0, 0.5)
-    x, o = tot_x / tot, tot_o / tot
-    return (x, max(0.0, 1.0 - x - o), o)
+    return _rates_from_root(root, game)
 
 
 def position_win_rate(game, mcts_budget):

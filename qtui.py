@@ -44,7 +44,7 @@ from game import (
     X, O,
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
-from ai import get_ai_move, compute_analysis, position_win_rates, move_text
+from ai import get_ai_move, analyze_position, position_win_rates, move_text
 from SBA import (
     AI_OPTIONS, current_side_type, is_ai_turn, log, new_session,
     side_label, side_types, t,
@@ -674,8 +674,7 @@ class AnalysisWorker(QThread):
 
     def run(self):
         try:
-            items = compute_analysis(self.game, self.budget)
-            rates = position_win_rates(self.game, self.budget)
+            items, rates = analyze_position(self.game, self.budget)
             self.result_ready.emit(items, rates)
         except Exception as e:  # noqa: BLE001
             log.error('Analysis failed: %s', e)
@@ -846,6 +845,7 @@ class GamePage(QWidget):
         self.game = None
         self.busy = False
         self.gen = 0
+        self.game_id = 0
         self.analysis_busy = False
         self.analysis_pending = False
         self.workers = []
@@ -1073,12 +1073,13 @@ class GamePage(QWidget):
 
     def new_game(self):
         s = self.session
+        self.game_id += 1
         self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
         s['game'] = self.game
         self.play_again_btn.setVisible(False)
         self.new_btn.setVisible(True)
         s['moves'] = []
-        s['history'] = [tuple(position_win_rates(self.game, self._history_budget()))]
+        s['history'] = [self._history_point()]
         s['cvc_paused'] = False
         self.step_idx = 0
         self.gen += 1
@@ -1095,11 +1096,18 @@ class GamePage(QWidget):
         self._render_history()
         self.refresh()
         self.after_move()
+        self.trigger_analysis()
 
-    def _history_budget(self):
-        if isinstance(self.game, NormalGame):
-            return 0
-        return min(self.session.get('mcts', 800), 250)
+    def _history_point(self):
+        """Win-rate triplet for the current position.
+
+        Exact (Normal tablebase, or any terminal position) is computed inline;
+        a non-terminal Ultimate position defers to the assistant's full-budget
+        search (the None placeholder is filled by on_analysis_done).
+        """
+        if isinstance(self.game, NormalGame) or self.game.is_over():
+            return tuple(position_win_rates(self.game, 0))
+        return None
 
     def go_to_step(self, k):
         """Jump to history step k (0..N) by replaying moves[:k]."""
@@ -1141,13 +1149,18 @@ class GamePage(QWidget):
         self.hist_x_series.clear()
         self.hist_ref.clear()
         self.hist_dot.clear()
-        for k, (x, d, o) in enumerate(history):
+        for k, point in enumerate(history):
+            if point is None:
+                continue  # Ultimate point still awaiting the assistant's search
+            x, d, o = point
             self.hist_x_series.append(k, x * 100.0)
             self.hist_ref.append(k, 50.0)
         if history:
-            self.hist_dot.append(self.step_idx, history[self.step_idx][0] * 100.0)
             self.hist_axis.setRange(0, max(1, len(history) - 1))
             self.hist_axis_y.setRange(0, 100)
+            if history[self.step_idx] is not None:
+                self.hist_dot.append(self.step_idx,
+                                     history[self.step_idx][0] * 100.0)
 
     def refresh(self):
         if self.game is None:
@@ -1206,7 +1219,7 @@ class GamePage(QWidget):
             del moves[self.step_idx:]
             del s['history'][self.step_idx + 1:]
         moves.append(move)
-        s['history'].append(tuple(position_win_rates(self.game, self._history_budget())))
+        s['history'].append(self._history_point())
         self.step_idx = len(moves)
         self.gen += 1
         self.board.set_game(self.game)
@@ -1340,16 +1353,25 @@ class GamePage(QWidget):
             return
         self.analysis_busy = True
         gen = self.gen
+        step = self.step_idx
+        gid = self.game_id
         snapshot = self.game.clone()
         worker = AnalysisWorker(snapshot, self.session['mcts'])
         worker.result_ready.connect(
-            lambda items, rates, g=gen: self.on_analysis_done(items, rates, g))
+            lambda items, rates, g=gen, st=step, gi=gid:
+                self.on_analysis_done(items, rates, g, st, gi))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
-    def on_analysis_done(self, items, rates, gen):
+    def on_analysis_done(self, items, rates, gen, step, gid):
         self.analysis_busy = False
+        s = self.session or {}
+        history = s.get('history', [])
+        if gid == self.game_id and 0 <= step < len(history) \
+                and history[step] is None:
+            history[step] = tuple(rates)
+            self._render_history()
         if gen == self.gen and self.session.get('assistant_enabled', True):
             self.render_analysis(items, rates)
         if self.analysis_pending:

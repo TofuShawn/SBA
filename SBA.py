@@ -57,6 +57,7 @@ def new_session():
         'moves': [],
         'history': [],
         'step': 0,
+        'game_id': 0,
         'assistant_enabled': True,
         'analyzing': False,
         'reanalyze': False,
