@@ -22,7 +22,7 @@ use_aspiration = true       # aspiration window at the root (B3) / Aspiration Wi
 # --- performance / 效能 ---
 symmetry = false            # D4 symmetry dedup at the MCTS root (C1) / 對稱性消除
 object_pool = true          # reuse MCTSNode objects (C2; skipped while tree_reuse) / 物件池
-bitboard = true            # MCTS searches on bitboards (C3; measured no gain with the
+bitboard = false            # MCTS searches on bitboards (C3; measured no gain with the
                             # heuristic rollout, kept off by default) / Bitboard（實測無增益，預設關）
 multithreaded = false       # parallel MCTS (C4) / 多執行緒 MCTS
 
