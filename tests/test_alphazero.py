@@ -1,5 +1,6 @@
 """AlphaZero smoke tests (tiny nets / few sims)."""
 
+import numpy as np
 import random
 
 import alphazero
@@ -54,3 +55,28 @@ def test_mcts_search_batch_larger_than_budget():
     root, counts = alphazero.mcts_search(g, model, 30, batch_size=64)
     assert root.visits == 30
     assert counts and all(v >= 1 for v in counts.values())
+
+
+def test_mcts_root_dirichlet_noise(monkeypatch):
+    model = alphazero.AZNet(3).to(alphazero.DEVICE)
+    g = NormalGame()
+    root0, _ = alphazero.mcts_search(g, model, 30, batch_size=8)
+    assert root0.priors is not None and abs(sum(root0.priors.values()) - 1.0) < 1e-5
+    eta = np.array([0.3, 0.2, 0.1, 0.05, 0.05, 0.05, 0.05, 0.1, 0.1])
+    monkeypatch.setattr(np.random, 'dirichlet', lambda alpha: eta)
+    root, _ = alphazero.mcts_search(g, model, 30, batch_size=8,
+                                    dirichlet_alpha='auto', dirichlet_eps=0.5)
+    for m in root0.priors:
+        assert abs(root.priors[m] - (0.5 * root0.priors[m] + 0.5 * eta[m])) < 1e-6
+
+
+def test_train_ckpt_every_saves(monkeypatch, tmp_path):
+    target = tmp_path / 'az_ultimate.pt'
+    monkeypatch.setattr(alphazero, 'model_path', lambda game_type: str(target))
+    monkeypatch.setattr(
+        alphazero, 'alphazero_move',
+        lambda game, model, budget=800: random.choice(game.legal_moves()))
+    alphazero.train('ultimate', games=3, sims=2, eval_every=99, eval_games=1,
+                    quiet=True, save=True, ckpt_every=2,
+                    channels=32, blocks=2)
+    assert target.exists()

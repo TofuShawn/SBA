@@ -137,6 +137,11 @@ python alphazero.py train --games 400 --sims 80
 python alphazero.py eval --games 30 --sims 200
 ```
 
+Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoint）、
+`--dirichlet-eps 0.25`（根節點探索噪聲，0 停用）、`--lr 1e-3`（線性退火到 1/5）、
+`--rollout-weight 0.0`、`--channels 128`、`--blocks 5`。自對弈前段 temp 從 1.0
+線性退到 0.05，晚期遊戲近乎最強應手。
+
 ### 4. Docker
 
 ```bash

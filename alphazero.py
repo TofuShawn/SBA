@@ -172,6 +172,7 @@ class AZNet(nn.Module):
 ROLLOUT_WEIGHT = 0.0  # pure network leaf value (standard AZ); >0 mixes random playouts
 VIRTUAL_LOSS = 2.0    # applied during batched selection so parallel workers diverge
 BATCH_SIZE = 256      # default leaf-parallel batch size for network inference
+DIRICHLET_EPS = 0.25  # root-prior noise weight in self-play (standard AZ value)
 
 
 class SearchNode:
@@ -233,7 +234,8 @@ def rollout_value(g):
 
 @torch.no_grad()
 def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
-                batch_size=BATCH_SIZE):
+                batch_size=BATCH_SIZE, dirichlet_alpha=None,
+                dirichlet_eps=DIRICHLET_EPS):
     """Neural-guided MCTS with leaf-parallel batched inference (standard AZ).
 
     Every node is expanded in full (all children created with priors) on its
@@ -243,9 +245,14 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
     cutting per-iteration kernel-launch overhead on ROCm/CUDA.
 
     Returns (root SearchNode, {move: visit_count}).
+
+    ``dirichlet_alpha`` adds exploration noise to the root's priors on its
+    first expansion: pass ``'auto'`` for 10/len(moves) (standard AZ scaling)
+    or a float for a fixed concentration; None (default) means no noise.
     """
     if rollout_weight is None:
         rollout_weight = ROLLOUT_WEIGHT
+    model.eval()  # inference: BatchNorm must use running stats, not batch stats
     root_state = game.clone()
     root = SearchNode(root_state, None)
 
@@ -302,9 +309,20 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
                 backprop(path, value)
                 if node.untried:
                     # expand in full (idempotent: duplicate leaves skip)
-                    node.priors = {m: float(probs[move_index(node.state, m)])
-                                   for m in node.untried}
-                    for m in node.untried:
+                    moves = node.untried
+                    if dirichlet_alpha is not None and node is root:
+                        alpha = (10.0 / len(moves) if dirichlet_alpha == 'auto'
+                                 else dirichlet_alpha)
+                        eta = np.random.dirichlet([alpha] * len(moves))
+                        node.priors = {
+                            m: ((1.0 - dirichlet_eps)
+                                * float(probs[move_index(node.state, m)])
+                                + dirichlet_eps * float(e))
+                            for m, e in zip(moves, eta)}
+                    else:
+                        node.priors = {m: float(probs[move_index(node.state, m)])
+                                       for m in moves}
+                    for m in moves:
                         child_state = node.state.clone()
                         apply_move(child_state, m)
                         node.children.append(SearchNode(child_state, m))
@@ -313,8 +331,11 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
     return root, counts
 
 
-def mcts_visit_counts(game, model, budget, c_puct=1.5, batch_size=BATCH_SIZE):
-    _, counts = mcts_search(game, model, budget, c_puct, batch_size=batch_size)
+def mcts_visit_counts(game, model, budget, c_puct=1.5, batch_size=BATCH_SIZE,
+                      dirichlet_alpha=None, dirichlet_eps=DIRICHLET_EPS):
+    _, counts = mcts_search(game, model, budget, c_puct, batch_size=batch_size,
+                            dirichlet_alpha=dirichlet_alpha,
+                            dirichlet_eps=dirichlet_eps)
     return counts
 
 
@@ -369,12 +390,21 @@ def make_game(game_type):
     return UltimateGame()
 
 
-def self_play_game(make_game_fn, model, sims, temp):
+def _save_model(model, size, channels, blocks, path):
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    torch.save({'state_dict': model.state_dict(), 'size': size,
+                'channels': channels, 'blocks': blocks}, path)
+
+
+def self_play_game(make_game_fn, model, sims, temp,
+                   dirichlet_eps=DIRICHLET_EPS):
     game = make_game_fn()
     states, targets, players = [], [], []
     while not game.is_over():
         legal = game.legal_moves()
-        counts = mcts_visit_counts(game, model, sims)
+        counts = mcts_visit_counts(game, model, sims,
+                                   dirichlet_alpha='auto',
+                                   dirichlet_eps=dirichlet_eps)
         n = np.array([counts.get(m, 0) for m in legal], dtype=np.float64)
         n = n + 1e-8
         if temp > 0.01:
@@ -400,7 +430,8 @@ def self_play_game(make_game_fn, model, sims, temp):
 
 def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           lr=1e-3, seed=None, save=True, quiet=False,
-          steps_per_game=5, replay_cap=100, channels=128, blocks=5):
+          steps_per_game=5, replay_cap=100, channels=128, blocks=5,
+          ckpt_every=None, dirichlet_eps=DIRICHLET_EPS):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
@@ -434,11 +465,14 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
 
     replay = []
     for it in range(1, games + 1):
-        temp = max(0.3, 1.0 - it / games)
-        states, targets, zs = self_play_game(make_game_fn, model, sims, temp)
+        temp = max(0.05, 1.0 - it / games)
+        states, targets, zs = self_play_game(
+            make_game_fn, model, sims, temp, dirichlet_eps)
         replay.append((states, targets, zs))
         if len(replay) > replay_cap:
             replay.pop(0)
+        # Linear LR annealing: full rate early, a 5x drop by the final game.
+        optimizer.param_groups[0]['lr'] = lr * max(0.2, 1.0 - it / games)
         model.train()
         total_loss = 0.0
         for _ in range(steps_per_game):
@@ -458,6 +492,12 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             optimizer.step()
             total_loss += float(loss_p + loss_v)
         model.eval()
+        if save and ckpt_every and it % ckpt_every == 0:
+            path = model_path(game_type)
+            _save_model(model, size, channels, blocks, path)
+            if not quiet:
+                print('[%s] checkpoint game %d/%d -> %s'
+                      % (game_type, it, games, path), flush=True)
         if not quiet and (it % max(1, eval_every) == 0 or it == games):
             el = time.time() - start
             w, d, l = evaluate()
@@ -465,10 +505,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
                   % (game_type, it, games, w, d, l, total_loss / steps_per_game, el), flush=True)
 
     if save:
-        os.makedirs(MODEL_DIR, exist_ok=True)
         path = model_path(game_type)
-        torch.save({'state_dict': model.state_dict(), 'size': size,
-                    'channels': channels, 'blocks': blocks}, path)
+        _save_model(model, size, channels, blocks, path)
         if not quiet:
             print('saved', path)
     return model
@@ -506,6 +544,10 @@ def main(argv=None):
                     help='conv channels of the residual tower (default: 128)')
     tr.add_argument('--blocks', type=int, default=5,
                     help='number of residual blocks (default: 5)')
+    tr.add_argument('--ckpt-every', type=int, default=25,
+                    help='save a checkpoint every N games (default: 25)')
+    tr.add_argument('--dirichlet-eps', type=float, default=DIRICHLET_EPS,
+                    help='root-prior exploration noise weight (0 disables)')
     ev = sub.add_parser('eval')
     ev.add_argument('--games', type=int, default=20)
     ev.add_argument('--sims', type=int, default=200)
@@ -515,7 +557,9 @@ def main(argv=None):
         ROLLOUT_WEIGHT = args.rollout_weight
         train('ultimate', args.games, args.sims, args.eval_every,
               args.eval_games, args.lr, args.seed,
-              channels=args.channels, blocks=args.blocks)
+              channels=args.channels, blocks=args.blocks,
+              ckpt_every=args.ckpt_every,
+              dirichlet_eps=args.dirichlet_eps)
     else:
         model = load_model('ultimate')
         if model is None:
