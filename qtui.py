@@ -27,12 +27,12 @@ import sys
 try:
     from PySide6.QtCore import (QEasingCurve, QRectF, QSize, Qt, QThread,
                                 QTimer, QVariantAnimation, Signal)
-    from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
     from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
-        QPushButton, QSizePolicy, QSlider, QStackedWidget, QVBoxLayout, QWidget,
+        QPushButton, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -874,13 +874,22 @@ class GamePage(QWidget):
         ctrl_bar.setObjectName('card')
         ctrl_lay = QHBoxLayout(ctrl_bar)
         ctrl_lay.setContentsMargins(8, 6, 8, 6)
-        self.revert_btn = QPushButton(t('Revert', '回退'))
+        self.revert_btn = QPushButton()
+        self.revert_btn.setIcon(self.style().standardIcon(QStyle.SP_ArrowBack))
+        self.revert_btn.setToolTip(t('Revert', '回退'))
+        self.revert_btn.setFixedSize(40, 36)
         self.revert_btn.clicked.connect(self.on_revert_clicked)
         ctrl_lay.addWidget(self.revert_btn)
-        self.pause_btn = QPushButton(t('Pause', '暫停'))
+        self.pause_btn = QPushButton()
+        self.pause_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        self.pause_btn.setToolTip(t('Pause', '暫停'))
+        self.pause_btn.setFixedSize(40, 36)
         self.pause_btn.clicked.connect(self.on_pause_clicked)
         ctrl_lay.addWidget(self.pause_btn)
-        self.next_btn = QPushButton(t('Next Step', '下一步'))
+        self.next_btn = QPushButton()
+        self.next_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipForward))
+        self.next_btn.setToolTip(t('Next Step', '下一步'))
+        self.next_btn.setFixedSize(40, 36)
         self.next_btn.clicked.connect(self.on_step_clicked)
         ctrl_lay.addWidget(self.next_btn)
         self.hist_slider = QSlider(Qt.Horizontal)
@@ -897,6 +906,9 @@ class GamePage(QWidget):
         self.hist_chart = QChart()
         self.hist_chart.setAnimationOptions(QChart.NoAnimation)
         self.hist_chart.legend().setVisible(True)
+        self.hist_chart.legend().setAlignment(Qt.AlignLeft)
+        self.hist_chart.legend().setLabelColor(QColor('#E6E0E9'))
+        self.hist_chart.setBackgroundVisible(False)
         self.hist_x_series = QLineSeries()
         self.hist_x_series.setName(t('X win rate', 'X 勝率'))
         self.hist_x_series.setColor(QColor(PAL['x']))
@@ -915,6 +927,9 @@ class GamePage(QWidget):
         self.hist_axis_y.setTitleText('%')
         self.hist_chart.addAxis(self.hist_axis, Qt.AlignBottom)
         self.hist_chart.addAxis(self.hist_axis_y, Qt.AlignLeft)
+        for ax in (self.hist_axis, self.hist_axis_y):
+            ax.setLabelsColor(QColor('#CAC4D0'))
+            ax.setTitleBrush(QBrush(QColor('#CAC4D0')))
         self.hist_x_series.attachAxis(self.hist_axis)
         self.hist_x_series.attachAxis(self.hist_axis_y)
         self.hist_ref.attachAxis(self.hist_axis)
@@ -931,6 +946,7 @@ class GamePage(QWidget):
         self.hist_chart_view = QChartView(self.hist_chart)
         self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
         self.hist_chart_view.setMinimumHeight(200)
+        self.hist_chart_view.setBackgroundBrush(Qt.NoBrush)
 
         body = QHBoxLayout()
         board_col = QVBoxLayout()
@@ -943,14 +959,14 @@ class GamePage(QWidget):
         board_col.addLayout(status_row)
         self.board = BoardWidget()
         self.board.cell_clicked.connect(self.on_cell_click)
-        board_col.addWidget(self.board, 1)
+        board_col.addWidget(self.board, 2)
         btn_row = QHBoxLayout()
         self.new_btn = _si_button(t('New Game', '新遊戲'))
         self.new_btn.clicked.connect(self.new_game)
         btn_row.addWidget(self.new_btn)
         btn_row.addStretch(1)
         board_col.addLayout(btn_row)
-        board_col.addWidget(self.hist_chart_view)
+        board_col.addWidget(self.hist_chart_view, 1)
         body.addLayout(board_col, 1)
 
         panel = QVBoxLayout()
@@ -1280,13 +1296,18 @@ class GamePage(QWidget):
         s['cvc_paused'] = not s.get('cvc_paused', False)
         if s['cvc_paused']:
             self.cvc_timer.stop()
-            self.pause_btn.setText(t('Resume', '繼續'))
         else:
-            self.pause_btn.setText(t('Pause', '暫停'))
             if (s['mode'] == 'cvc' and not self.game.is_over()
                     and is_ai_turn(self.session) and s.get('cvc_auto', True)):
                 self.cvc_timer.start()
         self.update_cvc_controls()
+
+    def _update_pause_icon(self):
+        paused = self.session.get('cvc_paused', False)
+        self.pause_btn.setIcon(self.style().standardIcon(
+            QStyle.SP_MediaPlay if paused else QStyle.SP_MediaPause))
+        self.pause_btn.setToolTip(
+            t('Resume', '繼續') if paused else t('Pause', '暫停'))
 
     def on_step_clicked(self):
         if self.step_idx < len(self.session['moves']):
@@ -1307,7 +1328,7 @@ class GamePage(QWidget):
         paused = self.session.get('cvc_paused', False)
         self.revert_btn.setEnabled(self.step_idx > 0)
         self.pause_btn.setEnabled(True)
-        self.pause_btn.setText(t('Resume', '繼續') if paused else t('Pause', '暫停'))
+        self._update_pause_icon()
         self.next_btn.setEnabled(rewound or (ai_turn and not self.busy))
 
     # -- assistant ---------------------------------------------------------
