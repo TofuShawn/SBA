@@ -583,6 +583,7 @@ def main_page():
 
         def toggle_assistant(value):
             session['assistant_enabled'] = value
+            hist_chart.set_visibility(value)
             if value:
                 trigger_analysis()
             else:
@@ -687,6 +688,7 @@ def main_page():
                 }],
                 'legend': {'show': True, 'top': 0},
             }).classes('w-full').style('height: 200px')
+            hist_chart.set_visibility(session.get('assistant_enabled', True))
 
         refresh_status()
         trigger_analysis()

@@ -1341,6 +1341,7 @@ class GamePage(QWidget):
 
     def on_assistant_toggled(self, checked):
         self.session['assistant_enabled'] = checked
+        self.hist_chart_view.setVisible(checked)
         if checked:
             self.trigger_analysis()
         else:
