@@ -365,37 +365,36 @@ class BoardWidget(QWidget):
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
-        self.setMouseTracking(True)
-        self._hover_macro = None
-        self._hover_blend = 0.0
-        self._hover_anim = QVariantAnimation(self)
-        self._hover_anim.setDuration(180)
-        self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._hover_anim.valueChanged.connect(self._on_hover_anim)
+        # Reveal a won chunk by clicking it (more reliable than pointer
+        # tracking, which fought with event delivery on some setups).
+        self._revealed_macro = None
+        self._reveal_blend = 0.0
+        self._reveal_anim = QVariantAnimation(self)
+        self._reveal_anim.setDuration(180)
+        self._reveal_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._reveal_anim.valueChanged.connect(self._on_reveal_anim)
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
-        self._hover_anim.stop()
-        self._hover_macro = None
-        self._hover_blend = 0.0
+        self._reveal_anim.stop()
+        self._revealed_macro = None
+        self._reveal_blend = 0.0
         self.update()
 
-    def _on_hover_anim(self, value):
-        self._hover_blend = float(value)
+    def _on_reveal_anim(self, value):
+        self._reveal_blend = float(value)
         self.update()
 
-    def _set_hover(self, m):
-        """Switch the hover target and play one non-looping fade."""
-        self._hover_macro = m
-        self._hover_anim.stop()
-        target = 1.0 if (m is not None and self.game is not None
-                         and self.game.macro[m] in (X, O)) else 0.0
-        self._hover_anim.setStartValue(self._hover_blend)
-        self._hover_anim.setEndValue(target)
-        self._hover_anim.start()
+    def _toggle_reveal(self, m):
+        """Toggle a won chunk's reveal with one non-looping fade."""
+        self._revealed_macro = None if self._revealed_macro == m else m
+        self._reveal_anim.stop()
+        self._reveal_anim.setStartValue(self._reveal_blend)
+        self._reveal_anim.setEndValue(1.0 if self._revealed_macro is not None else 0.0)
+        self._reveal_anim.start()
 
     def _macro_at(self, px, py):
         if not isinstance(self.game, UltimateGame):
@@ -406,17 +405,6 @@ class BoardWidget(QWidget):
         if not (0 <= row < n and 0 <= col < n):
             return None
         return (row // 3) * 3 + (col // 3)
-
-    def mouseMoveEvent(self, event):
-        if self.game is not None:
-            m = self._macro_at(event.position().x(), event.position().y())
-            if m != self._hover_macro:
-                self._set_hover(m)
-        super().mouseMoveEvent(event)
-
-    def leaveEvent(self, event):
-        self._set_hover(None)
-        super().leaveEvent(event)
 
     def flash(self, move):
         self.flash_cell = move
@@ -459,7 +447,14 @@ class BoardWidget(QWidget):
         return (m, i)
 
     def mousePressEvent(self, event):
-        if self.game is None or self.game.is_over():
+        if self.game is None:
+            return
+        if isinstance(self.game, UltimateGame):
+            m = self._macro_at(event.position().x(), event.position().y())
+            if m is not None and self.game.macro[m] in (X, O):
+                self._toggle_reveal(m)
+                return
+        if self.game.is_over():
             return
         move = self._move_at(event.position().x(), event.position().y())
         if move is not None and move in self.legal:
@@ -613,7 +608,7 @@ class BoardWidget(QWidget):
             if self.game.macro[m] in (X, O):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
-                blend = self._hover_blend if m == self._hover_macro else 0.0
+                blend = self._reveal_blend if m == self._revealed_macro else 0.0
                 fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
                 fill.setAlpha(int(165 * (1.0 - blend)))  # semi-transparent mask
                 if fill.alpha() > 0:
