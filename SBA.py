@@ -122,7 +122,7 @@ def self_test():
 
     from ai import (opening_book_move, build_micro_tablebase, _rollout_move,
                     reset_engine_caches, _REUSE, _fork_count, _sym_images,
-                    mcts_move_parallel, _D4)
+                    mcts_move_parallel, _D4, position_win_rate)
     from game import BitUltimateGame
     reset_engine_caches()
 
@@ -328,6 +328,17 @@ def self_test():
     gu3 = UltimateGame()
     check('multithreaded MCTS: legal move',
           mcts_move_parallel(gu3, 100, 2) in gu3.legal_moves())
+
+    # whole-game win rate / 整局勝率
+    g = NormalGame()
+    check('win rate: empty normal is a draw (0.5)', position_win_rate(g, 0) == 0.5)
+    g = NormalGame()
+    g.board = [X, X, X, EMPTY, O, EMPTY, EMPTY, EMPTY, O]
+    g.current = X
+    check('win rate: won normal is 1.0', position_win_rate(g, 0) == 1.0)
+    gu4 = UltimateGame()
+    pct = position_win_rate(gu4, 200)
+    check('win rate: ultimate in [0,1]', 0.0 <= pct <= 1.0)
 
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]

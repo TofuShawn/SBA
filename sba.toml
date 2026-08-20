@@ -22,7 +22,7 @@ use_aspiration = true       # aspiration window at the root (B3) / Aspiration Wi
 # --- performance / 效能 ---
 symmetry = false            # D4 symmetry dedup at the MCTS root (C1) / 對稱性消除
 object_pool = true          # reuse MCTSNode objects (C2; skipped while tree_reuse) / 物件池
-bitboard = false            # MCTS searches on bitboards (C3; measured no gain with the
+bitboard = true            # MCTS searches on bitboards (C3; measured no gain with the
                             # heuristic rollout, kept off by default) / Bitboard（實測無增益，預設關）
 multithreaded = false       # parallel MCTS (C4) / 多執行緒 MCTS
 
@@ -30,9 +30,9 @@ multithreaded = false       # parallel MCTS (C4) / 多執行緒 MCTS
 uct_c = 1.4                 # UCT exploration constant (A3) / UCT 探索常數
 rave_k = 150                # RAVE/GRAVE bias decay constant / RAVE k
 tt_max = 300000             # Minimax Pro transposition table cap / 置換表上限
-workers = 4                 # threads used by multithreaded MCTS (C4) / 執行緒數
+workers = 8                 # threads used by multithreaded MCTS (C4) / 執行緒數
 reuse_cache = 32            # tree-reuse cache entries (A2) / 樹重用快取上限
 
 [session]
-mcts_budget = 800           # default MCTS iterations per move / 預設 MCTS 迭代數
+mcts_budget = 1600          # default MCTS iterations per move / 預設 MCTS 迭代數
 minimax_depth = 4           # default Minimax depth (Ultimate) / 預設 Minimax 深度

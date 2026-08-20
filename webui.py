@@ -35,7 +35,7 @@ from game import (
     win_badge_svg, micro_win_line, line_coords, win_segment, macro_center,
 )
 from ai import (
-    get_ai_move, compute_analysis, move_text,
+    get_ai_move, compute_analysis, position_win_rate, move_text,
 )
 from SBA import (
     AI_OPTIONS, SESSIONS, current_side_type, is_ai_turn, log,
@@ -395,7 +395,7 @@ def main_page():
             session['cvc_auto'] = e.value
             update_cvc_controls()
 
-        def render_analysis(items):
+        def render_analysis(items, pct):
             analysis_ui.clear()
             if not items:
                 with analysis_ui:
@@ -403,6 +403,8 @@ def main_page():
                         'text-caption text-grey')
                 return
             with analysis_ui:
+                ui.label(t('Win rate', '整局勝率') + f': {pct:.0%}').classes(
+                    'text-subtitle1 text-weight-bold')
                 ui.label(t('Best Moves', '最佳棋步')).classes('text-subtitle1 q-mb-xs')
                 for it in items[:5]:
                     pct = max(0.0, min(1.0, it['pct']))
@@ -435,13 +437,14 @@ def main_page():
                     ui.label(t('Analyzing...', '分析中...')).classes('text-caption')
             budget = session['mcts'] if isinstance(snapshot, UltimateGame) else 0
             items = await asyncio.to_thread(compute_analysis, snapshot, budget)
+            pct = await asyncio.to_thread(position_win_rate, snapshot, budget)
             if session['game'] is not current_game:
                 session['analyzing'] = False
                 return
             session['analyzing'] = False
             if (gen == session['analysis_gen'] and session['screen'] == 'game'
                     and session['assistant_enabled']):
-                render_analysis(items)
+                render_analysis(items, pct)
             if session.get('reanalyze'):
                 session['reanalyze'] = False
                 background_tasks.create(start_analysis())

@@ -1207,6 +1207,40 @@ def compute_analysis(game, mcts_budget):
     return items
 
 
+def position_win_rate(game, mcts_budget):
+    """Whole-game win rate (draw counts 0.5) for the side to move, 0..1.
+
+    Normal uses the perfect tablebase; Ultimate uses an MCTS root search.
+    """
+    result = game.result()
+    if result is not None:
+        return 1.0 if result == game.current else (0.5 if result == 'D' else 0.0)
+    if isinstance(game, NormalGame):
+        table = build_tablebase()
+        for m in game.legal_moves():
+            board = game.board[:]
+            board[m] = game.current
+            val = -table[_board_key(board)]
+            if val > 0:
+                return 1.0
+            if val == 0:
+                return 0.5
+        return 0.0
+    root = mcts_search(game, mcts_budget)
+    player = game.current
+    total_visits = 0
+    total_score = 0.0
+    for child in root.children:
+        if child.visits == 0:
+            continue
+        total_visits += child.visits
+        if child.mover == player:
+            total_score += child.wins
+        else:
+            total_score += child.visits - child.wins
+    return total_score / total_visits if total_visits else 0.5
+
+
 def move_text(move):
     if isinstance(move, int):
         r, c = divmod(move, 3)

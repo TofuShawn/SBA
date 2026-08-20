@@ -43,7 +43,7 @@ from game import (
     X, O,
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
-from ai import get_ai_move, compute_analysis, move_text
+from ai import get_ai_move, compute_analysis, position_win_rate, move_text
 from SBA import (
     AI_OPTIONS, current_side_type, is_ai_turn, log, new_session,
     side_label, side_types, t,
@@ -652,7 +652,7 @@ class AIWorker(QThread):
 
 
 class AnalysisWorker(QThread):
-    result_ready = Signal(object)
+    result_ready = Signal(object, object)
 
     def __init__(self, game, budget, parent=None):
         super().__init__(parent)
@@ -662,10 +662,11 @@ class AnalysisWorker(QThread):
     def run(self):
         try:
             items = compute_analysis(self.game, self.budget)
-            self.result_ready.emit(items)
+            pct = position_win_rate(self.game, self.budget)
+            self.result_ready.emit(items, pct)
         except Exception as e:  # noqa: BLE001
             log.error('Analysis failed: %s', e)
-            self.result_ready.emit([])
+            self.result_ready.emit([], 0.5)
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +912,9 @@ class GamePage(QWidget):
         az_title = QLabel(t('Best Moves', '最佳棋步'))
         az_title.setObjectName('cardTitle')
         az_lay.addWidget(az_title)
+        self.analysis_pct = QLabel('')
+        self.analysis_pct.setStyleSheet('font-size: 15px; font-weight: 700; color: #D0BCFF;')
+        az_lay.addWidget(self.analysis_pct)
         self.analysis_list = QListWidget()
         self.analysis_list.setMinimumHeight(160)
         self.analysis_list.itemClicked.connect(self.on_analysis_clicked)
@@ -1115,6 +1119,7 @@ class GamePage(QWidget):
             self.trigger_analysis()
         else:
             self.analysis_list.clear()
+            self.analysis_pct.setText('—')
             self.analysis_list.addItem(t('Assistant disabled', '助手已關閉'))
 
     def trigger_analysis(self):
@@ -1129,21 +1134,23 @@ class GamePage(QWidget):
         gen = self.gen
         snapshot = self.game.clone()
         worker = AnalysisWorker(snapshot, self.session['mcts'])
-        worker.result_ready.connect(lambda items, g=gen: self.on_analysis_done(items, g))
+        worker.result_ready.connect(
+            lambda items, pct, g=gen: self.on_analysis_done(items, pct, g))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
-    def on_analysis_done(self, items, gen):
+    def on_analysis_done(self, items, pct, gen):
         self.analysis_busy = False
         if gen == self.gen and self.session.get('assistant_enabled', True):
-            self.render_analysis(items)
+            self.render_analysis(items, pct)
         if self.analysis_pending:
             self.analysis_pending = False
             self.trigger_analysis()
 
-    def render_analysis(self, items):
+    def render_analysis(self, items, pct):
         self.analysis_list.clear()
+        self.analysis_pct.setText(t('Win rate', '整局勝率') + f': {pct:.0%}')
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
             return
