@@ -46,3 +46,11 @@ def test_select_move_zero_counts_safe():
     model = alphazero.AZNet(3)
     g = NormalGame()
     assert alphazero.select_move(g, model, budget=0, temp=1.0) in g.legal_moves()
+
+
+def test_mcts_search_batch_larger_than_budget():
+    model = alphazero.AZNet(3).to(alphazero.DEVICE)
+    g = NormalGame()
+    root, counts = alphazero.mcts_search(g, model, 30, batch_size=64)
+    assert root.visits == 30
+    assert counts and all(v >= 1 for v in counts.values())

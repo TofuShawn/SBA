@@ -39,6 +39,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if os.name == 'nt':
     os.environ.setdefault('MIOPEN_USER_DB_PATH', os.path.join(HERE, '.miopen'))
     os.environ.setdefault('MIOPEN_CUSTOM_CACHE_DIR', os.path.join(HERE, '.miopen_cache'))
+    # MIOpen's runtime kernel benchmarking is unreliable on Windows (it can
+    # report "Invalid elapsed time" and occasionally crash the process), so
+    # use the persistent find-db without re-benchmarking. Combined with the
+    # fixed search batch shape, each conv config is looked up once.
+    os.environ.setdefault('MIOPEN_FIND_MODE', '1')
+    os.environ.setdefault('MIOPEN_FIND_ENFORCE', 'NONE')
 
 import numpy as np
 import torch
@@ -163,9 +169,9 @@ class AZNet(nn.Module):
 # Neural-guided MCTS
 # ---------------------------------------------------------------
 
-ROLLOUT_WEIGHT = 0.5  # leaf value = (1-w)*network + w*random playout
+ROLLOUT_WEIGHT = 0.0  # pure network leaf value (standard AZ); >0 mixes random playouts
 VIRTUAL_LOSS = 2.0    # applied during batched selection so parallel workers diverge
-BATCH_SIZE = 16       # default leaf-parallel batch size for network inference
+BATCH_SIZE = 256      # default leaf-parallel batch size for network inference
 
 
 class SearchNode:
@@ -187,8 +193,9 @@ class SearchNode:
         self.visits = 0
         self.wins = 0.0
         self.q = 0.0
+        # Order never matters here: children are chosen via best_child(), and
+        # expansion iterates untried in place, so no shuffle is needed.
         self.untried = state.legal_moves() if not state.is_over() else []
-        random.shuffle(self.untried)
         self.priors = None  # {move: prior} filled once by the policy head
         self.v_visits = 0   # virtual statistics for batched (leaf-parallel) search
         self.v_wins = 0.0
@@ -255,37 +262,46 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
     iterations = 0
     while iterations < budget:
         leaves = []  # (path, node) unexpanded leaves -> value batch
+        queued = set()  # node ids already collected this round
         while iterations < budget and len(leaves) < batch_size:
             node = root
-            state = root_state.clone()
             path = [root]
             while node.children:
                 node = node.best_child(c_puct)
-                apply_move(state, node.move)
                 path.append(node)
+            if node.untried and id(node) in queued:
+                break  # every reachable leaf is already queued: evaluate now
+            queued.add(id(node))
             for n in path:
                 n.v_visits += 1
                 n.v_wins += VIRTUAL_LOSS
             iterations += 1
             if node.untried == []:
-                backprop(path, terminal_value(state))
+                backprop(path, terminal_value(node.state))
             else:
                 leaves.append((path, node))
 
-        # Network: one batched forward for every selected leaf.
+        # Network: one batched forward for every selected leaf. The batch is
+        # padded to a fixed size so MIOpen sees one tensor shape per process
+        # (one kernel lookup instead of a find pass per round size), and the
+        # two outputs are copied with a single sync each. Padded duplicates
+        # are evaluated but discarded.
         if leaves:
+            pad = batch_size - len(leaves)
+            padded = leaves + [leaves[0]] * pad
             states = torch.stack(
-                [encode(node.state) for _, node in leaves]).to(DEVICE)
+                [encode(node.state) for _, node in padded]).to(DEVICE)
             policies, values = model(states)
-            for (path, node), p, v in zip(leaves, policies, values):
-                value = float(v.item())
+            probs_batch = F.softmax(policies, dim=1).cpu().numpy()[:len(leaves)]
+            values_batch = values.squeeze(1).cpu().numpy()[:len(leaves)]
+            for (path, node), probs, value in zip(leaves, probs_batch, values_batch):
+                value = float(value)
                 if rollout_weight > 0:
                     value = ((1.0 - rollout_weight) * value
                              + rollout_weight * rollout_value(node.state))
                 backprop(path, value)
                 if node.untried:
                     # expand in full (idempotent: duplicate leaves skip)
-                    probs = F.softmax(p, dim=0).cpu().numpy()
                     node.priors = {m: float(probs[move_index(node.state, m)])
                                    for m in node.untried}
                     for m in node.untried:
@@ -384,13 +400,13 @@ def self_play_game(make_game_fn, model, sims, temp):
 
 def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           lr=1e-3, seed=None, save=True, quiet=False,
-          steps_per_game=5, replay_cap=100):
+          steps_per_game=5, replay_cap=100, channels=128, blocks=5):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
     size = 3 if game_type == 'normal' else 9
-    model = AZNet(size).to(DEVICE)
+    model = AZNet(size, channels, blocks).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     make_game_fn = lambda: make_game(game_type)
     start = time.time()
@@ -428,7 +444,9 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         for _ in range(steps_per_game):
             g_states, g_targets, g_zs = random.choice(replay)
             n_pos = len(g_states)
-            idx = np.random.choice(n_pos, min(32, n_pos), replace=False)
+            # Fixed batch size (with replacement when a game is short) keeps
+            # one tensor shape per process: MIOpen only looks up kernels once.
+            idx = np.random.choice(n_pos, 128, replace=True)
             batch = torch.stack([g_states[i] for i in idx]).to(DEVICE)
             target = torch.stack([torch.tensor(g_targets[i]) for i in idx]).to(DEVICE)
             z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32).to(DEVICE)
@@ -449,7 +467,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
     if save:
         os.makedirs(MODEL_DIR, exist_ok=True)
         path = model_path(game_type)
-        torch.save({'state_dict': model.state_dict(), 'size': size}, path)
+        torch.save({'state_dict': model.state_dict(), 'size': size,
+                    'channels': channels, 'blocks': blocks}, path)
         if not quiet:
             print('saved', path)
     return model
@@ -460,7 +479,8 @@ def load_model(game_type):
     if not os.path.exists(path):
         return None
     ckpt = torch.load(path, map_location='cpu')
-    model = AZNet(ckpt['size']).to(DEVICE)
+    model = AZNet(ckpt['size'],
+                  ckpt.get('channels', 32), ckpt.get('blocks', 3)).to(DEVICE)
     model.load_state_dict(ckpt['state_dict'])
     model.eval()
     return model
@@ -480,13 +500,22 @@ def main(argv=None):
     tr.add_argument('--eval-games', type=int, default=20)
     tr.add_argument('--lr', type=float, default=1e-3)
     tr.add_argument('--seed', type=int, default=None)
+    tr.add_argument('--rollout-weight', type=float, default=0.0,
+                    help='random-playout mix in the leaf value (0 = pure network)')
+    tr.add_argument('--channels', type=int, default=128,
+                    help='conv channels of the residual tower (default: 128)')
+    tr.add_argument('--blocks', type=int, default=5,
+                    help='number of residual blocks (default: 5)')
     ev = sub.add_parser('eval')
     ev.add_argument('--games', type=int, default=20)
     ev.add_argument('--sims', type=int, default=200)
     args = ap.parse_args(argv)
     if args.cmd == 'train':
+        global ROLLOUT_WEIGHT
+        ROLLOUT_WEIGHT = args.rollout_weight
         train('ultimate', args.games, args.sims, args.eval_every,
-              args.eval_games, args.lr, args.seed)
+              args.eval_games, args.lr, args.seed,
+              channels=args.channels, blocks=args.blocks)
     else:
         model = load_model('ultimate')
         if model is None:
