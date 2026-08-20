@@ -375,6 +375,7 @@ class BoardWidget(QWidget):
         self._hover_poll.setInterval(80)
         self._hover_poll.timeout.connect(self._sync_hover_from_cursor)
         self._hover_poll.start()
+        self._hover_pending = 0
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
@@ -384,6 +385,7 @@ class BoardWidget(QWidget):
         self._hover_anim.stop()
         self._hover_macro = None
         self._hover_blend = 0.0
+        self._hover_pending = 0
         self.update()
 
     def _on_hover_anim(self, value):
@@ -417,7 +419,9 @@ class BoardWidget(QWidget):
 
         Some top-level windows (e.g. the SiliconUI tooltip) can swallow
         mouse-move events, freezing the reveal on the first chunk. Repainting
-        with the actual cursor keeps the reveal following the pointer.
+        with the actual cursor keeps the reveal following the pointer. A
+        hysteresis of a few polls avoids flicker when the cursor sits on a
+        chunk boundary and the OS jitters by a pixel.
         """
         if self.game is None or not self.isVisible():
             return
@@ -426,15 +430,15 @@ class BoardWidget(QWidget):
             return
         local = self.mapFromGlobal(pos)
         if not self.rect().contains(local):
-            if self._hover_macro is not None:
-                self._hover_macro = None
-                self._hover_anim.stop()
-                self._hover_anim.setStartValue(self._hover_blend)
-                self._hover_anim.setEndValue(0.0)
-                self._hover_anim.start()
+            m = None
+        else:
+            m = self._macro_at(local.x(), local.y())
+        if m == self._hover_macro:
+            self._hover_pending = 0
             return
-        m = self._macro_at(local.x(), local.y())
-        if m != self._hover_macro:
+        self._hover_pending += 1
+        if self._hover_pending >= 3:  # ~240ms steady in the new chunk
+            self._hover_pending = 0
             self._hover_macro = m
             self._hover_anim.stop()
             target = 1.0 if (m is not None and self.game.macro[m] in (X, O)) else 0.0
@@ -501,7 +505,6 @@ class BoardWidget(QWidget):
     def paintEvent(self, event):
         if self.game is None:
             return
-        self._sync_hover_from_cursor()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         if isinstance(self.game, UltimateGame):
