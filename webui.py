@@ -78,6 +78,9 @@ def main_page():
             ui.icon('grid_on').classes('text-primary')
             ui.label('Ultimate Tic Tac Toe — 終極井字棋').classes('text-h6 q-ma-none')
         with ui.row().classes('items-center gap-4'):
+            new_game_btn = ui.button(t('New Game', '新遊戲'), icon='replay',
+                                     on_click=lambda: start_game()).props('flat')
+            new_game_btn.set_visibility(False)
             play_again_btn = ui.button(t('Play Again', '再玩一次'), icon='replay',
                                        on_click=lambda: start_game()).props('unelevated')
             play_again_btn.set_visibility(False)
@@ -92,12 +95,15 @@ def main_page():
         session['screen'] = 'menu'
         back_btn.set_visibility(False)
         play_again_btn.set_visibility(False)
+        new_game_btn.set_visibility(False)
         content.clear()
         with content:
             build_menu()
 
     def show_game():
         session['screen'] = 'game'
+        new_game_btn.set_visibility(True)
+        play_again_btn.set_visibility(False)
         back_btn.set_visibility(True)
         content.clear()
         with content:
@@ -599,6 +605,7 @@ def main_page():
                      'Normal' if isinstance(game, NormalGame) else 'Ultimate')
             # No popup: the header Play Again button appears instead.
             play_again_btn.set_visibility(True)
+            new_game_btn.set_visibility(False)
 
         with ui.row().classes('w-full justify-center gap-4 items-start flex-wrap sm:gap-6'):
             with ui.column().classes('items-center gap-3'):
@@ -623,9 +630,6 @@ def main_page():
                     hist_slider_label = ui.label('0 / 0').classes('text-caption text-grey')
                 board_ui = ui.element('div').classes('board-wrap')
                 render_board()
-                with ui.row().classes('gap-2'):
-                    ui.button(t('New Game', '新遊戲'), icon='replay',
-                              on_click=start_game).props('flat')
             with ui.column().classes('w-full max-w-sm gap-3 sm:w-80 sm:max-w-none'):
                 with ui.card().classes('w-full'):
                     analysis_ui = ui.column().classes('gap-1')
