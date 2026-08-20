@@ -15,6 +15,7 @@ Maintenance notes:
 """
 
 import math
+import os
 import random
 import time
 
@@ -22,6 +23,63 @@ from game import (
     X, O, EMPTY, LINES,
     NormalGame, UltimateGame, apply_move, apply_clone_result, count_threats,
 )
+
+
+# ============================================================
+# Engine configuration (sba.toml)
+# ============================================================
+
+_CFG_DEFAULTS = {
+    'engine': {
+        'rollout_heuristic': True, 'tree_reuse': True, 'dynamic_uct': True,
+        'progressive_widening': False, 'early_stop': False,
+        'opening_book': True, 'micro_tablebase': True,
+        'symmetry': False, 'object_pool': True, 'bitboard': True,
+        'multithreaded': False, 'use_lmr': True, 'use_killers': True,
+        'use_aspiration': True,
+        'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,
+        'workers': 4, 'reuse_cache': 32,
+    },
+    'session': {'mcts_budget': 800, 'minimax_depth': 4},
+}
+
+
+def _load_config():
+    """Load sba.toml (or $SBA_CONFIG) as a dict; missing/broken file -> {}."""
+    path = os.environ.get('SBA_CONFIG')
+    if not path:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sba.toml')
+    try:
+        import tomllib
+        with open(path, 'rb') as fh:
+            return tomllib.load(fh)
+    except Exception:
+        return {}
+
+
+CONFIG = _load_config()
+
+
+def set_engine_config(overrides=None):
+    """Reset the engine config to code defaults, then apply overrides."""
+    global CONFIG
+    base = {
+        'engine': dict(_CFG_DEFAULTS['engine']),
+        'session': dict(_CFG_DEFAULTS['session']),
+    }
+    if overrides:
+        base['engine'].update(overrides.get('engine', {}))
+        base['session'].update(overrides.get('session', {}))
+    CONFIG = base
+
+
+def cfg_engine(name, default=None):
+    return CONFIG.get('engine', {}).get(name, _CFG_DEFAULTS['engine'].get(name, default))
+
+
+def cfg_session(name, default=None):
+    return CONFIG.get('session', {}).get(name, _CFG_DEFAULTS['session'].get(name, default))
+
 
 # ============================================================
 # AI engines
@@ -532,7 +590,7 @@ def mcts_grave_move(game, iterations):
 # ---------------------------------------------------------------
 
 _TT = {}
-_TT_MAX = 300000
+_TT_MAX = cfg_engine('tt_max', 300000)
 
 
 def _tt_key(game):

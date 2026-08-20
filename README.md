@@ -138,6 +138,18 @@ docker build -t sba .
 docker run -p 8080:8080 sba
 ```
 
+## Configuration / 設定
+
+All engine switches and parameters live in **`sba.toml`**（repo root）: MCTS
+rollout heuristic, tree reuse, dynamic UCT, opening book, micro tablebase,
+LMR/killer/aspiration, symmetry, object pool, bitboard, multithreaded MCTS,
+UCT/RAVE constants, and session defaults（`mcts_budget`, `minimax_depth`）.
+Missing keys fall back to code defaults; point `$SBA_CONFIG` at another file
+to override / 所有引擎開關與參數集中在 `sba.toml`（repo 根目錄）：啟發式 rollout、
+樹重用、動態 UCT、開局書、micro 殘局表、LMR/killer/aspiration、對稱性、物件池、
+bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mcts_budget`、
+`minimax_depth`）。缺省鍵自動回退程式碼預設；可用環境變數 `SBA_CONFIG` 指向其他檔案。
+
 ---
 
 ## Source layout / 原始碼結構
@@ -155,6 +167,7 @@ docker run -p 8080:8080 sba
 | `run.bat` | Local Windows launcher (not tracked in git) / 本地 Windows 啟動檔（未納入 git） |
 | `Dockerfile` | Container image (CPU-only torch) / 容器映像（CPU 版 torch） |
 | `requirements.txt` | Core + desktop dependencies (NiceGUI, PySide6) / 核心與桌面版依賴（NiceGUI、PySide6） |
+| `sba.toml` | Engine configuration (switches, constants, session defaults) / 引擎設定（開關、常數、session 預設） |
 
 Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`} / 依賴方向為單向：`game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`}。
 

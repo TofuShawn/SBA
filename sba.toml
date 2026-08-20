@@ -1,0 +1,37 @@
+# SBA engine configuration / 引擎設定
+# Loaded by ai.py via tomllib; missing keys fall back to code defaults.
+# Point $SBA_CONFIG at another file to use a different configuration.
+
+[engine]
+# --- search switches / 搜尋開關 ---
+rollout_heuristic = true    # win/block biased MCTS rollouts (A1) / 啟發式 rollout
+tree_reuse = true           # keep the MCTS tree between moves (A2) / 樹重用
+dynamic_uct = true          # exploration factor shrinks as the search matures (A3) / 動態 UCT
+progressive_widening = false # limit expansions per node (A4) / 漸進式加粗
+early_stop = false          # stop a dominant search early (A5) / 提早終止
+
+# --- opening book & endgame tablebase / 開局書與殘局庫 ---
+opening_book = true         # curated first plies (Normal 2 plies, Ultimate 1 ply) / 開局書
+micro_tablebase = true      # exact 3x3 micro values inside eval_ultimate / micro 殘局表
+
+# --- search refinements / 剪枝細化 ---
+use_lmr = true              # late-move reductions in Minimax Pro (B3) / LMR
+use_killers = true          # killer-move ordering in Minimax Pro (B3) / Killer Move
+use_aspiration = true       # aspiration window at the root (B3) / Aspiration Window
+
+# --- performance / 效能 ---
+symmetry = false            # D4 symmetry dedup at the MCTS root (C1) / 對稱性消除
+object_pool = true          # reuse MCTSNode objects (C2; skipped while tree_reuse) / 物件池
+bitboard = true             # MCTS family searches on a bitboard game (C3) / Bitboard
+multithreaded = false       # parallel MCTS (C4) / 多執行緒 MCTS
+
+# --- parameters / 參數 ---
+uct_c = 1.4                 # UCT exploration constant (A3) / UCT 探索常數
+rave_k = 150                # RAVE/GRAVE bias decay constant / RAVE k
+tt_max = 300000             # Minimax Pro transposition table cap / 置換表上限
+workers = 4                 # threads used by multithreaded MCTS (C4) / 執行緒數
+reuse_cache = 32            # tree-reuse cache entries (A2) / 樹重用快取上限
+
+[session]
+mcts_budget = 800           # default MCTS iterations per move / 預設 MCTS 迭代數
+minimax_depth = 4           # default Minimax depth (Ultimate) / 預設 Minimax 深度

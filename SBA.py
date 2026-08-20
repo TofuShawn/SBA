@@ -33,7 +33,8 @@ from game import (
 from ai import (
     get_basic_move, minimax_move_normal, mcts_move,
     solver_move, minimax_pro_move, mcts_rave_move, mcts_grave_move,
-    build_tablebase, _board_key, get_ai_move,
+    build_tablebase, _board_key, get_ai_move, cfg_session,
+    set_engine_config,
 )
 
 log = logging.getLogger('SBA')
@@ -53,8 +54,8 @@ def new_session():
         'cvc_auto': True,
         'ai_x': 'Minimax',
         'ai_o': 'MCTS',
-        'mcts': 800,
-        'minimax_depth': 4,
+        'mcts': cfg_session('mcts_budget', 800),
+        'minimax_depth': cfg_session('minimax_depth', 4),
         'assistant_enabled': True,
         'analyzing': False,
         'reanalyze': False,
@@ -115,6 +116,7 @@ def side_label(kind):
 # ============================================================
 
 def self_test():
+    set_engine_config({})  # ignore any user sba.toml overrides during tests
     random.seed(12345)
     passed, failed = 0, 0
 
