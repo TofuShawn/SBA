@@ -171,6 +171,7 @@ def minimax_move_normal(game):
 def eval_ultimate(game, player):
     opp = O if player == X else X
     score = 0
+    tb = build_micro_tablebase() if cfg_engine('micro_tablebase', True) else None
     for m in range(9):
         state = game.macro[m]
         if state == player:
@@ -178,10 +179,21 @@ def eval_ultimate(game, player):
         elif state == opp:
             score -= 1000
         elif state == EMPTY:
-            score += 3 * count_threats(game.micro[m], player)
-            score -= 3 * count_threats(game.micro[m], opp)
-            score += 0.5 * sum(1 for c in game.micro[m] if c == player)
-            score -= 0.5 * sum(1 for c in game.micro[m] if c == opp)
+            cells = game.micro[m]
+            empty = sum(1 for c in cells if c == EMPTY)
+            if tb is not None and empty <= 2:
+                v = tb.get(_board_key(cells))
+                if v is not None:
+                    # The side to move inside an idle micro is ambiguous, so
+                    # credit the player most likely to be moving there.
+                    theirs = 9 - empty - sum(1 for c in cells if c == player)
+                    sign = 1 if sum(1 for c in cells if c == player) >= theirs else -1
+                    score += 80 * v * sign
+                    continue
+            score += 3 * count_threats(cells, player)
+            score -= 3 * count_threats(cells, opp)
+            score += 0.5 * sum(1 for c in cells if c == player)
+            score -= 0.5 * sum(1 for c in cells if c == opp)
     for a, b, c in LINES:
         vals = [game.macro[a], game.macro[b], game.macro[c]]
         if vals.count(player) == 2 and EMPTY in vals:
@@ -368,6 +380,15 @@ def build_tablebase():
     solve([EMPTY] * 9, X)
     _TABLEBASE = memo
     return memo
+
+
+def build_micro_tablebase():
+    """Exact minimax values for a single 3x3 micro (side-to-move view).
+
+    The Normal-game tablebase already covers exactly these 3^9 states, so
+    this is a thin alias that keeps the intent readable at call sites.
+    """
+    return build_tablebase()
 
 
 def solver_move(game, mcts_budget=800):
@@ -725,7 +746,29 @@ def alphazero_move(game, budget=800):
     return alphazero.alphazero_move(game, model, budget)
 
 
+_BOOK_ENGINES = {'Basic', 'Minimax', 'Minimax Pro', 'MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'}
+
+
+def opening_book_move(game):
+    """Curated early-game moves (Normal: first two plies; Ultimate: first ply)."""
+    if isinstance(game, NormalGame):
+        filled = sum(1 for c in game.board if c != EMPTY)
+        if filled == 0 and game.current == X:
+            return random.choice((0, 2, 4, 6, 8))
+        if filled == 1 and game.current == X:
+            om = next(i for i, c in enumerate(game.board) if c == O)
+            return 4 if om != 4 else random.choice((0, 2, 6, 8))
+        return None
+    if all(c == EMPTY for row in game.micro for c in row):
+        return random.choice(((4, 4), (0, 0), (2, 2), (6, 6), (8, 8), (4, 0)))
+    return None
+
+
 def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
+    if cfg_engine('opening_book', True) and ai_type in _BOOK_ENGINES:
+        book_move = opening_book_move(game)
+        if book_move is not None:
+            return book_move
     if ai_type == 'Random':
         return random.choice(game.legal_moves())
     if ai_type == 'Basic':

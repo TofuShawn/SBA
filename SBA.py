@@ -120,6 +120,8 @@ def self_test():
     random.seed(12345)
     passed, failed = 0, 0
 
+    from ai import opening_book_move, build_micro_tablebase
+
     def check(name, cond):
         nonlocal passed, failed
         if cond:
@@ -240,6 +242,31 @@ def self_test():
     check('minimax pro: normal immediate win', minimax_pro_move(g, depth=9) == 2)
     check('mcts+rave: normal immediate win', mcts_rave_move(g, 1500) == 2)
     check('mcts+grave: normal immediate win', mcts_grave_move(g, 1500) == 2)
+
+    # opening book / 開局書
+    g = NormalGame()
+    check('opening book: normal first move is corner/center', opening_book_move(g) in (0, 2, 4, 6, 8))
+    g2 = NormalGame()
+    g2.board[4] = O
+    g2.current = X
+    check('opening book: normal replies to center with a corner', opening_book_move(g2) in (0, 2, 6, 8))
+    g3 = NormalGame()
+    g3.board[0] = O
+    g3.current = X
+    check('opening book: normal replies to a corner with the center', opening_book_move(g3) == 4)
+    g4 = NormalGame()
+    g4.board = [X, O, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
+    g4.current = O
+    check('opening book: no move after the booked plies', opening_book_move(g4) is None)
+    gu = UltimateGame()
+    check('opening book: ultimate first move is legal', opening_book_move(gu) in gu.legal_moves())
+
+    # micro endgame tablebase / micro 殘局表
+    tb = build_micro_tablebase()
+    check('micro tablebase: empty micro is a draw', tb[_board_key([EMPTY] * 9)] == 0)
+    # 4 marks -> X to move; X has a two-in-a-row with the third cell open.
+    check('micro tablebase: immediate win is +1',
+          tb[_board_key([X, X, EMPTY, O, EMPTY, O, EMPTY, EMPTY, EMPTY])] == 1)
 
     gu = UltimateGame()
     gu.macro = [X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY]
