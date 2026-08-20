@@ -615,7 +615,7 @@ class BoardWidget(QWidget):
                 rect = self._macro_rect(m, cell, ox, oy)
                 blend = self._reveal_blend if m == self._revealed_macro else 0.0
                 fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
-                fill.setAlpha(int(165 * (1.0 - blend)))  # semi-transparent mask
+                fill.setAlpha(int(205 * (1.0 - blend)))  # semi-transparent mask
                 if fill.alpha() > 0:
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(fill)
@@ -1054,10 +1054,6 @@ class GamePage(QWidget):
         speed_row.addWidget(self.speed_slider, 1)
         speed_row.addWidget(self.speed_lbl)
         cvc_lay.addLayout(speed_row)
-        self.auto_switch = QCheckBox(t('Auto-play', '自動播放'))
-        self.auto_switch.setChecked(True)
-        self.auto_switch.toggled.connect(self.on_auto_toggled)
-        cvc_lay.addWidget(self.auto_switch)
         panel.addWidget(self.cvc_card)
 
         panel_widget = QWidget()
@@ -1129,8 +1125,7 @@ class GamePage(QWidget):
         self.trigger_analysis()
         self.update_cvc_controls()
         if (not s.get('cvc_paused', False) and s['mode'] == 'cvc'
-                and s.get('cvc_auto', True) and not self.game.is_over()
-                and is_ai_turn(self.session)):
+                and not self.game.is_over() and is_ai_turn(self.session)):
             self.cvc_timer.start()
 
     def _render_history(self):
@@ -1227,8 +1222,7 @@ class GamePage(QWidget):
             return
         if is_ai_turn(self.session):
             if self.session['mode'] == 'cvc':
-                if (self.session.get('cvc_auto', True)
-                        and not self.session.get('cvc_paused', False)):
+                if not self.session.get('cvc_paused', False):
                     self.cvc_timer.start()
                 else:
                     self.update_cvc_controls()
@@ -1245,9 +1239,6 @@ class GamePage(QWidget):
             self.cvc_timer.stop()
             return
         if self.game.is_over() or self.busy or not is_ai_turn(self.session):
-            return
-        if not self.session.get('cvc_auto', True):
-            self.cvc_timer.stop()
             return
         self.run_ai()
 
@@ -1284,13 +1275,6 @@ class GamePage(QWidget):
         self.speed_lbl.setText(t('Speed', '速度') + f': {value / 10.0:.1f}s')
         self.cvc_timer.setInterval(value * 100)
 
-    def on_auto_toggled(self, checked):
-        self.session['cvc_auto'] = checked
-        self.update_cvc_controls()
-        if (checked and self.session['mode'] == 'cvc' and is_ai_turn(self.session)
-                and not self.session.get('cvc_paused', False)):
-            self.cvc_timer.start()
-
     def on_revert_clicked(self):
         self.go_to_step(self.step_idx - 1)
 
@@ -1301,7 +1285,7 @@ class GamePage(QWidget):
             self.cvc_timer.stop()
         else:
             if (s['mode'] == 'cvc' and not self.game.is_over()
-                    and is_ai_turn(self.session) and s.get('cvc_auto', True)):
+                    and is_ai_turn(self.session)):
                 self.cvc_timer.start()
         self.update_cvc_controls()
 
@@ -1327,7 +1311,6 @@ class GamePage(QWidget):
             return
         rewound = self.step_idx < len(self.session.get('moves', []))
         ai_turn = not self.game.is_over() and is_ai_turn(self.session)
-        auto = self.session.get('cvc_auto', True)
         paused = self.session.get('cvc_paused', False)
         self.revert_btn.setEnabled(self.step_idx > 0)
         self.pause_btn.setEnabled(True)

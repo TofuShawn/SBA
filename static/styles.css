@@ -47,8 +47,8 @@
   pointer-events: none; z-index: 5;
   opacity: 1 !important; transition: opacity 0.18s ease;
 }
-.macro-win-fill-x { background: rgba(103, 80, 164, 0.7); }
-.macro-win-fill-o { background: rgba(179, 38, 30, 0.7); }
+.macro-win-fill-x { background: rgba(103, 80, 164, 0.85); }
+.macro-win-fill-o { background: rgba(179, 38, 30, 0.85); }
 .macro-win-badge-x, .macro-win-badge-o { color: #FFFFFF; }
 .body--dark .macro-win-badge-x, .body--dark .macro-win-badge-o { color: #FFFFFF; }
 .macro-win-badge { background: transparent; }

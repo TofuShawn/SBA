@@ -402,8 +402,6 @@ def main_page():
             return False
 
         def ai_loop():
-            if not session.get('cvc_auto', True):
-                return
             if session.get('cvc_paused', False):
                 return
             step_ai_move()
@@ -418,9 +416,8 @@ def main_page():
             ai_turn = not game.is_over() and is_ai_turn(session)
             paused = session.get('cvc_paused', False)
             rewound = session['step'] < len(session['moves'])
-            step_btn.set_enabled(rewound or (
-                (not session.get('cvc_auto', True) or paused) and ai_turn
-                and session.get('ai_busy') is None))
+            step_btn.set_enabled(rewound or (paused and ai_turn
+                                             and session.get('ai_busy') is None))
             next_btn.set_enabled(rewound or (
                 ai_turn and session.get('ai_busy') is None))
             pause_btn.set_text(t('Resume', '繼續') if paused else t('Pause', '暫停'))
@@ -430,10 +427,6 @@ def main_page():
             session['cvc_speed'] = speed
             speed_label.set_text(t('Speed', '速度') + f': {speed:.1f}s')
             game_timer.interval = speed
-
-        def on_auto_change(e):
-            session['cvc_auto'] = e.value
-            update_cvc_controls()
 
         def record_move(move):
             moves = session['moves']
@@ -466,8 +459,7 @@ def main_page():
             render_history()
             trigger_analysis()
             if (not session.get('cvc_paused', False) and session['mode'] == 'cvc'
-                    and session.get('cvc_auto', True) and not g.is_over()
-                    and is_ai_turn(session)):
+                    and not g.is_over() and is_ai_turn(session)):
                 game_timer.start()
 
         def render_history():
@@ -500,8 +492,8 @@ def main_page():
                 pause_btn.set_text(t('Resume', '繼續'))
             else:
                 pause_btn.set_text(t('Pause', '暫停'))
-                if (session['mode'] == 'cvc' and session.get('cvc_auto', True)
-                        and not game.is_over() and is_ai_turn(session)):
+                if (session['mode'] == 'cvc' and not game.is_over()
+                        and is_ai_turn(session)):
                     game_timer.start()
             update_cvc_controls()
 
@@ -660,10 +652,6 @@ def main_page():
                                 min=0.1, max=2.0, step=0.1,
                                 value=session.get('cvc_speed', 0.4)).props('label-always')
                             speed_slider.on_value_change(on_speed_change)
-                            auto_switch = ui.switch(
-                                t('Auto-play', '自動播放'),
-                                value=session.get('cvc_auto', True))
-                            auto_switch.on_value_change(on_auto_change)
                             step_btn = ui.button(
                                 t('Step / Next Move', '下一步'), icon='skip_next',
                                 on_click=step_btn_click).props('flat')
