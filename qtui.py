@@ -25,9 +25,9 @@ import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import (QEasingCurve, QPoint, QRectF, QSize, Qt, QThread,
+    from PySide6.QtCore import (QEasingCurve, QRectF, QSize, Qt, QThread,
                                 QTimer, QVariantAnimation, Signal)
-    from PySide6.QtGui import QColor, QCursor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
@@ -372,10 +372,6 @@ class BoardWidget(QWidget):
         self._hover_anim.setDuration(180)
         self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._hover_anim.valueChanged.connect(self._on_hover_anim)
-        self._hover_poll = QTimer(self)
-        self._hover_poll.setInterval(200)
-        self._hover_poll.timeout.connect(self._poll_hover)
-        self._hover_poll.start()
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
@@ -417,24 +413,6 @@ class BoardWidget(QWidget):
             if m != self._hover_macro:
                 self._set_hover(m)
         super().mouseMoveEvent(event)
-
-    def _poll_hover(self):
-        """Repaint when the chunk under the real cursor changes.
-
-        A slow poll only detects changes (there is no per-tick animation), so
-        it can neither flicker nor freeze the reveal if mouse-move events are
-        occasionally lost.
-        """
-        if self.game is None or not self.isVisible():
-            return
-        pos = QCursor.pos()
-        if pos == QPoint(0, 0):  # offscreen/synthetic renders have no cursor
-            return
-        local = self.mapFromGlobal(pos)
-        m = (self._macro_at(local.x(), local.y())
-             if self.rect().contains(local) else None)
-        if m != self._hover_macro:
-            self._set_hover(m)
 
     def leaveEvent(self, event):
         self._set_hover(None)
