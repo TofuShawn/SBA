@@ -164,6 +164,8 @@ class AZNet(nn.Module):
 # ---------------------------------------------------------------
 
 ROLLOUT_WEIGHT = 0.5  # leaf value = (1-w)*network + w*random playout
+VIRTUAL_LOSS = 2.0    # applied during batched selection so parallel workers diverge
+BATCH_SIZE = 16       # default leaf-parallel batch size for network inference
 
 
 class SearchNode:
@@ -176,7 +178,7 @@ class SearchNode:
     """
 
     __slots__ = ('state', 'move', 'children', 'visits', 'wins', 'q',
-                 'untried', 'priors')
+                 'untried', 'priors', 'v_visits', 'v_wins')
 
     def __init__(self, state, move):
         self.state = state
@@ -188,16 +190,20 @@ class SearchNode:
         self.untried = state.legal_moves() if not state.is_over() else []
         random.shuffle(self.untried)
         self.priors = None  # {move: prior} filled once by the policy head
+        self.v_visits = 0   # virtual statistics for batched (leaf-parallel) search
+        self.v_wins = 0.0
 
     def best_child(self, c_puct):
-        log_n = math.log(max(1, self.visits))
+        log_n = math.log(max(1, self.visits + self.v_visits))
         best, best_val = None, -math.inf
         for child in self.children:
-            if child.visits == 0:
+            visits = child.visits + child.v_visits
+            if visits == 0:
                 uct = math.inf
             else:
                 prior = self.priors.get(child.move, 1.0) if self.priors else 1.0
-                uct = (-child.q + c_puct * prior * math.sqrt(log_n / child.visits))
+                q = (child.wins + child.v_wins) / visits
+                uct = (-q + c_puct * prior * math.sqrt(log_n / visits))
             if uct > best_val:
                 best, best_val = child, uct
         return best
@@ -219,57 +225,87 @@ def rollout_value(g):
 
 
 @torch.no_grad()
-def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None):
-    """Run neural-guided MCTS; return (root SearchNode, {move: visit_count})."""
+def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
+                batch_size=BATCH_SIZE):
+    """Neural-guided MCTS with leaf-parallel batched inference (standard AZ).
+
+    Every node is expanded in full (all children created with priors) on its
+    first visit, so selection always descends to an unexpanded leaf. Up to
+    ``batch_size`` leaves are selected per round (virtual loss keeps parallel
+    workers on different branches) and evaluated with one batched network call,
+    cutting per-iteration kernel-launch overhead on ROCm/CUDA.
+
+    Returns (root SearchNode, {move: visit_count}).
+    """
     if rollout_weight is None:
         rollout_weight = ROLLOUT_WEIGHT
     root_state = game.clone()
     root = SearchNode(root_state, None)
-    for _ in range(budget):
-        node = root
-        state = root_state.clone()
-        path = [root]
-        while node.untried == [] and node.children:
-            node = node.best_child(c_puct)
-            apply_move(state, node.move)
-            path.append(node)
-        if node.untried:
-            if node.priors is None:
-                policy, _ = model(encode(node.state).unsqueeze(0).to(DEVICE))
-                probs = F.softmax(policy[0], dim=0).cpu().numpy()
-                node.priors = {m: float(probs[move_index(node.state, m)])
-                               for m in node.untried}
-            m = node.untried.pop()
-            apply_move(state, m)
-            child = SearchNode(state.clone(), m)
-            node.children.append(child)
-            node = child
-            path.append(node)
-        if state.is_over() or not state.legal_moves():
-            value = terminal_value(state)
-        else:
-            policy, value = model(encode(state).unsqueeze(0).to(DEVICE))
-            value = float(value[0, 0].item())
-            if rollout_weight > 0:
-                value = ((1.0 - rollout_weight) * value
-                         + rollout_weight * rollout_value(state))
+
+    def backprop(path, value):
+        for n in path:
+            n.v_visits -= 1
+            n.v_wins -= VIRTUAL_LOSS
         for n in reversed(path):
             n.visits += 1
             n.wins += value
             n.q = n.wins / n.visits
             value = -value
+
+    iterations = 0
+    while iterations < budget:
+        leaves = []  # (path, node) unexpanded leaves -> value batch
+        while iterations < budget and len(leaves) < batch_size:
+            node = root
+            state = root_state.clone()
+            path = [root]
+            while node.children:
+                node = node.best_child(c_puct)
+                apply_move(state, node.move)
+                path.append(node)
+            for n in path:
+                n.v_visits += 1
+                n.v_wins += VIRTUAL_LOSS
+            iterations += 1
+            if node.untried == []:
+                backprop(path, terminal_value(state))
+            else:
+                leaves.append((path, node))
+
+        # Network: one batched forward for every selected leaf.
+        if leaves:
+            states = torch.stack(
+                [encode(node.state) for _, node in leaves]).to(DEVICE)
+            policies, values = model(states)
+            for (path, node), p, v in zip(leaves, policies, values):
+                value = float(v.item())
+                if rollout_weight > 0:
+                    value = ((1.0 - rollout_weight) * value
+                             + rollout_weight * rollout_value(node.state))
+                backprop(path, value)
+                if node.untried:
+                    # expand in full (idempotent: duplicate leaves skip)
+                    probs = F.softmax(p, dim=0).cpu().numpy()
+                    node.priors = {m: float(probs[move_index(node.state, m)])
+                                   for m in node.untried}
+                    for m in node.untried:
+                        child_state = node.state.clone()
+                        apply_move(child_state, m)
+                        node.children.append(SearchNode(child_state, m))
+                    node.untried = []
     counts = {child.move: child.visits for child in root.children}
     return root, counts
 
 
-def mcts_visit_counts(game, model, budget, c_puct=1.5):
-    _, counts = mcts_search(game, model, budget, c_puct)
+def mcts_visit_counts(game, model, budget, c_puct=1.5, batch_size=BATCH_SIZE):
+    _, counts = mcts_search(game, model, budget, c_puct, batch_size=batch_size)
     return counts
 
 
-def select_move(game, model, budget=800, temp=0.0, c_puct=1.5):
+def select_move(game, model, budget=800, temp=0.0, c_puct=1.5,
+                batch_size=BATCH_SIZE):
     model = model.to(DEVICE)  # callers may pass a CPU model
-    root, counts = mcts_search(game, model, budget, c_puct)
+    root, counts = mcts_search(game, model, budget, c_puct, batch_size=batch_size)
     if not counts:
         return random.choice(game.legal_moves())
     moves = list(counts.keys())
@@ -294,8 +330,8 @@ def select_move(game, model, budget=800, temp=0.0, c_puct=1.5):
     return moves[int(np.random.choice(len(moves), p=p))]
 
 
-def alphazero_move(game, model, budget=800):
-    return select_move(game, model, budget, temp=0.0)
+def alphazero_move(game, model, budget=800, batch_size=BATCH_SIZE):
+    return select_move(game, model, budget, temp=0.0, batch_size=batch_size)
 
 
 # ---------------------------------------------------------------
