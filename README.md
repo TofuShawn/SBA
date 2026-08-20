@@ -23,6 +23,7 @@
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
 - **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
 - **Adjustable AI strength / 可調 AI 強度**：MCTS 迭代數（200-3000）與 Minimax 深度（2-6）
+- **Engine optimizations / 引擎優化**（`sba.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
 - **CvC controls / 電腦對戰控制**：速度（0.1-2.0s）、自動播放、手動「下一步」
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
 - **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
