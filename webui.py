@@ -79,7 +79,7 @@ def main_page():
             ui.label('Ultimate Tic Tac Toe — 終極井字棋').classes('text-h6 q-ma-none')
         with ui.row().classes('items-center gap-4'):
             play_again_btn = ui.button(t('Play Again', '再玩一次'), icon='replay',
-                                       on_click=start_game).props('unelevated')
+                                       on_click=lambda: start_game()).props('unelevated')
             play_again_btn.set_visibility(False)
             back_btn = ui.button(t('Back to Menu', '返回選單'), icon='arrow_back',
                                  on_click=lambda: show_menu())
