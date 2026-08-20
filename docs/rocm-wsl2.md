@@ -2,7 +2,11 @@
 
 ## Status / 現況
 - GPU：**AMD Radeon RX 7900 XTX**（gfx1100）。
-- Ubuntu **24.04** WSL 發行版已安裝；ROCm **6.2.4**（`amdgpu-install --usecase=rocm --no-dkms`）與 **PyTorch 2.5.1+rocm6.2**（venv `/opt/sba`，含 numpy）已就緒。
+- **原生 Windows**：AMD 官方維護的 **TheRock** nightly 索引提供 `gfx110X-dgpu` 家族的
+  **Windows `win_amd64` PyTorch wheel**（`torch` / `torchvision` / `torchaudio`，cp311 / cp312 / cp313）——
+  不需要 WSL2、也不需要自行編譯。
+- WSL2 Ubuntu **24.04** 已安裝；ROCm **6.2.4**（`amdgpu-install --usecase=rocm --no-dkms`）與
+  **PyTorch 2.5.1+rocm6.2**（venv `/opt/sba`，含 numpy）已就緒，可作 fallback。
 - `alphazero.py` 已內建 GPU 自動切換（`DEVICE = cuda if torch.cuda.is_available()`），無需改碼。
 
 ## Blocker / 目前卡點
@@ -34,9 +38,26 @@ wsl -d Ubuntu --user root -- sh -c "cd /mnt/e/Project/SBA && /opt/sba/bin/python
 - `/dev/dri/renderD128` 已存在（顯示/渲染透傳正常）；ROCm 計算另需 `/dev/kfd`。
 - 若驅動更新後仍無 `/dev/kfd`，執行 `wsl --update` 再 `wsl --shutdown` 一次。
 
-## Why WSL2 (and not native Windows) / 為什麼用 WSL2
-- Windows 端已安裝 AMD ROCm/HIP SDK（`C:\Program Files\AMD\ROCm\6.2`，含 `hipcc`），
-  但 **PyTorch 官方沒有發佈 Windows 的 ROCm wheel**（rocm6.2–7.2 索引皆無 `win_amd64`）。
-- PyTorch 官方支援 ROCm 的路徑只有 **Linux（含 WSL2）**；原生 Windows 要吃 ROCm 需自行
-  從原始碼編譯 PyTorch（實驗性、耗時數小時，不建議）。
-- 因此本專案的 GPU 訓練走 **WSL2 Ubuntu**（已建好），只需更新 AMD 驅動讓 `/dev/kfd` 出現。
+## Native Windows: TheRock index / 原生 Windows：TheRock 索引
+- `pytorch.org` 官方索引確實沒有 Windows 的 ROCm wheel；但 **AMD 官方維護的 TheRock** 索引
+  （`https://rocm.nightlies.amd.com/v2/<gfx家族>/`）有發佈 Windows wheel。
+- RX 7900 XTX（gfx1100）屬於 **`gfx110X-dgpu`**（gfx1100 / gfx1101 / gfx1102，獨立顯示卡；
+  `gfx110X-all` 另含 gfx1103 內顯）。安裝（nightly/rc 版需 `--pre`）：
+  ```powershell
+  pip install --pre --index-url https://rocm.nightlies.amd.com/v2/gfx110X-dgpu/ torch torchvision torchaudio
+  ```
+- TheRock 新版統一 **multi-arch** 索引（`https://rocm.nightlies.amd.com/whl-multi-arch/`，
+  RELEASES.md 建議方式，Windows 的 PyTorch 為 ✅）：
+  ```powershell
+  pip install --index-url https://rocm.nightlies.amd.com/whl-multi-arch/ "torch[device-gfx1100]" "torchvision[device-gfx1100]" torchaudio
+  ```
+- 驗證 GPU 可用：
+  ```powershell
+  python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+  ```
+- 注意：TheRock 是 **nightly / rc 建置**（如 `2.10.0a0+rocm7.10.0a…`，以 PyTorch main 分支為主），
+  穩定性不如正式版；若遇到問題可退回 WSL2 路徑。
+
+## Why WSL2 (fallback) / WSL2 作為備案
+- WSL2 仍是 AMD 官方支援的完整路徑，且本機已建好（Ubuntu 24.04 + ROCm 6.2.4 + PyTorch 2.5.1+rocm6.2）。
+- 使用 WSL2 時只需更新 Windows 端 AMD 驅動讓 `/dev/kfd` 出現（見上方 Fix / 解法一節）。

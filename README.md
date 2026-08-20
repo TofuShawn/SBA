@@ -55,6 +55,9 @@ pip install torch numpy
 
 已訓練的 AlphaZero 網路會存放在 `models/`（已被 gitignore）。
 
+AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參考
+[`docs/rocm-wsl2.md`](docs/rocm-wsl2.md)。
+
 ---
 
 ## Usage / 使用方式
