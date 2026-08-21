@@ -25,7 +25,3 @@ Thumbs.db
 # MIOpen cache (Windows ROCm) / MIOpen 快取（Windows ROCm）
 .miopen/
 .miopen_cache/
-
-# PyInstaller build output / PyInstaller 建置產物
-build/
-dist/

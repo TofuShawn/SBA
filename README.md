@@ -151,31 +151,6 @@ docker build -t sba .
 docker run -p 8080:8080 sba
 ```
 
-### 5. Build a standalone Windows exe / 編譯成 Windows 可執行檔
-
-The desktop app can be packaged with PyInstaller (no Python needed on the
-target machine). The default build ships the PySide6 desktop app, the vendored
-SiliconUI theme, `sba.toml`, and the bundled `models/az_ultimate.pt` (if
-present); torch/numpy are excluded so the AlphaZero option falls back to MCTS,
-and the NiceGUI web UI is opt-in (matching the desktop-first design).
-/ 桌面版可用 PyInstaller 打包（目標機器不需裝 Python）。預設打包 PySide6
-桌面版、內建 SiliconUI 主題、`sba.toml` 與 `models/az_ultimate.pt`（若存在）；
-刻意排除 torch/numpy（AlphaZero 自動退回 MCTS），Web UI 為選用（桌面優先設計）。
-
-```bash
-build.bat                              # onedir output in dist\SBA\SBA.exe
-set SBA_WITH_WEB=1 && build.bat        # also bundle the NiceGUI web UI / 同時打包 Web
-```
-
-Notes / 備註：
-- `sba.toml` and `models/` are read from the folder next to the executable
-  first, so users can edit config or drop in a new checkpoint without
-  rebuilding / `sba.toml` 與 `models/` 優先讀取 exe 旁的檔案，使用者可直接改
-  設定或換模型，不用重新打包。
-- The web server, when bundled, is started by the desktop's
-  "Enable NiceGUI Web UI" switch as a subprocess of the exe / 打包了 Web 後，
-  桌面版的「啟動 Web 介面」開關會以 exe 子程序啟動伺服器。
-
 ## Configuration / 設定
 
 All engine switches and parameters live in **`sba.toml`**（repo root）: MCTS
@@ -206,7 +181,6 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 | `Dockerfile` | Container image (CPU-only torch) / 容器映像（CPU 版 torch） |
 | `requirements.txt` | Core + desktop dependencies (NiceGUI, PySide6) / 核心與桌面版依賴（NiceGUI、PySide6） |
 | `sba.toml` | Engine configuration (switches, constants, session defaults) / 引擎設定（開關、常數、session 預設） |
-| `SBA.spec` / `build.bat` | PyInstaller packaging recipe / PyInstaller 打包設定 |
 
 Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`} / 依賴方向為單向：`game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`}。
 

@@ -1463,26 +1463,14 @@ class MainWindow(QMainWindow):
     def start_web(self):
         if self.web_proc is not None and self.web_proc.poll() is None:
             return
-        if getattr(sys, 'frozen', False):
-            try:
-                import webui  # noqa: F401 - probe whether web support is bundled
-            except ImportError:
-                self.menu_page.web_status.setText(
-                    t('Web UI not bundled in this build (run from source: python SBA.py --web)',
-                      '此建置未包含 Web UI（請用原始碼執行 python SBA.py --web）'))
-                log.warning('NiceGUI web UI is not bundled in this build')
-                return
         flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-        port = str(self.menu_page.web_port)
-        if getattr(sys, 'frozen', False):
-            # Frozen exe re-enters itself with --web (SBA.py's main()).
-            cmd = [sys.executable, '--web', '--host', '0.0.0.0', '--port', port]
-            cwd = os.path.dirname(sys.executable)
-        else:
-            cmd = [sys.executable, 'SBA.py', '--web', '--host', '0.0.0.0',
-                   '--port', port]
-            cwd = os.path.dirname(os.path.abspath(__file__))
-        self.web_proc = subprocess.Popen(cmd, cwd=cwd, creationflags=flags)
+        cwd = os.path.dirname(os.path.abspath(__file__))
+        self.web_proc = subprocess.Popen(
+            [sys.executable, 'SBA.py', '--web', '--host', '0.0.0.0',
+             '--port', str(self.menu_page.web_port)],
+            cwd=cwd,
+            creationflags=flags,
+        )
         log.info('NiceGUI web server started on port %d', self.menu_page.web_port)
         self.menu_page.web_status.setText(
             f'http://127.0.0.1:{self.menu_page.web_port} ({t("running", "執行中")})')
