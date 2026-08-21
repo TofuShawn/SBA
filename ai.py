@@ -46,7 +46,7 @@ _CFG_DEFAULTS = {
         'multithreaded': False, 'use_lmr': True, 'use_killers': True,
         'use_aspiration': True,
         'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,
-        'workers': 4, 'reuse_cache': 32,
+        'workers': 8, 'reuse_cache': 32,
     },
     'session': {'mcts_budget': 800, 'minimax_depth': 4},
 }
@@ -1225,7 +1225,7 @@ def opening_book_move(game):
 def _mcts_move(game, ai_type, budget):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
     if (ai_type == 'MCTS' and cfg_engine('multithreaded', False)):
-        return mcts_move_parallel(game, budget, cfg_engine('workers', 4))
+        return mcts_move_parallel(game, budget, cfg_engine('workers', 8))
     reuse = cfg_engine('tree_reuse', True)
     if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
         search_game = BitUltimateGame.from_game(game)
@@ -1265,8 +1265,14 @@ def _mcts_move(game, ai_type, budget):
     return move
 
 
-def mcts_move_parallel(game, iterations, workers=4):
-    """Run several independent MCTS searches and merge their root stats."""
+def mcts_move_parallel(game, iterations, workers=8):
+    """Run several independent MCTS searches and merge their root stats.
+
+    Experimental (C4): pure-Python tree search holds the GIL, so threads do
+    NOT give real parallelism on CPU-bound work — this mostly overlaps the
+    tree-building overhead and is kept for A/B comparison. For true
+    parallelism use processes instead (see alphazero.py's spawn pool).
+    """
     chunk = max(1, iterations // workers)
     results = []
     if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
