@@ -21,6 +21,7 @@ import logging
 import math
 import os
 import random
+import sys
 import threading
 import time
 
@@ -56,7 +57,15 @@ def _load_config():
     """Load sba.toml (or $SBA_CONFIG) as a dict; missing/broken file -> {}."""
     path = os.environ.get('SBA_CONFIG')
     if not path:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sba.toml')
+        # In a frozen (PyInstaller) build prefer a user-editable sba.toml next
+        # to the executable; fall back to the bundled copy.
+        if getattr(sys, 'frozen', False):
+            exe_dir = os.path.dirname(sys.executable)
+            if os.path.exists(os.path.join(exe_dir, 'sba.toml')):
+                path = os.path.join(exe_dir, 'sba.toml')
+        if not path:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                'sba.toml')
     try:
         import tomllib
         with open(path, 'rb') as fh:
@@ -1144,7 +1153,11 @@ _AZ_MODELS = {}
 
 
 def load_az_model(game):
-    import alphazero
+    try:
+        import alphazero
+    except ImportError:
+        log.info('AlphaZero unavailable (torch not installed); using MCTS')
+        return None
     key = 'normal' if isinstance(game, NormalGame) else 'ultimate'
     if key not in _AZ_MODELS:
         _AZ_MODELS[key] = alphazero.load_model(key)

@@ -199,6 +199,11 @@ def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
 
 
 def main():
+    if getattr(sys, 'frozen', False):
+        for flag in ('--self-test', '--bench', '--train-az'):
+            if flag in sys.argv:
+                print(f'{flag} is not available in the packaged build')
+                sys.exit(1)
     if '--self-test' in sys.argv:
         try:
             import pytest
@@ -225,7 +230,12 @@ def main():
     # importing a second copy.
     sys.modules.setdefault('SBA', sys.modules['__main__'])
     if '--web' in sys.argv:
-        import webui
+        try:
+            import webui
+        except ImportError:
+            print('The NiceGUI web UI is not bundled in this build '
+                  '(rebuild with SBA_WITH_WEB=1, or run from source)')
+            sys.exit(1)
         webui.run()
         return
     # Default entry (also explicit via --qt): PySide6 desktop app. The

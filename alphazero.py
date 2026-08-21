@@ -28,6 +28,7 @@ import argparse
 import math
 import os
 import random
+import sys
 import time
 
 # Windows + TheRock ROCm wheels: MIOpen (PyTorch's conv backend) keeps its
@@ -53,7 +54,13 @@ import torch.nn.functional as F
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-MODEL_DIR = os.path.join(HERE, 'models')
+# Frozen (PyInstaller) builds: keep models next to the executable so users can
+# drop in new checkpoints; fall back to the bundled copy in _MEIPASS.
+if getattr(sys, 'frozen', False):
+    _RUNTIME_DIR = os.path.dirname(sys.executable)
+else:
+    _RUNTIME_DIR = HERE
+MODEL_DIR = os.path.join(_RUNTIME_DIR, 'models')
 X = 'X'
 O = 'O'
 EMPTY = ''
