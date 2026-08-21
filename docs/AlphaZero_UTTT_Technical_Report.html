@@ -363,7 +363,7 @@ footer {
 
 <ul>
   <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）、MCTS+RAVE、MCTS+GRAVE、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。在 30 局/對、300 sims 的歷史對戰中，<b>MCTS+GRAVE 勝過 MCTS 與 MCTS+RAVE</b>（D8）；優化配置下的純 MCTS 對 RAVE/GRAVE 約 60% 勝率（D12）。</li>
-  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.46 降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（95%）</b>。對普通 MCTS（800 迭代）在 1600 sims 下仍為 2 勝 1 平 3 負——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
+  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.46 降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（95%）</b>。對普通 MCTS 在同預算（800/800）下僅 <b>20%</b> 勝率（6W/2D/22L，30 盤）——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
   <li><b>兩側協作</b>：遊戲側的啟發式 rollout（<span class="kbd">ai._rollout_move</span>）與位板搜尋（<span class="kbd">BitUltimateGame</span>）被 AlphaZero 的葉節點評估與 MCTS 搜尋直接復用；位板表示同時服務傳統引擎與神經搜尋，形成單向依賴 <span class="kbd">game.py → ai.py → alphazero.py</span> 的乾淨架構（D2）。</li>
 </ul>
 
@@ -707,8 +707,41 @@ def encode(game):
   <li><b>位置偏好</b>：普通模式依中心 → 角落 → 邊的固定順序（第 124–127 行）；終極模式對「宏觀中心 +6、微觀中心 +4、宏觀角落 +2、微觀角落 +1」加權打分（第 128–144 行），使第一手傾向中心大格。</li>
 </ol>
 
-<h3>3.2 Minimax：alpha-beta 與深度加權終局分</h3>
-<p><span class="kbd">minimax_move_normal()</span>（第 174–185 行）在普通模式上完美求解：<span class="kbd">_minimax_normal()</span>（第 147–171 行）實作標準 alpha-beta，終局分為 <b>100 − depth</b>（越快贏分越高，見第 152 行），平局為 0。終極模式則限深：<span class="kbd">minimax_move_ultimate()</span>（第 272–292 行）預設深度 3（session 設定 4），並在合法步 ≤ 6 時動態加深一層（第 275–276 行）——殘局分支少，可安全多搜一層。根節點以 <span class="kbd">eval_ultimate</span> 排序走法（<span class="kbd">order_key</span>，第 278–281 行）提升剪枝效率，並在平分時隨機選擇。</p>
+<h3>3.2 Minimax：alpha-beta 剪枝與深度加權終局分</h3>
+<p><span class="kbd">minimax_move_normal()</span>（第 165–176 行）在普通模式上完美求解：<span class="kbd">_minimax_normal()</span>（第 138–165 行）實作標準 alpha-beta（fail-hard），終局分為 <b>100 − depth</b>（越快贏分越高，見第 152 行），平局為 0。終極模式則限深：<span class="kbd">minimax_move_ultimate()</span>（第 263–281 行）預設深度 3（session 設定 4），並在合法步 ≤ 6 時動態加深一層（第 265–266 行）——殘局分支少，可安全多搜一層。根節點以 <span class="kbd">eval_ultimate</span> 排序走法（<span class="kbd">order_key</span>，第 268–271 行）提升剪枝效率，並在平分時隨機選擇。</p>
+
+<p><b>剪枝原理</b>：alpha-beta 在經典 minimax 上維護兩個界——<span class="kbd">alpha</span>（我方目前已能保證的最佳值，只會上漲）與 <span class="kbd">beta</span>（對手能容忍的上限，只會下降）。當 <span class="kbd">beta &lt;= alpha</span> 時（第 160、169 行），剩餘分支不可能改變根節點的決定，直接放棄。此優化<b>不改變結果</b>，只減少搜尋量：</p>
+<ul>
+  <li><b>節點數實測</b>（空盤普通 3×3，本機量測）：無剪枝 549,946 → 有剪枝 20,866，<b>節省 96.2%</b>。</li>
+  <li><b>走法排序是關鍵</b>：先搜「最可能好」的走法，alpha 很快收斂到正確值，後續分支被剪得更多。<span class="kbd">minimax_move_normal()</span> 以 <span class="kbd">sorted(..., key=lambda i: i != 4)</span> 把中心放最前（第 167 行）。</li>
+  <li><b>與 Minimax Pro 的關係</b>：§3.4 的 <span class="kbd">_negamax_tt</span>（第 1044–1099 行）是同一思想的工程化版本（negamax 形式 + 置換表 + Killer/LMR）——Killer 與 LMR 本質上都是「更好的走法排序 → 更多剪枝」。</li>
+</ul>
+<div class="codecap"><span><span class="tag">ai.py</span> 第 138–165 行 — _minimax_normal：標準 alpha-beta（fail-hard）</span><span>Minimax</span></div>
+<pre><code class="language-python">def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):
+    result = game.result()
+    if result is not None:
+        if result == 'D':
+            return 0
+        return (100 - depth) if result == ai_player else (depth - 100)
+    if maximizing:
+        best = -math.inf
+        for m in game.legal_moves():
+            g = game.clone()
+            g.make_move(m)
+            best = max(best, _minimax_normal(g, alpha, beta, False, ai_player, depth + 1))
+            alpha = max(alpha, best)
+            if beta &lt;= alpha:
+                break
+        return best
+    best = math.inf
+    for m in game.legal_moves():
+        g = game.clone()
+        g.make_move(m)
+        best = min(best, _minimax_normal(g, alpha, beta, True, ai_player, depth + 1))
+        beta = min(beta, best)
+        if beta &lt;= alpha:
+            break
+    return best</code></pre>
 
 <h3>3.3 eval_ultimate：宏觀/微觀啟發式評估</h3>
 <p><span class="kbd">eval_ultimate()</span>（第 188–222 行）是終極模式的靜態局面評估，由四層訊號加總：</p>
@@ -1605,6 +1638,34 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <section id="s6">
 <h2><span class="no" style="background:var(--chip-dl)">6</span>訓練表現、超參數與效能優化<span class="side dl">深度學習側為主</span></h2>
 
+<h3>6.0 訓練環境與硬體規格（Training Environment &amp; Hardware）</h3>
+<p>所有訓練、基準與 GPU 診斷皆在同一台 Windows 桌機完成；環境細節另見
+<span class="kbd">docs/rocm-wsl2.md</span>。記錄規格的原因：§6.2 的牆鐘（7.1 h → 62 min）、
+§6.3 的 kernel 啟動（≈640 µs）與 §5.2 的並行擴展都依賴這組硬體，離開本機即不可複現。</p>
+<table>
+  <thead>
+    <tr><th>硬體</th><th>規格</th><th>在本專案的角色</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>CPU</td><td>AMD Ryzen 9 9950X 16-Core（16C / 32T，Zen 5）</td><td>MCTS 樹搜尋與 rollout 的 CPU 工作（多進程自對弈 8 workers，§5.2）</td></tr>
+    <tr><td>GPU</td><td>AMD Radeon RX 7900 XTX（gfx1100，24 GB GDDR6）</td><td>神經網路前向推論（Windows 原生 ROCm；D17 固定 256 寬批次）</td></tr>
+    <tr><td>RAM</td><td>64 GB</td><td>—</td></tr>
+  </tbody>
+</table>
+<table>
+  <thead>
+    <tr><th>軟體 / 環境</th><th>版本</th><th>備註</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>OS</td><td>Windows 10 Pro for Workstations（build 2009）</td><td>原生 Windows 執行，無需 WSL2</td></tr>
+    <tr><td>Python</td><td>3.13.1</td><td>venv 與系統一致（<span class="kbd">alphazero.py</span> 以 spawn 池多進程）</td></tr>
+    <tr><td>PyTorch</td><td><span class="kbd">2.10.0a0+rocm7.10.0a20251120</span>（TheRock nightly）</td><td>AMD 官方 Windows wheel；此為現環境版本，6000 局訓練當時為同系列 nightly（確切 commit 未另記錄）</td></tr>
+    <tr><td>ROCm / HIP</td><td>ROCm 7.10 pre-release（隨 wheel）；WSL2 fallback ROCm 6.2.4</td><td>Windows 原生為主力路徑（docs/rocm-wsl2.md）</td></tr>
+    <tr><td>AMD 驅動</td><td>32.0.31035.1003（docs 記錄時點）</td><td>已註記偏舊，為 WSL2 <span class="kbd">/dev/kfd</span> 缺失主因</td></tr>
+  </tbody>
+</table>
+<p class="src-label">來源：本機實測（<span class="kbd">python --version</span>、<span class="kbd">torch.__version__</span>、<span class="kbd">torch.cuda.is_available()</span>）；硬體由 Windows 系統資訊取得；GPU / ROCm / 驅動細節見 docs/rocm-wsl2.md。</p>
+
 <h3>6.1 超參數總表</h3>
 <table>
   <thead>
@@ -1630,6 +1691,48 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <h3>6.2 實測消融與基準</h3>
 <p>下列數據以 <span class="kbd">docs/decisions.md</span>、本機實測與訓練日誌為準（逐項來源見附錄 A）；因多次訓練的記錄基準不同，各組數字以「如實記錄」方式並列，不做跨組推算。</p>
 
+<h4>對等預算基準：AlphaZero vs MCTS（30 盤、雙方各 800 預算）</h4>
+<p>以 <span class="kbd">--bench --ai-a AlphaZero --ai-b MCTS --games 30 --iters 800</span>
+（終極模式、每局輪換先手）取代先前 6 盤、預算不對等（AZ 1600 vs MCTS 800）的紀錄：</p>
+<table>
+  <thead>
+    <tr><th>引擎 A</th><th>引擎 B</th><th>A 勝</th><th>和</th><th>B 勝</th><th>A 勝率</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><span class="kbd">AlphaZero</span></td><td><span class="kbd">MCTS</span></td><td>6</td><td>2</td><td>22</td><td><strong>20.0%</strong></td></tr>
+  </tbody>
+</table>
+<p class="cap">對等預算下 AZ 明顯落後（6W/2D/22L）。差距來源即 6.4 節「搜尋退化」：全展開＋先驗引導在固定小預算下，先驗質量不足時訪問集中於少數高先驗分支，缺乏啟發式 rollout 的深層戰術修正。</p>
+
+<h4>逐 eval 損失與對隨機勝率（6000 局訓練日誌）</h4>
+<p>取自 <span class="kbd">python alphazero.py train --games 6000 --sims 80 --workers 8 --eval-every 500 --eval-games 10</span>
+的逐點記錄（每點 20 盤 vs 隨機）；牆鐘 3731 s（62.2 min、0.62 s/局，與 D18「7.1h → 62 min」吻合）。</p>
+<table>
+  <thead>
+    <tr><th>對局數</th><th>loss</th><th>vs Random（20 盤）</th><th>勝率</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>500</td><td>2.846</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+    <tr><td>1000</td><td>2.461</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+    <tr><td>1500</td><td>2.093</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+    <tr><td>2000</td><td>2.724</td><td>19W / 0D / 1L</td><td>95%</td></tr>
+    <tr><td>2500</td><td>2.533</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+    <tr><td>3000</td><td>2.392</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+    <tr><td>3500</td><td>3.087</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+    <tr><td>4000</td><td>2.164</td><td>18W / 2D / 0L</td><td>90%</td></tr>
+    <tr><td>4500</td><td>1.918</td><td>19W / 1D / 0L</td><td>95%</td></tr>
+    <tr><td>5000</td><td>1.132</td><td>19W / 0D / 1L</td><td>95%</td></tr>
+    <tr><td>5500</td><td>0.627</td><td>18W / 1D / 1L</td><td>90%</td></tr>
+    <tr><td>6000</td><td>0.094</td><td>20W / 0D / 0L</td><td>100%</td></tr>
+  </tbody>
+</table>
+<p>三點觀察（對應 6.4 診斷方法論）：</p>
+<ul>
+  <li><strong>loss 非單調</strong>：3500 局時 loss 反升至 3.087（高於 500 局的 2.846）——replay_cap=100 與多進程權重滯後（D18）造成的典型震盪，端點紀錄會遺漏此現象。</li>
+  <li><strong>評估勝率 vs 隨機從 500 局即飽和</strong>（20/20）：勝率線不再具鑑別度；loss 最終降至 0.094 反映的是對「近期自對弈分布」的過擬，與評估勝率出現分離——這正是 6.4「過擬合」一節的量化證據。</li>
+  <li><strong>牆鐘確認</strong>：3731 s / 6000 局 = 0.62 s/局，與 D18 的 62 分鐘完全一致。</li>
+</ul>
+
 <div class="grid2">
   <div class="chart-wrap">
     <h4>訓練損失曲線</h4>
@@ -1646,7 +1749,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <ul>
   <li><b>Rollout 權重消融</b>：純網路（w=0）在 400/800 局僅 70–76% 對隨機勝率；w=0.5 同 400 局即達 <b>97.5%</b>——啟發式 rollout 是 UTTT 這種戰術小遊戲上的強度主力（見下圖）。</li>
   <li><b>網路容量與對局量</b>：32ch/3 塊 → 128ch/5 塊、800 → 6000 局，loss 由 1.88 降至 0.094、對隨機勝率 90% → 95%。</li>
-  <li><b>對普通 MCTS 的結構性差距</b>：6000 局模型以 1600 sims 對普通 MCTS（800 迭代）為 <b>2 勝 1 平 3 負</b>。差距來源是搜尋哲學：AZ 的全展開 + 先驗引導能快速聚焦高價值分支，但每一葉子只做 80–200 次模擬級評估；而啟發式 rollout 的 MCTS 把同樣預算集中於深層戰術對弈（吃/擋直到終局）。此消彼長正是 6.4 節「搜尋退化」討論的實例。</li>
+  <li><b>對普通 MCTS 的結構性差距</b>：同預算（800/800、30 盤）下為 <b>6 勝 2 平 22 負（20%）</b>（見上方基準表）；若給 AZ 雙倍預算（1600 sims vs 800 迭代）則為 2 勝 1 平 3 負。差距來源是搜尋哲學：AZ 的全展開 + 先驗引導能快速聚焦高價值分支，但每一葉子只做 80–200 次模擬級評估；而啟發式 rollout 的 MCTS 把同樣預算集中於深層戰術對弈（吃/擋直到終局）。此消彼長正是 6.4 節「搜尋退化」討論的實例。</li>
 </ul>
 
 <div class="grid2">
@@ -1750,6 +1853,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     <tr><td>容量比較（800 → 6000 局）</td><td>loss 1.88 → 0.094；vs 隨機 90% → 95%</td><td>訓練日誌 / 本機實測</td></tr>
     <tr><td>評估 vs 隨機（200 sims）</td><td>40 盤 38W / 1D / 1L（95%）</td><td>本機實測（<span class="kbd">alphazero.py eval</span>）</td></tr>
     <tr><td>評估 vs 普通 MCTS（800 迭代、1600 sims）</td><td>2W / 1D / 3L</td><td>本機實測</td></tr>
+    <tr><td>評估 vs MCTS（同預算 800/800，30 盤）</td><td>6W / 2D / 22L（20%）</td><td>本機實測（<span class="kbd">SBA.py --bench</span>）</td></tr>
     <tr><td>Rollout 消融</td><td>w=0：70–76%（400/800 局）；w=0.5：97.5%（400 局）</td><td>訓練日誌 / 本機實測</td></tr>
     <tr><td>並行擴展</td><td>1.00× / 1.50× / 2.43× / 2.96×（串行 3.17 s/局）</td><td>本機實測</td></tr>
     <tr><td>6000 局牆鐘</td><td>7.1 小時（串行）→ 62 分鐘（8 workers）</td><td>訓練日誌 / 本機實測</td></tr>
