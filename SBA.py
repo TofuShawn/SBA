@@ -115,6 +115,20 @@ def side_label(kind):
     return f'Computer ({kind}) — 電腦 ({kind})'
 
 
+# Assistant move reasons: code -> bilingual label. Codes come from
+# ai.reason_for_move; both UIs translate via this map so ai.py stays
+# language-free.
+REASON_TEXT = {
+    'Win': ('Win', '致勝'),
+    'Block': ('Block', '阻擋'),
+    'Fork': ('Fork', '雙威脅'),
+    'Center': ('Center', '中心'),
+    'Corner': ('Corner', '角落'),
+    'Search': ('Search', '分析'),
+    'Positional': ('Positional', '位置'),
+}
+
+
 # ============================================================
 # Self-test
 # ============================================================

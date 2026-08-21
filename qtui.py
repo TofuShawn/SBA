@@ -46,8 +46,8 @@ from game import (
 )
 from ai import get_ai_move, analyze_position, position_win_rates, move_text
 from SBA import (
-    AI_OPTIONS, current_side_type, is_ai_turn, log, new_session,
-    side_label, side_types, t,
+    AI_OPTIONS, REASON_TEXT, current_side_type, is_ai_turn, log,
+    new_session, side_label, side_types, t,
 )
 
 
@@ -1403,7 +1403,9 @@ class GamePage(QWidget):
                 verdict = 'Win' if pct == 1.0 else ('Draw' if pct == 0.5 else 'Loss')
             else:
                 verdict = f'{pct:.0%}'
-            reason_en, reason_zh = it['reason']
+            reason_code = it['reason']
+            reason_en, reason_zh = REASON_TEXT.get(
+                reason_code, (reason_code, reason_code))
             item = QListWidgetItem(f'{move_text(it["move"])}  {verdict}  {t(reason_en, reason_zh)}')
             item.setData(Qt.UserRole, it['move'])
             self.analysis_list.addItem(item)

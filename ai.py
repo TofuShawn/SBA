@@ -1359,25 +1359,30 @@ def blocks_immediate_win(game, move):
 
 
 def reason_for_move(game, move):
+    """Classify a move's tactical/positional nature (reason code only).
+
+    Bilingual labels live in SBA.REASON_TEXT so this engine layer stays
+    language-free; the UIs translate the code.
+    """
     player = game.current
     g = game.clone()
     apply_move(g, move)
     if g.result() == player:
-        return ('Win', '致勝')
+        return 'Win'
     if blocks_immediate_win(game, move):
-        return ('Block', '阻擋')
+        return 'Block'
     if isinstance(game, UltimateGame):
         m, i = move
         if i == 4 and game.micro[m][4] == EMPTY:
-            return ('Center', '中心')
-        return ('Search', '分析')
+            return 'Center'
+        return 'Search'
     if count_threats(g.board, player) >= 2:
-        return ('Fork', '雙威脅')
+        return 'Fork'
     if move == 4:
-        return ('Center', '中心')
+        return 'Center'
     if move in (0, 2, 6, 8):
-        return ('Corner', '角落')
-    return ('Positional', '位置')
+        return 'Corner'
+    return 'Positional'
 
 def _rates_from_root(root, game):
     """(X win, draw, O win) probabilities derived from an Ultimate MCTS root."""

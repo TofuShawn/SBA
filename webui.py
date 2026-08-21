@@ -38,8 +38,8 @@ from ai import (
     get_ai_move, analyze_position, position_win_rates, move_text,
 )
 from SBA import (
-    AI_OPTIONS, SESSIONS, current_side_type, is_ai_turn, log,
-    new_session, side_label, side_types, t,
+    AI_OPTIONS, REASON_TEXT, SESSIONS, current_side_type, is_ai_turn,
+    log, new_session, side_label, side_types, t,
 )
 
 
@@ -551,7 +551,9 @@ def main_page():
                         verdict = 'Win' if pct == 1.0 else ('Draw' if pct == 0.5 else 'Loss')
                     else:
                         verdict = f'{pct:.0%}'
-                    reason_en, reason_zh = it['reason']
+                    reason_code = it['reason']
+                    reason_en, reason_zh = REASON_TEXT.get(
+                        reason_code, (reason_code, reason_code))
                     with ui.row().classes('w-full items-center gap-2 analysis-row'):
                         ui.button(move_text(it['move']),
                                   on_click=lambda m=it['move']: flash(m)).props(
