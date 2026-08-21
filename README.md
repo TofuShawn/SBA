@@ -62,6 +62,9 @@ AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參�
 AlphaZero 訓練方法與效能分析見
 [`docs/AlphaZero_UTTT_Technical_Report.html`](docs/AlphaZero_UTTT_Technical_Report.html)。
 
+新手想快速讀懂專案，可依 [`docs/reading-guide.md`](docs/reading-guide.md)
+的閱讀路線進行。
+
 ---
 
 ## Usage / 使用方式
