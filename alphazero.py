@@ -54,13 +54,16 @@ import torch.nn.functional as F
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# Frozen (PyInstaller) builds: keep models next to the executable so users can
-# drop in new checkpoints; fall back to the bundled copy in _MEIPASS.
+# Frozen (PyInstaller) builds: prefer a models/ folder next to the executable
+# (users can drop in new checkpoints without rebuilding), else the bundled
+# copy inside the PyInstaller archive (_MEIPASS).
 if getattr(sys, 'frozen', False):
-    _RUNTIME_DIR = os.path.dirname(sys.executable)
+    _exe_models = os.path.join(os.path.dirname(sys.executable), 'models')
+    _bundle_models = os.path.join(getattr(sys, '_MEIPASS', ''), 'models')
+    _RUNTIME_DIR = _exe_models if os.path.isdir(_exe_models) else _bundle_models
+    MODEL_DIR = _RUNTIME_DIR
 else:
-    _RUNTIME_DIR = HERE
-MODEL_DIR = os.path.join(_RUNTIME_DIR, 'models')
+    MODEL_DIR = os.path.join(HERE, 'models')
 X = 'X'
 O = 'O'
 EMPTY = ''
