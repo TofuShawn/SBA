@@ -18,6 +18,7 @@ micro_tablebase = true      # exact 3x3 micro values inside eval_ultimate / micr
 use_lmr = true              # late-move reductions in Minimax Pro (B3) / LMR
 use_killers = true          # killer-move ordering in Minimax Pro (B3) / Killer Move
 use_aspiration = true       # aspiration window at the root (B3) / Aspiration Window
+use_eval_ordering = true    # eval-based root move ordering in Minimax Pro (root only) / Minimax Pro 根節點用靜態評估排序
 
 # --- performance / 效能 ---
 symmetry = false            # D4 symmetry dedup at the MCTS root (C1) / 對稱性消除
