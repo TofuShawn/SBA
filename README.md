@@ -1,6 +1,6 @@
-# SBA - Basically Awful / 基本上很糟
+# SBA - Basically Awful (Qt UI + Web) / 基本上很糟（Qt 介面 + 網頁）
 
-**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**網頁應用，使用 [NiceGUI](https://nicegui.io) Material Design 3 風格介面打造。內建 **7 種 AI 對手**、AI 分析面板、三種對戰模式。
+**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 [NiceGUI](https://nicegui.io) **網頁版**兩種介面，Material Design 3 風格。內建 **7 種 AI 對手**、AI 分析面板、三種對戰模式。
 
 > The name is a joke. The game is actually (mostly) fine.
 > 名字是開玩笑的，遊戲其實（大致上）還不錯。
@@ -29,7 +29,7 @@
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
 - **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
 - **SiliconUI desktop theme / 桌面版 SiliconUI 主題**：PySide6 桌面版使用 [PyQt-SiliconUI](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)（PySide6 fork）的深色玻璃主題；該套件缺失時自動退回內建深色玻璃樣式
-- **Headless pytest suite / 無頭 pytest 測試**（36 tests）與 **Docker** 映像
+- **Headless pytest suite / 無頭 pytest 測試**（57 tests）
 
 ---
 
@@ -155,13 +155,6 @@ Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoi
 `--channels 128`、`--blocks 5`。自對弈前段 temp 從 1.0 線性退到 0.05，
 晚期遊戲近乎最強應手。
 
-### 4. Docker
-
-```bash
-docker build -t sba .
-docker run -p 8080:8080 sba
-```
-
 ## Configuration / 設定
 
 All engine switches and parameters live in **`sba.toml`**（repo root）: MCTS
@@ -189,7 +182,6 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 | `static/styles.css` | Material Design 3 stylesheet / 樣式表 |
 | `vendor/siui/` | Vendored PyQt-SiliconUI runtime (`silicon/` + `icons/`, GPLv3) / 隨附的 SiliconUI 執行時期（GPLv3） |
 | `run.bat` | Local Windows launcher (not tracked in git) / 本地 Windows 啟動檔（未納入 git） |
-| `Dockerfile` | Container image (CPU-only torch) / 容器映像（CPU 版 torch） |
 | `requirements.txt` | Core + desktop dependencies (NiceGUI, PySide6) / 核心與桌面版依賴（NiceGUI、PySide6） |
 | `sba.toml` | Engine configuration (switches, constants, session defaults) / 引擎設定（開關、常數、session 預設） |
 

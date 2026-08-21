@@ -1,7 +1,0 @@
-.venv/
-__pycache__/
-.nicegui/
-models/
-.git/
-Dockerfile
-.dockerignore
