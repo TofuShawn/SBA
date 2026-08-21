@@ -2,14 +2,16 @@
 """PyInstaller spec for the SBA desktop app (PySide6 + vendored SiliconUI).
 
 Build (from the repo root, with PyInstaller installed):
-    pyinstaller SBA.spec --noconfirm            # onefile: dist/SBA.exe
-    set SBA_ONEFILE=0 && pyinstaller SBA.spec --noconfirm   # onedir: dist/SBA/
+    pyinstaller SBA.spec --noconfirm
 
-The default (onefile) is a single self-contained SBA.exe — copy just that one
-file to any Windows machine. onedir starts faster but needs the whole
-dist/SBA/ folder. The NiceGUI web UI is opt-in (project design D1): set
-SBA_WITH_WEB=1 to bundle it so the desktop's "Enable NiceGUI Web UI" switch
-works. torch/numpy are intentionally excluded; the packaged AlphaZero option
+The output lands in dist/SBA/ (onedir). The default build is desktop-only
+(PySide6 + vendored SiliconUI); the NiceGUI web UI is opt-in, matching the
+project's D1 design. To also bundle it (the desktop's "Enable NiceGUI Web UI"
+switch then works), build with:
+    set SBA_WITH_WEB=1
+    pyinstaller SBA.spec --noconfirm
+
+torch/numpy are intentionally excluded: the packaged build's AlphaZero option
 falls back to MCTS (ai.alphazero_move catches the missing import).
 """
 
@@ -17,7 +19,6 @@ import os
 
 ROOT = os.path.abspath(SPECPATH)
 WITH_WEB = os.environ.get('SBA_WITH_WEB', '0') == '1'
-ONEFILE = os.environ.get('SBA_ONEFILE', '1') == '1'
 
 excludes = ['torch', 'numpy', 'pytest', 'matplotlib', 'scipy',
             'IPython', 'jupyter']
@@ -60,40 +61,25 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-if ONEFILE:
-    exe = EXE(
-        pyz,
-        a.scripts,
-        a.binaries,
-        a.datas,
-        [],
-        name='SBA',
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=False,
-        console=False,
-        icon=None,
-    )
-else:
-    exe = EXE(
-        pyz,
-        a.scripts,
-        [],
-        exclude_binaries=True,
-        name='SBA',
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=False,
-        console=False,
-        icon=None,
-    )
-    coll = COLLECT(
-        exe,
-        a.binaries,
-        a.datas,
-        strip=False,
-        upx=False,
-        name='SBA',
-    )
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='SBA',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=False,
+    icon=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='SBA',
+)

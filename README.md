@@ -163,17 +163,11 @@ and the NiceGUI web UI is opt-in (matching the desktop-first design).
 刻意排除 torch/numpy（AlphaZero 自動退回 MCTS），Web UI 為選用（桌面優先設計）。
 
 ```bash
-build.bat                              # onefile: dist\SBA.exe（單一檔案，直接分享）
-build.bat onedir                       # onedir: dist\SBA\（啟動較快，但需整包複製）
+build.bat                              # onedir output in dist\SBA\SBA.exe
 set SBA_WITH_WEB=1 && build.bat        # also bundle the NiceGUI web UI / 同時打包 Web
 ```
 
 Notes / 備註：
-- onefile 是單一自含 `SBA.exe`，複製**一個檔**到任何 Windows 就能跑；onedir
-  則**必須連 `_internal` 資料夾一起複製**，只拿 exe 會出現
-  "Failed to load Python DLL" / onefile is one self-contained exe — copy just
-  that file; for onedir you MUST copy the whole folder (exe + `_internal`),
-  otherwise the bootloader shows "Failed to load Python DLL".
 - `sba.toml` and `models/` are read from the folder next to the executable
   first, so users can edit config or drop in a new checkpoint without
   rebuilding / `sba.toml` 與 `models/` 優先讀取 exe 旁的檔案，使用者可直接改
