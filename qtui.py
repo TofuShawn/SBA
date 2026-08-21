@@ -25,13 +25,14 @@ import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import QEasingCurve, QRectF, QSize, Qt, QThread, QTimer, QVariantAnimation, Signal
-    from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtCore import (QEasingCurve, QRectF, QSize, Qt, QThread,
+                                QTimer, QVariantAnimation, Signal)
+    from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
-        QMessageBox, QPushButton, QSizePolicy, QSlider, QStackedWidget,
-        QVBoxLayout, QWidget,
+        QPushButton, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -43,10 +44,10 @@ from game import (
     X, O,
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
-from ai import get_ai_move, compute_analysis, move_text
+from ai import get_ai_move, analyze_position, position_win_rates, move_text
 from SBA import (
-    AI_OPTIONS, current_side_type, is_ai_turn, log, new_session,
-    side_label, side_types, t,
+    AI_OPTIONS, REASON_TEXT, current_side_type, is_ai_turn, log,
+    new_session, side_label, side_types, t,
 )
 
 
@@ -64,6 +65,7 @@ PALETTE = {
         'cell_empty': '#F3EDF7',
         'cell_filled': '#ECE6F0',
         'macro_active': 'rgba(103, 80, 164, 0.10)',
+        'active_outline': '#1976D2',
         'macro_won_x': 'rgba(103, 80, 164, 0.14)',
         'macro_won_o': 'rgba(179, 38, 30, 0.10)',
         'grid_line': '#CAC4D0',
@@ -79,6 +81,7 @@ PALETTE = {
         'cell_empty': '#211F26',
         'cell_filled': '#2B2930',
         'macro_active': 'rgba(208, 188, 255, 0.12)',
+        'active_outline': '#64B5F6',
         'macro_won_x': 'rgba(208, 188, 255, 0.16)',
         'macro_won_o': 'rgba(255, 180, 171, 0.14)',
         'grid_line': '#49454F',
@@ -138,6 +141,9 @@ def _init_siui_runtime():
         from silicon import SiGlobal
         from silicon.SiHint import FloatingWindow
         SiGlobal.floating_window = FloatingWindow()
+        # A tooltip must never steal mouse events from the board beneath it
+        # (it stays on top and follows the cursor).
+        SiGlobal.floating_window.setAttribute(Qt.WA_TransparentForMouseEvents)
         SiGlobal.floating_window.setWindowOpacity(0)
         SiGlobal.floating_window.show()
     except Exception as e:  # noqa: BLE001
@@ -360,27 +366,40 @@ class BoardWidget(QWidget):
         self._flash_timer = QTimer(self)
         self._flash_timer.setSingleShot(True)
         self._flash_timer.timeout.connect(self._clear_flash)
-        self.setMouseTracking(True)
-        self._hover_macro = None
-        self._hover_blend = 0.0
-        self._hover_anim = QVariantAnimation(self)
-        self._hover_anim.setDuration(180)
-        self._hover_anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._hover_anim.valueChanged.connect(self._on_hover_anim)
+        # Reveal a won chunk by clicking it (more reliable than pointer
+        # tracking, which fought with event delivery on some setups).
+        self._revealed_macro = None
+        self._reveal_blend = 0.0
+        self._reveal_anim = QVariantAnimation(self)
+        self._reveal_anim.setDuration(180)
+        self._reveal_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._reveal_anim.valueChanged.connect(self._on_reveal_anim)
         self.setMinimumSize(300, 300)
 
     def set_game(self, game):
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
-        self._hover_anim.stop()
-        self._hover_macro = None
-        self._hover_blend = 0.0
         self.update()
 
-    def _on_hover_anim(self, value):
-        self._hover_blend = float(value)
+    def reset_reveal(self):
+        """Clear the won-chunk reveal (used on new game / history jumps)."""
+        self._reveal_anim.stop()
+        self._revealed_macro = None
+        self._reveal_blend = 0.0
         self.update()
+
+    def _on_reveal_anim(self, value):
+        self._reveal_blend = float(value)
+        self.update()
+
+    def _toggle_reveal(self, m):
+        """Toggle a won chunk's reveal with one non-looping fade."""
+        self._revealed_macro = None if self._revealed_macro == m else m
+        self._reveal_anim.stop()
+        self._reveal_anim.setStartValue(self._reveal_blend)
+        self._reveal_anim.setEndValue(1.0 if self._revealed_macro is not None else 0.0)
+        self._reveal_anim.start()
 
     def _macro_at(self, px, py):
         if not isinstance(self.game, UltimateGame):
@@ -391,27 +410,6 @@ class BoardWidget(QWidget):
         if not (0 <= row < n and 0 <= col < n):
             return None
         return (row // 3) * 3 + (col // 3)
-
-    def mouseMoveEvent(self, event):
-        if isinstance(self.game, UltimateGame):
-            m = self._macro_at(event.position().x(), event.position().y())
-            if m != self._hover_macro:
-                self._hover_macro = m
-                target = 1.0 if (m is not None and self.game.macro[m] in (X, O)) else 0.0
-                self._hover_anim.stop()
-                self._hover_anim.setStartValue(self._hover_blend)
-                self._hover_anim.setEndValue(target)
-                self._hover_anim.start()
-        super().mouseMoveEvent(event)
-
-    def leaveEvent(self, event):
-        if self._hover_macro is not None:
-            self._hover_macro = None
-            self._hover_anim.stop()
-            self._hover_anim.setStartValue(self._hover_blend)
-            self._hover_anim.setEndValue(0.0)
-            self._hover_anim.start()
-        super().leaveEvent(event)
 
     def flash(self, move):
         self.flash_cell = move
@@ -454,7 +452,14 @@ class BoardWidget(QWidget):
         return (m, i)
 
     def mousePressEvent(self, event):
-        if self.game is None or self.game.is_over():
+        if self.game is None:
+            return
+        if isinstance(self.game, UltimateGame):
+            m = self._macro_at(event.position().x(), event.position().y())
+            if m is not None and self.game.macro[m] in (X, O):
+                self._toggle_reveal(m)
+                return
+        if self.game.is_over():
             return
         move = self._move_at(event.position().x(), event.position().y())
         if move is not None and move in self.legal:
@@ -593,6 +598,14 @@ class BoardWidget(QWidget):
             y = oy + i * (cell + self.GAP) - self.GAP / 2
             painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
             painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
+        # blue outline on the chunk the player must play in (Ultimate);
+        # drawn on top and slightly outside the chunk so cells don't cover it
+        if (self.game.active_macro is not None
+                and self.game.macro_open(self.game.active_macro)):
+            rect = self._macro_rect(self.game.active_macro, cell, ox, oy)
+            painter.setPen(QPen(QColor(PAL['active_outline']), 3))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect.adjusted(-2.5, -2.5, 2.5, 2.5), 10, 10)
         # won macro chunks: fill with the player's color and show a white
         # mark; hovering reveals the underlying cells (blend 0 = filled,
         # 1 = fully revealed)
@@ -600,9 +613,9 @@ class BoardWidget(QWidget):
             if self.game.macro[m] in (X, O):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
-                blend = self._hover_blend if m == self._hover_macro else 0.0
+                blend = self._reveal_blend if m == self._revealed_macro else 0.0
                 fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
-                fill.setAlpha(int(230 * (1.0 - blend)))
+                fill.setAlpha(int(205 * (1.0 - blend)))  # semi-transparent mask
                 if fill.alpha() > 0:
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(fill)
@@ -652,7 +665,7 @@ class AIWorker(QThread):
 
 
 class AnalysisWorker(QThread):
-    result_ready = Signal(object)
+    result_ready = Signal(object, object)
 
     def __init__(self, game, budget, parent=None):
         super().__init__(parent)
@@ -661,11 +674,11 @@ class AnalysisWorker(QThread):
 
     def run(self):
         try:
-            items = compute_analysis(self.game, self.budget)
-            self.result_ready.emit(items)
+            items, rates = analyze_position(self.game, self.budget)
+            self.result_ready.emit(items, rates)
         except Exception as e:  # noqa: BLE001
             log.error('Analysis failed: %s', e)
-            self.result_ready.emit([])
+            self.result_ready.emit([], (0.5, 0.0, 0.5))
 
 
 # ---------------------------------------------------------------------------
@@ -696,7 +709,9 @@ class MenuPage(QWidget):
         root.addStretch(1)
 
         def field_row(label_text, widget):
-            row = QHBoxLayout()
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
             lab = QLabel(label_text)
             lab.setObjectName('muted')
             lab.setWordWrap(True)
@@ -704,49 +719,51 @@ class MenuPage(QWidget):
             lab.setMaximumWidth(360)
             row.addWidget(lab, 0)
             row.addWidget(widget, 1)
-            return row
+            return row_widget, lab
 
         self.game_type = _si_combo()
         self.game_type.addItem('Normal Tic Tac Toe (普通井字棋)', 'normal')
         self.game_type.addItem('Ultimate Tic Tac Toe (終極井字棋)', 'ultimate')
-        card_lay.addLayout(field_row(t('Game Type', '遊戲類型'), self.game_type))
+        card_lay.addWidget(field_row(t('Game Type', '遊戲類型'), self.game_type)[0])
 
         self.mode = _si_combo()
         self.mode.addItem('PvP (玩家對玩家)', 'pvp')
         self.mode.addItem('Player vs Computer (玩家對電腦)', 'pvc')
         self.mode.addItem('Computer vs Computer (電腦對電腦)', 'cvc')
         self.mode.currentIndexChanged.connect(lambda _: self._update_visibility())
-        card_lay.addLayout(field_row(t('Mode', '模式'), self.mode))
+        card_lay.addWidget(field_row(t('Mode', '模式'), self.mode)[0])
 
         self.first = _si_combo()
         self.first.addItem(t('You move first — X', '你先手 — X'), 'human')
         self.first.addItem(t('Computer moves first — O', '電腦先手 — O'), 'computer')
         self.first.currentIndexChanged.connect(lambda _: self._update_visibility())
-        card_lay.addLayout(field_row(t('First Player', '先手'), self.first))
+        self.first_row, _ = field_row(t('First Player', '先手'), self.first)
+        card_lay.addWidget(self.first_row)
 
         self.ai_x = _si_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_x.addItem(label, key)
-        card_lay.addLayout(field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x))
+        self.ai_x_row, _ = field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x)
+        card_lay.addWidget(self.ai_x_row)
 
         self.ai_o = _si_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_o.addItem(label, key)
-        self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
-        card_lay.addLayout(self.ai_o_label)
+        self.ai_o_row, self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
+        card_lay.addWidget(self.ai_o_row)
 
         self.mcts = QSlider(Qt.Horizontal)
         self.mcts.setRange(200, 3000)
         self.mcts.setSingleStep(100)
         self.mcts.setValue(800)
-        card_lay.addLayout(field_row(t('MCTS Strength', 'MCTS 強度'),
-                                     self._slider_row(self.mcts)))
+        card_lay.addWidget(field_row(t('MCTS Strength', 'MCTS 強度'),
+                                     self._slider_row(self.mcts))[0])
 
         self.mm_depth = QSlider(Qt.Horizontal)
         self.mm_depth.setRange(2, 6)
         self.mm_depth.setValue(4)
-        card_lay.addLayout(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
-                                     self._slider_row(self.mm_depth)))
+        card_lay.addWidget(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
+                                     self._slider_row(self.mm_depth))[0])
 
         self.assistant = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant.setChecked(True)
@@ -782,18 +799,16 @@ class MenuPage(QWidget):
 
     def _update_visibility(self):
         mode = self.mode.currentData()
-        self.first.setVisible(mode == 'pvc')
-        self.ai_x.setVisible(mode == 'cvc')
-        self.ai_o.setVisible(mode in ('pvc', 'cvc'))
+        self.first_row.setVisible(mode == 'pvc')
+        self.ai_x_row.setVisible(mode == 'cvc')
+        self.ai_o_row.setVisible(mode in ('pvc', 'cvc'))
         if mode == 'pvc':
             label = (t('Computer (X) — AI Level', '電腦 (X) — AI 等級')
                      if self.first.currentData() == 'computer'
                      else t('Computer (O) — AI Level', '電腦 (O) — AI 等級'))
         else:
             label = t('Player O — AI Level', '玩家 O — AI 等級')
-        item = self.ai_o_label.itemAt(0)
-        if item and item.widget():
-            item.widget().setText(label)
+        self.ai_o_label.setText(label)
 
     def _on_web_toggled(self, checked):
         self.web_toggled.emit(checked)
@@ -830,9 +845,11 @@ class GamePage(QWidget):
         self.game = None
         self.busy = False
         self.gen = 0
+        self.game_id = 0
         self.analysis_busy = False
         self.analysis_pending = False
         self.workers = []
+        self.step_idx = 0
         self.cvc_timer = QTimer(self)
         self.cvc_timer.timeout.connect(self.cvc_tick)
         self.pvc_timer = QTimer(self)
@@ -847,10 +864,96 @@ class GamePage(QWidget):
         top_title.setObjectName('title')
         top.addWidget(top_title)
         top.addStretch(1)
+        self.new_btn = _si_button(t('New Game', '新遊戲'))
+        self.new_btn.clicked.connect(self.new_game)
+        top.addWidget(self.new_btn)
+        self.play_again_btn = _si_button(t('Play Again', '再玩一次'), primary=True)
+        self.play_again_btn.clicked.connect(self.new_game)
+        self.play_again_btn.setVisible(False)
+        top.addWidget(self.play_again_btn)
         back_btn = _si_button(t('Back to Menu', '返回選單'))
         back_btn.clicked.connect(self.back_requested.emit)
         top.addWidget(back_btn)
         root.addLayout(top)
+
+        # Top control bar: revert / pause / next step + step scrubber
+        ctrl_bar = QFrame()
+        ctrl_bar.setObjectName('card')
+        ctrl_lay = QHBoxLayout(ctrl_bar)
+        ctrl_lay.setContentsMargins(8, 6, 8, 6)
+        self.revert_btn = QPushButton()
+        self.revert_btn.setIcon(self.style().standardIcon(QStyle.SP_ArrowBack))
+        self.revert_btn.setToolTip(t('Revert', '回退'))
+        self.revert_btn.setFixedSize(40, 36)
+        self.revert_btn.clicked.connect(self.on_revert_clicked)
+        ctrl_lay.addWidget(self.revert_btn)
+        self.pause_btn = QPushButton()
+        self.pause_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        self.pause_btn.setToolTip(t('Pause', '暫停'))
+        self.pause_btn.setFixedSize(40, 36)
+        self.pause_btn.clicked.connect(self.on_pause_clicked)
+        ctrl_lay.addWidget(self.pause_btn)
+        self.next_btn = QPushButton()
+        self.next_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipForward))
+        self.next_btn.setToolTip(t('Next Step', '下一步'))
+        self.next_btn.setFixedSize(40, 36)
+        self.next_btn.clicked.connect(self.on_step_clicked)
+        ctrl_lay.addWidget(self.next_btn)
+        self.hist_slider = QSlider(Qt.Horizontal)
+        self.hist_slider.setRange(0, 0)
+        self.hist_slider.valueChanged.connect(self.go_to_step)
+        ctrl_lay.addWidget(self.hist_slider, 1)
+        self.hist_label = QLabel('0 / 0')
+        self.hist_label.setObjectName('muted')
+        ctrl_lay.addWidget(self.hist_label)
+        root.addWidget(ctrl_bar)
+
+        # Win-rate chart (lives under the board, so the right panel spans the
+        # full window height); single X-win-rate line with a 50% reference.
+        self.hist_chart = QChart()
+        self.hist_chart.setAnimationOptions(QChart.NoAnimation)
+        self.hist_chart.legend().setVisible(True)
+        self.hist_chart.legend().setAlignment(Qt.AlignLeft)
+        self.hist_chart.legend().setLabelColor(QColor('#E6E0E9'))
+        self.hist_chart.setBackgroundVisible(False)
+        self.hist_x_series = QLineSeries()
+        self.hist_x_series.setName(t('X win rate', 'X 勝率'))
+        self.hist_x_series.setColor(QColor(PAL['x']))
+        self.hist_ref = QLineSeries()
+        ref_pen = QPen(QColor('#79747E'))
+        ref_pen.setStyle(Qt.DashLine)
+        self.hist_ref.setPen(ref_pen)
+        self.hist_ref.setName('50%')
+        self.hist_chart.addSeries(self.hist_x_series)
+        self.hist_chart.addSeries(self.hist_ref)
+        self.hist_axis = QValueAxis()
+        self.hist_axis_y = QValueAxis()
+        self.hist_axis.setRange(0, 1)
+        self.hist_axis.setTitleText(t('Step', '步'))
+        self.hist_axis_y.setRange(0, 100)
+        self.hist_axis_y.setTitleText('%')
+        self.hist_chart.addAxis(self.hist_axis, Qt.AlignBottom)
+        self.hist_chart.addAxis(self.hist_axis_y, Qt.AlignLeft)
+        for ax in (self.hist_axis, self.hist_axis_y):
+            ax.setLabelsColor(QColor('#CAC4D0'))
+            ax.setTitleBrush(QBrush(QColor('#CAC4D0')))
+        self.hist_x_series.attachAxis(self.hist_axis)
+        self.hist_x_series.attachAxis(self.hist_axis_y)
+        self.hist_ref.attachAxis(self.hist_axis)
+        self.hist_ref.attachAxis(self.hist_axis_y)
+        self.hist_dot = QScatterSeries()
+        self.hist_dot.setName(t('Current', '目前'))
+        self.hist_dot.setMarkerSize(10.0)
+        self.hist_dot.setColor(QColor('#B3261E'))
+        self.hist_dot.setBorderColor(QColor('#B3261E'))
+        self.hist_chart.addSeries(self.hist_dot)
+        self.hist_dot.attachAxis(self.hist_axis)
+        self.hist_dot.attachAxis(self.hist_axis_y)
+        self.hist_x_series.setPointsVisible(True)
+        self.hist_chart_view = QChartView(self.hist_chart)
+        self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
+        self.hist_chart_view.setMinimumHeight(200)
+        self.hist_chart_view.setBackgroundBrush(Qt.NoBrush)
 
         body = QHBoxLayout()
         board_col = QVBoxLayout()
@@ -863,13 +966,8 @@ class GamePage(QWidget):
         board_col.addLayout(status_row)
         self.board = BoardWidget()
         self.board.cell_clicked.connect(self.on_cell_click)
-        board_col.addWidget(self.board, 1)
-        btn_row = QHBoxLayout()
-        new_btn = _si_button(t('New Game', '新遊戲'))
-        new_btn.clicked.connect(self.new_game)
-        btn_row.addWidget(new_btn)
-        btn_row.addStretch(1)
-        board_col.addLayout(btn_row)
+        board_col.addWidget(self.board, 2)
+        board_col.addWidget(self.hist_chart_view, 1)
         body.addLayout(board_col, 1)
 
         panel = QVBoxLayout()
@@ -909,6 +1007,26 @@ class GamePage(QWidget):
         az_title = QLabel(t('Best Moves', '最佳棋步'))
         az_title.setObjectName('cardTitle')
         az_lay.addWidget(az_title)
+        self.win_bar = QWidget()
+        self.win_bar.setFixedHeight(14)
+        self.win_bar_lay = QHBoxLayout(self.win_bar)
+        self.win_bar_lay.setContentsMargins(0, 0, 0, 0)
+        self.win_bar_lay.setSpacing(0)
+        self.bar_x = QFrame()
+        self.bar_x.setStyleSheet('background: #6750A4; border-radius: 4px 0 0 4px;')
+        self.bar_d = QFrame()
+        self.bar_d.setStyleSheet('background: #938F99;')
+        self.bar_o = QFrame()
+        self.bar_o.setStyleSheet('background: #B3261E; border-radius: 0 4px 4px 0;')
+        for _b in (self.bar_x, self.bar_d, self.bar_o):
+            _b.setMinimumWidth(0)
+        self.win_bar_lay.addWidget(self.bar_x, 1)
+        self.win_bar_lay.addWidget(self.bar_d, 1)
+        self.win_bar_lay.addWidget(self.bar_o, 1)
+        az_lay.addWidget(self.win_bar)
+        self.analysis_pct = QLabel('')
+        self.analysis_pct.setStyleSheet('font-size: 13px; color: #CAC4D0;')
+        az_lay.addWidget(self.analysis_pct)
         self.analysis_list = QListWidget()
         self.analysis_list.setMinimumHeight(160)
         self.analysis_list.itemClicked.connect(self.on_analysis_clicked)
@@ -916,7 +1034,7 @@ class GamePage(QWidget):
         hint = QLabel(t('Click a move to highlight it', '點擊棋步可在棋盤上標示'))
         hint.setObjectName('muted')
         az_lay.addWidget(hint)
-        panel.addWidget(az_card)
+        panel.addWidget(az_card, 1)
 
         # CvC controls card
         self.cvc_card = QFrame()
@@ -936,24 +1054,16 @@ class GamePage(QWidget):
         speed_row.addWidget(self.speed_slider, 1)
         speed_row.addWidget(self.speed_lbl)
         cvc_lay.addLayout(speed_row)
-        self.auto_switch = QCheckBox(t('Auto-play', '自動播放'))
-        self.auto_switch.setChecked(True)
-        self.auto_switch.toggled.connect(self.on_auto_toggled)
-        cvc_lay.addWidget(self.auto_switch)
-        self.step_btn = _si_button(t('Step / Next Move', '下一步'))
-        self.step_btn.clicked.connect(self.run_ai)
-        self.step_btn.setEnabled(False)
-        cvc_lay.addWidget(self.step_btn)
         panel.addWidget(self.cvc_card)
 
-        panel.addStretch(1)
         panel_widget = QWidget()
         panel_widget.setObjectName('sidePanel')
         _glass_shadow(panel_widget)
         panel_widget.setLayout(panel)
-        panel_widget.setFixedWidth(320)
+        panel_widget.setFixedWidth(340)
         body.addWidget(panel_widget)
         root.addLayout(body, 1)
+
 
     # -- session flow ------------------------------------------------------
 
@@ -963,8 +1073,15 @@ class GamePage(QWidget):
 
     def new_game(self):
         s = self.session
+        self.game_id += 1
         self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
         s['game'] = self.game
+        self.play_again_btn.setVisible(False)
+        self.new_btn.setVisible(True)
+        s['moves'] = []
+        s['history'] = [self._history_point()]
+        s['cvc_paused'] = False
+        self.step_idx = 0
         self.gen += 1
         self.busy = False
         self.analysis_busy = False
@@ -974,9 +1091,79 @@ class GamePage(QWidget):
         self.cvc_timer.setInterval(max(50, int(s.get('cvc_speed', 0.4) * 1000)))
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
         self.board.set_game(self.game)
+        self.board.reset_reveal()
         self.analysis_list.clear()
+        self._render_history()
         self.refresh()
         self.after_move()
+        self.trigger_analysis()
+
+    def _history_point(self):
+        """Win-rate triplet for the current position.
+
+        Exact (Normal tablebase, or any terminal position) is computed inline;
+        a non-terminal Ultimate position defers to the assistant's full-budget
+        search (the None placeholder is filled by on_analysis_done).
+        """
+        if isinstance(self.game, NormalGame) or self.game.is_over():
+            return tuple(position_win_rates(self.game, 0))
+        return None
+
+    def go_to_step(self, k):
+        """Jump to history step k (0..N) by replaying moves[:k]."""
+        s = self.session
+        moves = s['moves']
+        k = max(0, min(k, len(moves)))
+        if k == self.step_idx:
+            return
+        self.cvc_timer.stop()
+        self.pvc_timer.stop()
+        s['cvc_paused'] = s['mode'] == 'cvc' and k < len(moves)
+        self.game = (NormalGame() if s['game_type'] == 'normal' else UltimateGame())
+        for mv in moves[:k]:
+            apply_move(self.game, mv)
+        s['game'] = self.game
+        self.step_idx = k
+        self.busy = False
+        self.gen += 1
+        self.board.set_game(self.game)
+        self.board.reset_reveal()
+        self._render_history()
+        self.refresh()
+        self.trigger_analysis()
+        self.update_cvc_controls()
+        if (s['mode'] == 'cvc' and not s.get('cvc_paused', False)
+                and not self.game.is_over() and is_ai_turn(self.session)):
+            self.cvc_timer.start()
+        elif (s['mode'] == 'pvc' and not self.game.is_over()
+                and is_ai_turn(self.session)):
+            self.pvc_timer.start(300)
+
+    def _render_history(self):
+        s = self.session
+        moves = s.get('moves', [])
+        history = s.get('history', [])
+        n = len(moves)
+        self.hist_slider.blockSignals(True)
+        self.hist_slider.setRange(0, n)
+        self.hist_slider.setValue(self.step_idx)
+        self.hist_slider.blockSignals(False)
+        self.hist_label.setText(f'{self.step_idx} / {n}')
+        self.hist_x_series.clear()
+        self.hist_ref.clear()
+        self.hist_dot.clear()
+        for k, point in enumerate(history):
+            if point is None:
+                continue  # Ultimate point still awaiting the assistant's search
+            x, d, o = point
+            self.hist_x_series.append(k, x * 100.0)
+            self.hist_ref.append(k, 50.0)
+        if history:
+            self.hist_axis.setRange(0, max(1, len(history) - 1))
+            self.hist_axis_y.setRange(0, 100)
+            if history[self.step_idx] is not None:
+                self.hist_dot.append(self.step_idx,
+                                     history[self.step_idx][0] * 100.0)
 
     def refresh(self):
         if self.game is None:
@@ -998,6 +1185,11 @@ class GamePage(QWidget):
             else:
                 action = t('AI thinking...', 'AI 思考中')
             self.status_text.setText(f'Player {player} · {action}')
+            moves = self.session.get('moves', [])
+            if self.step_idx < len(moves):
+                self.status_text.setText(
+                    f'{self.status_text.text()} · {t("history", "歷史")} '
+                    f'{self.step_idx}/{len(moves)}')
         self.status_mark.setStyleSheet(
             'color: ' + (PAL['x'] if result == X else PAL['o']) + '; font-size: 20px; font-weight: 700;')
         game_text = 'Normal' if isinstance(self.game, NormalGame) else 'Ultimate'
@@ -1024,8 +1216,17 @@ class GamePage(QWidget):
         apply_move(self.game, move)
         log.info('Move: %s -> %s [%s]', side, move_text(move),
                  'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
+        s = self.session
+        moves = s['moves']
+        if self.step_idx < len(moves):  # rewound: branch the history here
+            del moves[self.step_idx:]
+            del s['history'][self.step_idx + 1:]
+        moves.append(move)
+        s['history'].append(self._history_point())
+        self.step_idx = len(moves)
         self.gen += 1
         self.board.set_game(self.game)
+        self._render_history()
         self.refresh()
         self.trigger_analysis()
         self.after_move()
@@ -1037,7 +1238,7 @@ class GamePage(QWidget):
             return
         if is_ai_turn(self.session):
             if self.session['mode'] == 'cvc':
-                if self.session.get('cvc_auto', True):
+                if not self.session.get('cvc_paused', False):
                     self.cvc_timer.start()
                 else:
                     self.update_cvc_controls()
@@ -1050,10 +1251,10 @@ class GamePage(QWidget):
         if self.session['mode'] != 'cvc':
             self.cvc_timer.stop()
             return
-        if self.game.is_over() or self.busy or not is_ai_turn(self.session):
-            return
-        if not self.session.get('cvc_auto', True):
+        if self.session.get('cvc_paused', False):
             self.cvc_timer.stop()
+            return
+        if self.game.is_over() or self.busy or not is_ai_turn(self.session):
             return
         self.run_ai()
 
@@ -1066,17 +1267,22 @@ class GamePage(QWidget):
         self.refresh()
         worker = AIWorker(self.game.clone(), ai_type,
                           self.session['mcts'], self.session.get('minimax_depth', 3))
-        worker.move_ready.connect(self.on_ai_done)
-        worker.move_failed.connect(self.on_ai_failed)
+        gen = self.gen
+        worker.move_ready.connect(lambda move, g=gen: self.on_ai_done(move, g))
+        worker.move_failed.connect(lambda msg, g=gen: self.on_ai_failed(msg, g))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
-    def on_ai_done(self, move):
+    def on_ai_done(self, move, gen=None):
+        if gen is not None and gen != self.gen:
+            return  # position changed while the engine was thinking: drop it
         self.busy = False
         self.apply_move(move)
 
-    def on_ai_failed(self, message):
+    def on_ai_failed(self, message, gen=None):
+        if gen is not None and gen != self.gen:
+            return
         self.busy = False
         log.error('AI move failed: %s', message)
         self.refresh()
@@ -1090,29 +1296,59 @@ class GamePage(QWidget):
         self.speed_lbl.setText(t('Speed', '速度') + f': {value / 10.0:.1f}s')
         self.cvc_timer.setInterval(value * 100)
 
-    def on_auto_toggled(self, checked):
-        self.session['cvc_auto'] = checked
+    def on_revert_clicked(self):
+        self.go_to_step(self.step_idx - 1)
+
+    def on_pause_clicked(self):
+        s = self.session
+        s['cvc_paused'] = not s.get('cvc_paused', False)
+        if s['cvc_paused']:
+            self.cvc_timer.stop()
+        else:
+            if (s['mode'] == 'cvc' and not self.game.is_over()
+                    and is_ai_turn(self.session)):
+                self.cvc_timer.start()
         self.update_cvc_controls()
-        if checked and self.session['mode'] == 'cvc' and is_ai_turn(self.session):
-            self.cvc_timer.start()
+
+    def _update_pause_icon(self):
+        paused = self.session.get('cvc_paused', False)
+        self.pause_btn.setIcon(self.style().standardIcon(
+            QStyle.SP_MediaPlay if paused else QStyle.SP_MediaPause))
+        self.pause_btn.setToolTip(
+            t('Resume', '繼續') if paused else t('Pause', '暫停'))
+
+    def on_step_clicked(self):
+        if self.step_idx < len(self.session['moves']):
+            self.go_to_step(self.step_idx + 1)
+        else:
+            self.run_ai()
 
     def update_cvc_controls(self):
         cvc = self.session is not None and self.session['mode'] == 'cvc'
         self.cvc_card.setVisible(cvc)
-        if not cvc or self.game is None:
+        self.pause_btn.setVisible(cvc)
+        self.next_btn.setVisible(cvc)
+        if self.game is None:
             return
+        rewound = self.step_idx < len(self.session.get('moves', []))
         ai_turn = not self.game.is_over() and is_ai_turn(self.session)
-        auto = self.session.get('cvc_auto', True)
-        _si_set_enabled(self.step_btn, not auto and ai_turn and not self.busy)
+        paused = self.session.get('cvc_paused', False)
+        self.revert_btn.setEnabled(self.step_idx > 0)
+        self.pause_btn.setEnabled(True)
+        self._update_pause_icon()
+        self.next_btn.setEnabled(rewound or (ai_turn and not self.busy))
 
     # -- assistant ---------------------------------------------------------
 
     def on_assistant_toggled(self, checked):
         self.session['assistant_enabled'] = checked
+        self.hist_chart_view.setVisible(checked)
         if checked:
             self.trigger_analysis()
         else:
             self.analysis_list.clear()
+            self.win_bar.setVisible(False)
+            self.analysis_pct.setText('—')
             self.analysis_list.addItem(t('Assistant disabled', '助手已關閉'))
 
     def trigger_analysis(self):
@@ -1125,23 +1361,39 @@ class GamePage(QWidget):
             return
         self.analysis_busy = True
         gen = self.gen
+        step = self.step_idx
+        gid = self.game_id
         snapshot = self.game.clone()
         worker = AnalysisWorker(snapshot, self.session['mcts'])
-        worker.result_ready.connect(lambda items, g=gen: self.on_analysis_done(items, g))
+        worker.result_ready.connect(
+            lambda items, rates, g=gen, st=step, gi=gid:
+                self.on_analysis_done(items, rates, g, st, gi))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
-    def on_analysis_done(self, items, gen):
+    def on_analysis_done(self, items, rates, gen, step, gid):
         self.analysis_busy = False
+        s = self.session or {}
+        history = s.get('history', [])
+        if gid == self.game_id and gen == self.gen and 0 <= step < len(history) \
+                and history[step] is None:
+            history[step] = tuple(rates)
+            self._render_history()
         if gen == self.gen and self.session.get('assistant_enabled', True):
-            self.render_analysis(items)
+            self.render_analysis(items, rates)
         if self.analysis_pending:
             self.analysis_pending = False
             self.trigger_analysis()
 
-    def render_analysis(self, items):
+    def render_analysis(self, items, rates):
         self.analysis_list.clear()
+        x, d, o = rates
+        self.win_bar.setVisible(True)
+        self.win_bar_lay.setStretchFactor(self.bar_x, int(x * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_d, int(d * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_o, int(o * 1000))
+        self.analysis_pct.setText(f'X {x:.0%} · 和 {d:.0%} · O {o:.0%}')
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
             return
@@ -1151,7 +1403,9 @@ class GamePage(QWidget):
                 verdict = 'Win' if pct == 1.0 else ('Draw' if pct == 0.5 else 'Loss')
             else:
                 verdict = f'{pct:.0%}'
-            reason_en, reason_zh = it['reason']
+            reason_code = it['reason']
+            reason_en, reason_zh = REASON_TEXT.get(
+                reason_code, (reason_code, reason_code))
             item = QListWidgetItem(f'{move_text(it["move"])}  {verdict}  {t(reason_en, reason_zh)}')
             item.setData(Qt.UserRole, it['move'])
             self.analysis_list.addItem(item)
@@ -1165,18 +1419,11 @@ class GamePage(QWidget):
 
     def show_result(self):
         result = self.game.result()
-        title = (t("It's a draw!", '平局！') if result == 'D'
-                 else f'Player {result} wins! (玩家 {result} 獲勝！)')
-        box = QMessageBox(self)
-        box.setWindowTitle(title)
-        box.setText(title)
-        again = box.addButton(t('Play Again', '再玩一次'), QMessageBox.AcceptRole)
-        back = box.addButton(t('Back to Menu', '返回選單'), QMessageBox.RejectRole)
-        box.exec()
-        if box.clickedButton() is again:
-            self.new_game()
-        else:
-            self.back_requested.emit()
+        log.info('Game over: %s [%s]', result,
+                 'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
+        # No popup: a prominent "Play Again" button replaces New Game.
+        self.play_again_btn.setVisible(True)
+        self.new_btn.setVisible(False)
 
 # ---------------------------------------------------------------------------
 # Main window

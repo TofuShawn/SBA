@@ -17,8 +17,8 @@
 .q-btn--disabled .q-btn__content { opacity: 1 !important; }
 .macro-board { border: 2px solid transparent; border-radius: 18px; padding: 6px; background: rgba(0,0,0,0.04); }
 .body--dark .macro-board { background: rgba(255,255,255,0.06); }
-.macro-active { border-color: #6750A4 !important; box-shadow: 0 0 0 3px rgba(103,80,164,0.25) !important; background: rgba(103,80,164,0.08) !important; }
-.body--dark .macro-active { border-color: #D0BCFF !important; box-shadow: 0 0 0 3px rgba(208,188,255,0.25) !important; }
+.macro-active { border-color: #1976D2 !important; box-shadow: 0 0 0 3px rgba(25,118,210,0.25) !important; background: rgba(25,118,210,0.08) !important; }
+.body--dark .macro-active { border-color: #64B5F6 !important; box-shadow: 0 0 0 3px rgba(100,181,246,0.25) !important; }
 .macro-won-X { background: rgba(103,80,164,0.16) !important; }
 .macro-won-O { background: rgba(179,38,30,0.12) !important; }
 .macro-draw { opacity: 0.45; }
@@ -47,8 +47,8 @@
   pointer-events: none; z-index: 5;
   opacity: 1 !important; transition: opacity 0.18s ease;
 }
-.macro-win-fill-x { background: #6750A4; }
-.macro-win-fill-o { background: #B3261E; }
+.macro-win-fill-x { background: rgba(103, 80, 164, 0.85); }
+.macro-win-fill-o { background: rgba(179, 38, 30, 0.85); }
 .macro-win-badge-x, .macro-win-badge-o { color: #FFFFFF; }
 .body--dark .macro-win-badge-x, .body--dark .macro-win-badge-o { color: #FFFFFF; }
 .macro-win-badge { background: transparent; }

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.pytest_cache/
 
 # Virtual env & runtime dirs
 .venv/
@@ -16,7 +17,15 @@ run.bat
 # Local text-based project mindmap (not part of the repository)
 MINDMAP.txt
 
+# Temp report fragments (local paste sources, not part of the repository)
+_rep_text.txt
+_report_insert.html
+
 # Editor / OS
 .vscode/
 .idea/
 Thumbs.db
+
+# MIOpen cache (Windows ROCm) / MIOpen 快取（Windows ROCm）
+.miopen/
+.miopen_cache/
