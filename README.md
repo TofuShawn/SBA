@@ -59,6 +59,9 @@ pip install torch numpy
 AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參考
 [`docs/rocm-wsl2.md`](docs/rocm-wsl2.md)。
 
+AlphaZero 訓練方法與效能分析見
+[`docs/AlphaZero_UTTT_Technical_Report.html`](docs/AlphaZero_UTTT_Technical_Report.html)。
+
 ---
 
 ## Usage / 使用方式

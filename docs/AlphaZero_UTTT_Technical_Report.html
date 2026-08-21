@@ -1,0 +1,1893 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基於 AlphaZero 求解終極井字棋 — 完整技術與編碼報告</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['\\(', '\\)']], displayMath: [['\\[', '\\]']] },
+  svg: { fontCache: 'global' }
+};
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+<style>
+:root {
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --ink: #1e293b;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --blue: #2563eb;
+  --blue-soft: #eff4ff;
+  --teal: #0d9488;
+  --teal-soft: #ecfdf8;
+  --code-bg: #0f172a;
+  --code-ink: #e2e8f0;
+  --chip-game: #2563eb;
+  --chip-dl: #0d9488;
+  --chip-both: #7c3aed;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Segoe UI", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.75;
+}
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 28px 80px;
+}
+header.hero {
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #0d9488 130%);
+  color: #f1f5f9;
+  border-radius: 0 0 22px 22px;
+  padding: 56px 44px 44px;
+  margin: 0 0 36px;
+}
+header.hero .kicker {
+  display: inline-block;
+  font-size: 12.5px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #93c5fd;
+  border: 1px solid rgba(147, 197, 253, 0.45);
+  border-radius: 999px;
+  padding: 3px 14px;
+  margin-bottom: 18px;
+}
+header.hero h1 {
+  margin: 0 0 10px;
+  font-size: 30px;
+  line-height: 1.35;
+  letter-spacing: 0.2px;
+}
+header.hero .sub {
+  font-size: 15px;
+  color: #cbd5e1;
+  margin-bottom: 22px;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  font-size: 13px;
+  color: #cbd5e1;
+  border-top: 1px solid rgba(203, 213, 225, 0.25);
+  padding-top: 16px;
+}
+.meta b { color: #f1f5f9; font-weight: 600; }
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  margin: 52px 0 18px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--line);
+  scroll-margin-top: 16px;
+}
+h2 .no {
+  flex: 0 0 auto;
+  min-width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+h2 .side {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-radius: 999px;
+  padding: 2px 12px;
+  white-space: nowrap;
+}
+h2 .side.game { background: var(--chip-game); color: #fff; }
+h2 .side.dl { background: var(--chip-dl); color: #fff; }
+h2 .side.both { background: var(--chip-both); color: #fff; }
+h3 {
+  font-size: 17px;
+  margin: 30px 0 10px;
+  color: #0f172a;
+}
+h4 {
+  font-size: 15px;
+  margin: 22px 0 8px;
+  color: #334155;
+}
+p { margin: 10px 0; }
+ul, ol { margin: 10px 0; padding-left: 26px; }
+li { margin: 5px 0; }
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.toc {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 26px;
+  margin: 24px 0 8px;
+}
+.toc h2 { margin: 0 0 12px; border: 0; font-size: 18px; padding: 0; }
+.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 44px; }
+.toc li { break-inside: avoid; font-size: 14px; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin: 18px 0;
+}
+.note {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.warn {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-left: 4px solid #ef4444;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.ok {
+  background: var(--teal-soft);
+  border: 1px solid #99f6e4;
+  border-left: 4px solid var(--teal);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.formula {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin: 14px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.codecap {
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  color: #334155;
+  background: #eef2f7;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  padding: 7px 14px;
+  margin: 18px 0 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.codecap .tag {
+  font-weight: 700;
+  color: var(--blue);
+}
+pre {
+  margin: 0 0 18px;
+  background: var(--code-bg);
+  border-radius: 0 0 10px 10px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  line-height: 1.5;
+  font-size: 12.8px;
+}
+pre code {
+  background: transparent;
+  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
+  color: var(--code-ink);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 13.5px;
+  background: var(--surface);
+}
+th, td {
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #eef2ff;
+  color: #1e3a8a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+tr:nth-child(even) td { background: #fafbfd; }
+.chart-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 18px 10px;
+  margin: 18px 0;
+}
+.chart-wrap h4 { margin: 0 0 4px; }
+.chart-wrap .cap {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.chart-wrap canvas { max-height: 360px; }
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 18px 0;
+}
+.grid2 .chart-wrap { margin: 0; }
+@media (max-width: 820px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .toc ol { columns: 1; }
+  header.hero { padding: 38px 26px; }
+  header.hero h1 { font-size: 24px; }
+}
+/* ---- architecture diagram ---- */
+.arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin: 20px 0;
+  font-size: 13px;
+}
+.arch .box {
+  background: var(--surface);
+  border: 1.5px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 8px 16px;
+  text-align: center;
+  min-width: 220px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.arch .box b { display: block; font-size: 13.5px; }
+.arch .box span { color: var(--muted); font-size: 12px; }
+.arch .arrow { color: #94a3b8; font-size: 18px; line-height: 1; padding: 4px 0; }
+.arch .split {
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  align-items: stretch;
+  width: 100%;
+}
+.arch .branch {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.arch .branch .head {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  border-radius: 999px;
+  padding: 2px 12px;
+  margin-bottom: 8px;
+}
+.arch .branch.pol .head { background: var(--blue-soft); color: var(--blue); }
+.arch .branch.val .head { background: var(--teal-soft); color: var(--teal); }
+footer {
+  margin-top: 56px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+.src-label {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.kbd { font-family: Consolas, monospace; background: #eef2f7; padding: 0 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <span class="kicker">Full Technical &amp; Coding Report</span>
+  <h1>基於 AlphaZero 求解終極井字棋<br>完整技術與編碼報告</h1>
+  <div class="sub">AlphaZero for Ultimate Tic-Tac-Toe — 遊戲側演算法 × 深度學習側管線 × 程式碼級拆解</div>
+  <div class="meta">
+    <span>準備者：<b>TofuShawn（專案作者）</b></span>
+    <span>對象：<b>AI / 遊戲開發技術團隊</b></span>
+    <span>日期：<b>2026 年 8 月 21 日</b></span>
+    <span>專案：<b>SBA（E:\Project\SBA）</b></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h2>目錄</h2>
+  <ol>
+    <li><a href="#s1">執行摘要</a></li>
+    <li><a href="#s2">UTTT 遊戲環境與架構</a>（遊戲側）</li>
+    <li><a href="#s3">遊戲側演算法與優化</a>（遊戲側）</li>
+    <li><a href="#s4">AlphaZero 神經網路與 MCTS 整合</a>（深度學習側）</li>
+    <li><a href="#s5">核心程式碼深度拆解</a>（雙側）</li>
+    <li><a href="#s6">訓練表現、超參數與效能優化</a>（深度學習側）</li>
+    <li><a href="#s7">結論與未來研究</a></li>
+    <li><a href="#appendix">附錄：資料來源、決策對照與差異註記</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+<h2><span class="no" style="background:var(--chip-both)">1</span>執行摘要<span class="side both">雙側</span></h2>
+
+<p>終極井字棋（Ultimate Tic-Tac-Toe, UTTT）是經典井字棋的遞移化擴展：棋盤由 3×3 個小九宮格組成，共 81 個落子格；玩家落子後，<b>下一步被強制限制在該格對應的小九宮格</b>，僅當該小九宮格已填滿或已分勝負時，才獲得「全盤自由落子權（Wildcard）」。這個遞移規則把「區域戰術」與「全域戰略」綁在一起，使得局面樹遠比 81 格的表面大小更為深廣：任何一手的價值都同時取決於它對所屬小九宮格的影響，以及它把對手<em>導向哪一個</em>小九宮格。傳統的窮舉式搜尋在這種棋上迅速失守——普通 3×3 井字棋只有 \(3^9 = 19683\) 種盤面，而 UTTT 的搜尋樹在實用時間內無法靠固定深度 Minimax 覆蓋。</p>
+
+<p>本報告針對「以 AlphaZero 從零自對弈學會 UTTT」的專案，沿<b>遊戲側（Game Side）</b>與<b>深度學習側（Deep Learning Side）</b>雙線展開，並以 <span class="kbd">game.py</span>、<span class="kbd">ai.py</span>、<span class="kbd">alphazero.py</span> 三個模組的真實程式碼為唯一事實來源。</p>
+
+<ul>
+  <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）、MCTS+RAVE、MCTS+GRAVE、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。在 30 局/對、300 sims 的歷史對戰中，<b>MCTS+GRAVE 勝過 MCTS 與 MCTS+RAVE</b>（D8）；優化配置下的純 MCTS 對 RAVE/GRAVE 約 60% 勝率（D12）。</li>
+  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.46 降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（95%）</b>。對普通 MCTS（800 迭代）在 1600 sims 下仍為 2 勝 1 平 3 負——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
+  <li><b>兩側協作</b>：遊戲側的啟發式 rollout（<span class="kbd">ai._rollout_move</span>）與位板搜尋（<span class="kbd">BitUltimateGame</span>）被 AlphaZero 的葉節點評估與 MCTS 搜尋直接復用；位板表示同時服務傳統引擎與神經搜尋，形成單向依賴 <span class="kbd">game.py → ai.py → alphazero.py</span> 的乾淨架構（D2）。</li>
+</ul>
+
+<p>報告中所有程式碼區塊皆逐字引用專案原始碼並標註檔名與行號；所有歷史數據標註來源（<span class="kbd">docs/decisions.md</span> 決策編號 D1–D18、<span class="kbd">docs/rocm-wsl2.md</span> 環境記錄、本機實測與訓練日誌）。若描述與實際程式碼衝突，一律以實際程式碼為準，並於附錄集中註明差異。</p>
+</section>
+
+<section id="s2">
+<h2><span class="no" style="background:var(--chip-game)">2</span>UTTT 遊戲環境與架構<span class="side game">遊戲側</span></h2>
+
+<h3>2.1 三種遊戲類的狀態表示</h3>
+<p><span class="kbd">game.py</span> 定義三種遊戲類，全部實作一致的介面（<span class="kbd">legal_moves() / make_move() / result() / clone() / current / is_over()</span>），使上層引擎可以無差別使用：</p>
+<ul>
+  <li><b><span class="kbd">NormalGame</span></b>（第 37–73 行）：一維 9 格列表 <span class="kbd">board</span>，<span class="kbd">current</span> 記錄輪次；<span class="kbd">make_move</span> 對已佔格丟出 <span class="kbd">ValueError</span>，落子後若遊戲未結束才換手。</li>
+  <li><b><span class="kbd">UltimateGame</span></b>（第 75–139 行）：<span class="kbd">micro</span> 為 9×9 二維列表（9 個小九宮格），<span class="kbd">macro</span> 為 9 格宏觀狀態（<span class="kbd">X</span>/<span class="kbd">O</span>/<span class="kbd">'D'</span>/空），<span class="kbd">active_macro</span> 記錄下一步被強制進入的小九宮格。</li>
+  <li><b><span class="kbd">BitUltimateGame</span></b>（第 142–281 行）：以 81-bit 掩碼 <span class="kbd">x</span>/<span class="kbd">o</span> 與 9-bit 宏觀掩碼 <span class="kbd">mx</span>/<span class="kbd">mo</span> 表示同一狀態，並以 <span class="kbd">micro</span>/<span class="kbd">macro</span> property 重建列表視圖（第 263–280 行），與列表表示完全等價。</li>
+</ul>
+
+<div class="codecap"><span><span class="tag">game.py</span> 第 37–73 行 — NormalGame：9 格列表表示</span><span>規則引擎</span></div>
+<pre><code class="language-python">class NormalGame:
+    def __init__(self):
+        self.board = [EMPTY] * 9
+        self.current = X
+
+    def legal_moves(self):
+        return [i for i, c in enumerate(self.board) if c == EMPTY]
+
+    def make_move(self, index):
+        if self.board[index] != EMPTY:
+            raise ValueError(&#x27;cell is occupied&#x27;)
+        self.board[index] = self.current
+        if self.result() is None:
+            self.current = O if self.current == X else X
+
+    def winner(self):
+        return line_winner(self.board)
+
+    def is_full(self):
+        return EMPTY not in self.board
+
+    def is_over(self):
+        return self.result() is not None
+
+    def result(self):
+        w = self.winner()
+        if w:
+            return w
+        if self.is_full():
+            return &#x27;D&#x27;
+        return None
+
+    def clone(self):
+        g = NormalGame()
+        g.board = self.board[:]
+        g.current = self.current
+        return g</code></pre>
+
+<div class="codecap"><span><span class="tag">game.py</span> 第 75–139 行 — UltimateGame：micro/macro/active_macro 與 Wildcard 規則</span><span>遞移落子限制</span></div>
+<pre><code class="language-python">class UltimateGame:
+    def __init__(self):
+        self.micro = [[EMPTY] * 9 for _ in range(9)]
+        self.macro = [EMPTY] * 9
+        self.current = X
+        self.active_macro = None
+
+    def macro_open(self, m):
+        return self.macro[m] == EMPTY and any(c == EMPTY for c in self.micro[m])
+
+    def legal_moves(self):
+        if self.active_macro is not None and self.macro_open(self.active_macro):
+            return [(self.active_macro, i)
+                    for i in range(9) if self.micro[self.active_macro][i] == EMPTY]
+        moves = []
+        for m in range(9):
+            if not self.macro_open(m):
+                continue
+            for i in range(9):
+                if self.micro[m][i] == EMPTY:
+                    moves.append((m, i))
+        return moves
+
+    def micro_winner(self, m):
+        return line_winner(self.micro[m])
+
+    def make_move(self, macro, micro):
+        if self.micro[macro][micro] != EMPTY:
+            raise ValueError(&#x27;cell is occupied&#x27;)
+        self.micro[macro][micro] = self.current
+        w = self.micro_winner(macro)
+        if w:
+            self.macro[macro] = w
+        elif all(c != EMPTY for c in self.micro[macro]):
+            self.macro[macro] = &#x27;D&#x27;
+        self.active_macro = micro if self.macro_open(micro) else None
+        self.current = O if self.current == X else X
+
+    def winner(self):
+        for a, b, c in LINES:
+            if self.macro[a] in (X, O) and self.macro[a] == self.macro[b] == self.macro[c]:
+                return self.macro[a]
+        return None
+
+    def is_full(self):
+        return all(not self.macro_open(m) for m in range(9))
+
+    def is_over(self):
+        return self.result() is not None
+
+    def result(self):
+        w = self.winner()
+        if w:
+            return w
+        if self.is_full():
+            return &#x27;D&#x27;
+        return None
+
+    def clone(self):
+        g = UltimateGame()
+        g.micro = [row[:] for row in self.micro]
+        g.macro = self.macro[:]
+        g.current = self.current
+        g.active_macro = self.active_macro
+        return g</code></pre>
+
+<h3>2.2 active_macro 與 Wildcard：legal_moves() 的兩種分支</h3>
+<p><span class="kbd">UltimateGame.legal_moves()</span>（第 85–96 行）是規則的心臟，直接對應 UTTT 的兩條分支：</p>
+<ul>
+  <li><b>受限分支</b>：當 <span class="kbd">active_macro is not None</span> 且該宏觀格仍開放（<span class="kbd">macro_open</span>），唯一合法集合是 <span class="kbd">[(active_macro, i) for i in range(9) if 空格]</span>——玩家被鎖死在對手上一步所指的小九宮格。</li>
+  <li><b>自由分支（Wildcard）</b>：否則枚舉所有仍開放的宏觀格 <span class="kbd">m</span>，並列出其所有空格。此分支會在兩種情況觸發：<span class="kbd">active_macro</span> 為 <span class="kbd">None</span>（如開局或上一手指向已結束的格子），或是 <span class="kbd">active_macro</span> 已不再開放。</li>
+</ul>
+<p><span class="kbd">make_move()</span>（第 101–111 行）的更新順序是規則一致性的關鍵：(1) 驗證佔位並落子；(2) 若小九宮格分出勝負則寫入 <span class="kbd">macro[macro] = w</span>，否則若填滿則寫入 <span class="kbd">'D'</span>（平局的小九宮格是中性、不再開放）；(3) 以 <span class="kbd">macro_open(micro)</span> 判斷下一步的 <span class="kbd">active_macro</span>，若不可開放則為 <span class="kbd">None</span>（即 Wildcard）；(4) 最後才換手。<span class="kbd">macro_open()</span>（第 82–83 行）同時檢查宏觀格未被佔領且內部仍有空格，確保「已定局或已滿」的格子永遠不會被誤用。</p>
+
+<h3>2.3 勝負判定與平局</h3>
+<p><span class="kbd">winner()</span>（第 113–117 行）只在宏觀層判定：檢查 <span class="kbd">LINES</span> 八條連線（三行、三列、兩對角線）上是否出現三個相同的 <span class="kbd">X</span>/<span class="kbd">O</span> 宏觀佔領。小九宮格內部勝負由 <span class="kbd">micro_winner()</span> 委託共用的 <span class="kbd">line_winner()</span>（第 17–24 行）。<span class="kbd">is_full()</span> 定義為「所有宏觀格皆不可開放」，而 <span class="kbd">result()</span> 依序回傳：宏觀勝者 → 全滿平局 <span class="kbd">'D'</span> → <span class="kbd">None</span>（未結束）。值得注意的是 UTTT 的平局比普通井字棋常見得多：小九宮格可以互為平手（'D'），只要宏觀層無人連線，即使棋盤近乎全滿仍可能和棋。</p>
+
+<h3>2.4 BitUltimateGame：位板表示與等價性</h3>
+<p>位板版把 81 個格子的 X/O 佔位壓成兩個 81-bit 整數，宏觀佔領壓成兩個 9-bit 整數，並以 <span class="kbd">__slots__</span>（第 150 行）省去執行個體字典的記憶體。其關鍵設計：</p>
+<ul>
+  <li><b>小九宮格取掩碼</b>：<span class="kbd">_micro_bits(m) = ((x | o) &gt;&gt; (m * 9)) &amp; 0x1FF</span>（第 185–186 行），一次位移即可取得某宏觀格的 9-bit 佔位。</li>
+  <li><b>連線判定</b>：<span class="kbd">_win_mask()</span>（第 188–194 行）以 <span class="kbd">mask &amp; line == line</span> 檢查八條 3-bit 連線掩碼，X/O 各查一次。</li>
+  <li><b>開放性</b>：<span class="kbd">macro_open()</span>（第 204–207 行）先查宏觀掩碼是否已定局，再比較 <span class="kbd">_micro_bits(m) != 0x1FF</span>——一個 <span class="kbd">!=</span> 即完成「是否填滿」的檢查。</li>
+  <li><b>落子</b>：<span class="kbd">make_move()</span>（第 224–238 行）以 <span class="kbd">bit = 1 &lt;&lt; (m * 9 + i)</span> 定位，重複落子因 <span class="kbd">(self.x | self.o) &amp; bit</span> 為真而拋出 <span class="kbd">ValueError</span>，與列表版語意一致。</li>
+  <li><b>平局顯示</b>：<span class="kbd">macro</span> property（第 275–280 行）在掩碼未定局但九格全滿時回傳 <span class="kbd">'D'</span>，讓 UI 呈現與列表版完全一致。</li>
+</ul>
+
+<div class="codecap"><span><span class="tag">game.py</span> 第 142–207 行 — BitUltimateGame：狀態、轉換與位元輔助</span><span>位板表示</span></div>
+<pre><code class="language-python">class BitUltimateGame:
+    &quot;&quot;&quot;Ultimate board stored as bit masks (X/O 81-bit, macro 9-bit).
+
+    Same interface as UltimateGame (legal_moves / make_move / result /
+    clone / current / active_macro / micro / macro) so the MCTS family can
+    search on the bit representation and hand moves back to the list UI.
+    &quot;&quot;&quot;
+
+    __slots__ = (&#x27;x&#x27;, &#x27;o&#x27;, &#x27;mx&#x27;, &#x27;mo&#x27;, &#x27;current&#x27;, &#x27;active_macro&#x27;)
+
+    def __init__(self):
+        self.x = 0
+        self.o = 0
+        self.mx = 0
+        self.mo = 0
+        self.current = X
+        self.active_macro = None
+
+    @classmethod
+    def from_game(cls, game):
+        g = cls()
+        for m in range(9):
+            for i in range(9):
+                c = game.micro[m][i]
+                if c == X:
+                    g.x |= 1 &lt;&lt; (m * 9 + i)
+                elif c == O:
+                    g.o |= 1 &lt;&lt; (m * 9 + i)
+            if game.macro[m] == X:
+                g.mx |= 1 &lt;&lt; m
+            elif game.macro[m] == O:
+                g.mo |= 1 &lt;&lt; m
+        g.current = game.current
+        g.active_macro = game.active_macro
+        return g
+
+    def clone(self):
+        g = BitUltimateGame()
+        g.x, g.o, g.mx, g.mo = self.x, self.o, self.mx, self.mo
+        g.current = self.current
+        g.active_macro = self.active_macro
+        return g
+
+    def _micro_bits(self, m):
+        return ((self.x | self.o) &gt;&gt; (m * 9)) &amp; 0x1FF
+
+    @staticmethod
+    def _win_mask(mask):
+        for a, b, c in LINES:
+            line = (1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c)
+            if mask &amp; line == line:
+                return True
+        return False
+
+    def micro_winner(self, m):
+        base = m * 9
+        if self._win_mask((self.x &gt;&gt; base) &amp; 0x1FF):
+            return X
+        if self._win_mask((self.o &gt;&gt; base) &amp; 0x1FF):
+            return O
+        return None
+
+    def macro_open(self, m):
+        if (self.mx | self.mo) &amp; (1 &lt;&lt; m):
+            return False
+        return self._micro_bits(m) != 0x1FF</code></pre>
+
+<div class="codecap"><span><span class="tag">game.py</span> 第 209–280 行 — BitUltimateGame：落子、勝負與列表視圖重建</span><span>等價介面</span></div>
+<pre><code class="language-python">    def legal_moves(self):
+        if self.active_macro is not None and self.macro_open(self.active_macro):
+            taken = self._micro_bits(self.active_macro)
+            m = self.active_macro
+            return [(m, i) for i in range(9) if not (taken &gt;&gt; i) &amp; 1]
+        moves = []
+        for m in range(9):
+            if not self.macro_open(m):
+                continue
+            taken = self._micro_bits(m)
+            for i in range(9):
+                if not (taken &gt;&gt; i) &amp; 1:
+                    moves.append((m, i))
+        return moves
+
+    def make_move(self, m, i):
+        bit = 1 &lt;&lt; (m * 9 + i)
+        if (self.x | self.o) &amp; bit:
+            raise ValueError(&#x27;cell is occupied&#x27;)
+        if self.current == X:
+            self.x |= bit
+        else:
+            self.o |= bit
+        w = self.micro_winner(m)
+        if w == X:
+            self.mx |= 1 &lt;&lt; m
+        elif w == O:
+            self.mo |= 1 &lt;&lt; m
+        self.active_macro = i if self.macro_open(i) else None
+        self.current = O if self.current == X else X
+
+    def winner(self):
+        for a, b, c in LINES:
+            line = (1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c)
+            if self.mx &amp; line == line:
+                return X
+            if self.mo &amp; line == line:
+                return O
+        return None
+
+    def is_full(self):
+        return all(not self.macro_open(m) for m in range(9))
+
+    def result(self):
+        w = self.winner()
+        if w:
+            return w
+        if self.is_full():
+            return &#x27;D&#x27;
+        return None
+
+    def is_over(self):
+        return self.result() is not None
+
+    @property
+    def micro(self):
+        out = []
+        for m in range(9):
+            row = []
+            base = m * 9
+            for i in range(9):
+                bit = 1 &lt;&lt; (base + i)
+                row.append(X if self.x &amp; bit else (O if self.o &amp; bit else EMPTY))
+            out.append(row)
+        return out
+
+    @property
+    def macro(self):
+        return [X if self.mx &amp; (1 &lt;&lt; m) else
+                (O if self.mo &amp; (1 &lt;&lt; m) else
+                 (&#x27;D&#x27; if self._micro_bits(m) == 0x1FF else EMPTY))
+                for m in range(9)]</code></pre>
+
+<p><b>等價性與效能對比</b>：<span class="kbd">from_game()</span>（第 160–176 行）與 <span class="kbd">micro/macro</span> property 構成雙向轉換，使 MCTS 家族能以位板搜尋、再把走法交回列表版 UI（見 <span class="kbd">_mcts_move</span> 第 1243–1246 行）。位板路徑的優勢在於原生整數運算：佔位檢查、連線判定、威脅掃描（<span class="kbd">_threat_cells</span> 的 <span class="kbd">_LINE_BITS</span>/<span class="kbd">bit_count</span> 路徑，見第 3.5 節）都能避免逐格走訪；代價是盤面重建與語意間接。依據 D12 的實測，<b>在已啟用啟發式 rollout 的配置下，位板並未測得增益，故其開關保留於 <span class="kbd">sba.toml</span>（現行預設為開啟）</b>——附錄 A 對 D12 文字與現行程式碼的差異有完整註記。</p>
+
+<h3>2.5 狀態編碼 encode()：深度學習側的接口</h3>
+<p><span class="kbd">alphazero.py</span> 的 <span class="kbd">encode()</span>（第 88–111 行）把遊戲狀態轉為固定形狀輸入張量 <span class="kbd">[4, size, size]</span>（size = 3 或 9）：</p>
+<ul>
+  <li><b>通道 0</b>：X 子位置（1.0）；<b>通道 1</b>：O 子位置（1.0）——兩者互斥。</li>
+  <li><b>通道 2</b>：輪次平面，整面為 1.0 若 X 行棋，否則 0.0；這讓網路知道「現在該誰走」，與 Value 頭「以行棋方視角輸出」的慣例對齊。</li>
+  <li><b>通道 3</b>：活動小九宮格遮罩——<span class="kbd">active_macro</span> 對應的 3×3 區塊填 1.0，其餘 0；若為 Wildcard（<span class="kbd">active_macro is None</span>）則整面全 0。這面遮罩是網路理解「遞移限制」的唯一通道。</li>
+</ul>
+<p>值得注意的是 <span class="kbd">encode()</span> 對普通模式與終極模式共用同一函式（<span class="kbd">is_normal()</span> 以有無 <span class="kbd">board</span> 屬性判別，第 73–74 行），並以 NumPy 建構後轉 <span class="kbd">torch.tensor</span>（第 93、111 行）——訓練管線中狀態張量被反覆堆疊，先 NumPy 後張量的順序可避免 PyTorch 逐元素填入的額外開銷。</p>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 88–111 行 — encode()：4 通道狀態編碼</span><span>DL 側接口</span></div>
+<pre><code class="language-python">    return m * 9 + i
+
+
+def encode(game):
+    &quot;&quot;&quot;Return tensor [4, size, size]:
+    plane 0 = X marks, plane 1 = O marks, plane 2 = turn (1.0 if X to move),
+    plane 3 = active macro cell block (ultimate only, 0 everywhere if free).&quot;&quot;&quot;
+    size = size_of(game)
+    planes = np.zeros((4, size, size), dtype=np.float32)
+    if is_normal(game):
+        for i, mark in enumerate(game.board):
+            if mark:
+                r, c = divmod(i, 3)
+                planes[0 if mark == X else 1, r, c] = 1.0
+    else:
+        for m in range(9):
+            mr, mc = divmod(m, 3)
+            for i, mark in enumerate(game.micro[m]):
+                if mark:
+                    r, c = divmod(i, 3)
+                    planes[0 if mark == X else 1, mr * 3 + r, mc * 3 + c] = 1.0
+        if game.active_macro is not None:
+            mr, mc = divmod(game.active_macro, 3)
+            planes[3, mr * 3:(mr + 1) * 3, mc * 3:(mc + 1) * 3] = 1.0</code></pre>
+
+<h3>2.6 重要修正：本專案沒有「合法動作掩碼（Action Masking）」</h3>
+<p>本專案的 MCTS 直接以 <span class="kbd">legal_moves()</span> 枚舉合法走法建立子節點（<span class="kbd">mcts_search</span> 第 327–343 行），而 Policy Head 輸出<b>完整 81 維 logits</b>。擴展時僅從 <span class="kbd">probs</span> 中取出合法子集的先驗：</p>
+<ul>
+  <li><b>softmax 在全 81 維計算、不重新歸一化</b>（第 317、334–339 行）——非法動作的機率質量既未在輸出端遮罩，也未在取子集後重新分配。</li>
+  <li><b>優點</b>：架構與合法集合完全解耦——不需要為每一局面維護動態遮罩張量；固定 81 維輸出使 batch 形狀恆定（配合 D17 的固定 256 寬批次，MIOpen 每個 kernel 只查一次）；搜尋端由 <span class="kbd">legal_moves()</span> 保證零非法走法。</li>
+  <li><b>缺點</b>：機率質量會「洩漏」到非法動作，使合法子集的相對先驗被系統性壓縮（尤其當合法集合很小時，如殘局只剩數手）；先驗在合法子集上不具備標準 AZ 的歸一化語意。實務上因 UTTT 分支因子大、非法動作占多數但機率分散，此偏差可被搜尋修正，但這是「以程式碼現況」必須記錄的取捨。</li>
+</ul>
+</section>
+
+<section id="s3">
+<h2><span class="no" style="background:var(--chip-game)">3</span>遊戲側演算法與優化<span class="side game">遊戲側</span></h2>
+
+<h3>3.1 Basic：吃子、擋棋與位置偏好</h3>
+<p><span class="kbd">get_basic_move()</span>（<span class="kbd">ai.py</span> 第 105–145 行）是純規則對手，依序：</p>
+<ol>
+  <li><b>能贏就贏</b>：逐一測試 <span class="kbd">apply_clone_result(game, m) == player</span>（第 110–112 行）——下這手若立即勝利則回傳。</li>
+  <li><b>避免送勝</b>：找出會讓對手下一手立即獲勝的「敗著」並排除（第 114–122 行）；若存在安全著法，隨機選擇其一。</li>
+  <li><b>位置偏好</b>：普通模式依中心 → 角落 → 邊的固定順序（第 124–127 行）；終極模式對「宏觀中心 +6、微觀中心 +4、宏觀角落 +2、微觀角落 +1」加權打分（第 128–144 行），使第一手傾向中心大格。</li>
+</ol>
+
+<h3>3.2 Minimax：alpha-beta 與深度加權終局分</h3>
+<p><span class="kbd">minimax_move_normal()</span>（第 174–185 行）在普通模式上完美求解：<span class="kbd">_minimax_normal()</span>（第 147–171 行）實作標準 alpha-beta，終局分為 <b>100 − depth</b>（越快贏分越高，見第 152 行），平局為 0。終極模式則限深：<span class="kbd">minimax_move_ultimate()</span>（第 272–292 行）預設深度 3（session 設定 4），並在合法步 ≤ 6 時動態加深一層（第 275–276 行）——殘局分支少，可安全多搜一層。根節點以 <span class="kbd">eval_ultimate</span> 排序走法（<span class="kbd">order_key</span>，第 278–281 行）提升剪枝效率，並在平分時隨機選擇。</p>
+
+<h3>3.3 eval_ultimate：宏觀/微觀啟發式評估</h3>
+<p><span class="kbd">eval_ultimate()</span>（第 188–222 行）是終極模式的靜態局面評估，由四層訊號加總：</p>
+<ul>
+  <li><b>宏觀佔領 ±1000</b>：每個已贏的小九宮格是壓倒性訊號（第 194–197 行）。</li>
+  <li><b>Micro 殘局表</b>：當宏觀格開放且內部空格 ≤ 2（<span class="kbd">empty &lt;= 2</span>）時，直接查 <span class="kbd">build_micro_tablebase()</span> 的精確解 <span class="kbd">v ∈ {−1,0,1}</span>，乘 80 與「最可能行棋方」符號（第 201–208 行）。殘局表以盤面為鍵、不含行棋方，因此程式以石子數差推測內部行棋方——這是 3.6 節奇偶性討論在評估層的應用。</li>
+  <li><b>Fork / 威脅計數</b>：<span class="kbd">_fork_count()</span>（第 225–240 行）統計「下一手可同時形成 ≥2 條連線」的空格，±40；<span class="kbd">count_threats()</span> ±3；石子數 ±0.5（第 210–215 行）。</li>
+  <li><b>宏觀兩連 ±20</b>：宏觀層三連線中已占兩格且第三格開放時加 20（第 216–221 行），捕捉全域戰略威脅。</li>
+</ul>
+
+<h3>3.4 Minimax Pro：negamax + 置換表 + Killer/LMR/Aspiration + 疊代加深</h3>
+<p><span class="kbd">minimax_pro_move()</span>（第 1109–1149 行）是終極模式的最強傳統精確搜尋，關鍵設計：</p>
+<ul>
+  <li><b>線程本地快取</b>：置換表與 Killer 表存放於 <span class="kbd">threading.local()</span>（<span class="kbd">_tls</span>，第 984 行），使 Web 端以 <span class="kbd">asyncio.to_thread</span> 並發的搜尋互不污染（第 981–983 行註解）。</li>
+  <li><b>置換表鍵</b>：<span class="kbd">_tt_key()</span>（第 1001–1005 行）對終極模式編碼 micro 字串 + <span class="kbd">active_macro</span> + <span class="kbd">current</span>——因為 <span class="kbd">active_macro</span> 決定合法集合，少了它置換表就會誤用。</li>
+  <li><b>走法排序</b>：<span class="kbd">_move_order_score()</span> 對立即勝（1,000,000）、擋立即敗（500,000）、中心/角落（第 1008–1032 行）加權；<span class="kbd">_order_moves()</span> 再疊加置換表走法 +10⁹、Killer +10⁸（第 1035–1050 行）。</li>
+  <li><b>LMR</b>：深度 ≥ 4 且排序 ≥ 2 的非置換表走法先以 depth−2 試探，若改善再以 depth−1 重搜（第 1079–1083 行）。</li>
+  <li><b>Aspiration Window</b>：疊代加深第 d 層以上一層分數 ± max(200, 10%) 開窗，若越界則全窗重搜（第 1130–1145 行）；時間上限內任一階段超時即回傳目前最佳（第 1126–1127、1147 行）。</li>
+</ul>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 1109–1149 行 — minimax_pro_move：疊代加深 + Aspiration + 時間上限</span><span>Minimax Pro</span></div>
+<pre><code class="language-python">def minimax_pro_move(game, depth=5, time_limit=8.0):
+    &quot;&quot;&quot;Normal: perfect full search. Ultimate: ID negamax + TT + time cap.&quot;&quot;&quot;
+    _get_tt().clear()
+    _get_killers().clear()
+    if isinstance(game, NormalGame):
+        return minimax_move_normal(game)[0]
+    start = time.time()
+    best_move = random.choice(game.legal_moves())
+
+    def search_root(d, alpha, beta):
+        bm, bv = best_move, -math.inf
+        for m in _order_moves(game):
+            g = game.clone()
+            apply_move(g, m)
+            val = -_negamax_tt(g, d - 1, -beta, -alpha)
+            if val &gt; bv:
+                bv, bm = val, m
+            if time.time() - start &gt; time_limit:
+                return None, None
+        return bm, bv
+
+    use_asp = cfg_engine(&#x27;use_aspiration&#x27;, True)
+    prev_val = None
+    for d in range(1, depth + 1):
+        alpha, beta = -math.inf, math.inf
+        if use_asp and d &gt; 1 and prev_val is not None:
+            margin = max(200, int(abs(prev_val) * 0.1))
+            alpha, beta = prev_val - margin, prev_val + margin
+        bm, bv = search_root(d, alpha, beta)
+        if bm is None:
+            return best_move
+        if (use_asp and d &gt; 1 and prev_val is not None
+                and (bv &lt;= alpha or bv &gt;= beta)):
+            bm, bv = search_root(d, -math.inf, math.inf)
+            if bm is None:
+                return best_move
+        prev_val = bv
+        best_move = bm
+        if abs(bv) &gt;= 100000 or time.time() - start &gt; time_limit:
+            break
+    return best_move</code></pre>
+
+<h3>3.5 MCTS 家族</h3>
+
+<h4>3.5.1 MCTS（UCT）：動態 UCT、啟發式 rollout 與樹重用</h4>
+<p><span class="kbd">MCTSNode.best_child()</span>（第 308–318 行）實作標準 UCT：</p>
+<div class="formula">\[
+\mathrm{UCT}(s,a) = \frac{W(s,a)}{N(s,a)} + c\cdot\sqrt{\frac{\log N(s)}{N(s,a)}}
+\]</div>
+<p>未訪問子節點回傳 <span class="kbd">math.inf</span>（第 312–313 行），保證每個子節點至少被訪問一次。搜尋主體 <span class="kbd">mcts_search()</span>（第 358–409 行）的特色優化包括：</p>
+<ul>
+  <li><b>動態 UCT 收縮</b>：<span class="kbd">_uct_scale()</span>（第 576–580 行）把探索常數從 1.0×c 線性收縮到 0.6×c：<div class="formula">\[
+  c_{\mathrm{eff}} = c\cdot\left(0.6 + 0.4\cdot\left(1 - \frac{N_{\mathrm{root}}^{\mathrm{new}}}{I}\right)\right)
+  \]</div>
+  前期重探索、後期重利用。與樹重用搭配時，<b>以 <span class="kbd">start_visits = root.visits</span>（第 367 行）與 <span class="kbd">root.visits − start_visits</span>（第 377 行）計算本輪新增訪問量</b>，使收縮進度與歷史訪問量解耦——重用而來的數千次訪問不會讓動態 UCT 立刻進入純利用階段。</li>
+  <li><b>啟發式 rollout</b>：<span class="kbd">_rollout_move()</span>（第 478–497 行）以「先贏、次擋、否則隨機」取代純隨機對弈；<span class="kbd">_threat_cells()</span>（第 440–475 行）對位板狀態走原生位元路徑（<span class="kbd">_LINE_BITS</span> 預計算 8 條 3-bit 連線掩碼，第 437 行；<span class="kbd">(mb &amp; line).bit_count() == 2</span> 判定二子成勢，第 462 行）。多個威脅同時存在時不硬擋（第 495–497 行），保留隨機性。</li>
+  <li><b>樹重用</b>：詳見 3.5.4。</li>
+  <li><b>物件池</b>：<span class="kbd">NodePool</span>（第 321–355 行）只在樹重用關閉時啟用（第 428–429 行），避免被重用子樹仍在參考時回收節點。</li>
+  <li><b>D4 對稱去重</b>：<span class="kbd">_pop_untried()</span>（第 563–573 行）在根節點跳過對稱等價走法（8 種 D4 置換，<span class="kbd">_d4_perms()</span> 第 617–639 行）。</li>
+  <li><b>早期終止</b>：70% 迭代後若最熱子節點佔比 &gt; 60% 且勝率 &gt; 55% 即停止（第 403–408 行），節省接近確定局的計算。</li>
+  <li><b>並行 MCTS</b>：<span class="kbd">mcts_move_parallel()</span>（第 1281–1316 行）把預算切成 workers 份，各自獨立搜尋後<b>合併根節點的 (visits, wins) 統計</b>，再依勝率選步（平手時偏好立即勝）。因每個執行緒各自持有整棵樹，不需虛擬損失同步。</li>
+</ul>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 437–497 行 — _LINE_BITS、_threat_cells 位板路徑與 _rollout_move</span><span>啟發式 rollout</span></div>
+<pre><code class="language-python">_LINE_BITS = [(1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c) for a, b, c in LINES]
+
+
+def _threat_cells(state, player):
+    &quot;&quot;&quot;Cells where `player` would win immediately by playing there.&quot;&quot;&quot;
+    if isinstance(state, NormalGame):
+        cells = state.board
+        res = []
+        for a, b, c in LINES:
+            vals = (cells[a], cells[b], cells[c])
+            if vals.count(player) == 2 and EMPTY in vals:
+                res.append((a, b, c)[vals.index(EMPTY)])
+        return res
+    if isinstance(state, BitUltimateGame):
+        res = []
+        pbits = state.x if player == X else state.o
+        obits = state.o if player == X else state.x
+        closed = state.mx | state.mo
+        for m in range(9):
+            if closed &amp; (1 &lt;&lt; m):
+                continue
+            base = m * 9
+            mb = (pbits &gt;&gt; base) &amp; 0x1FF
+            ob = (obits &gt;&gt; base) &amp; 0x1FF
+            for line in _LINE_BITS:
+                if (mb &amp; line).bit_count() == 2 and ((mb | ob) &amp; line) != line:
+                    empty = line &amp; ~(mb | ob)
+                    res.append((m, empty.bit_length() - 1))
+        return res
+    res = []
+    for m in range(9):
+        if not state.macro_open(m):
+            continue
+        cells = state.micro[m]
+        for a, b, c in LINES:
+            vals = (cells[a], cells[b], cells[c])
+            if vals.count(player) == 2 and EMPTY in vals:
+                res.append((m, (a, b, c)[vals.index(EMPTY)]))
+    return res
+
+
+def _rollout_move(state, moves=None):
+    &quot;&quot;&quot;Win/block-biased rollout policy (falls back to random when disabled).&quot;&quot;&quot;
+    if moves is None:
+        moves = state.legal_moves()
+    if not moves:
+        return None
+    if not cfg_engine(&#x27;rollout_heuristic&#x27;, True):
+        return random.choice(moves)
+    legal = set(moves)
+    current = state.current
+    opp = O if current == X else X
+    wins = [w for w in _threat_cells(state, current) if w in legal]
+    if wins:
+        return random.choice(wins)
+    threats = set(t for t in _threat_cells(state, opp) if t in legal)
+    if not threats:
+        return random.choice(moves)
+    if len(threats) == 1:
+        return next(iter(threats))
+    return random.choice(moves)  # multiple threats: cannot block them all</code></pre>
+
+<h4>3.5.2 MCTS+RAVE：AMAF 統計</h4>
+<p><span class="kbd">RAVENode</span>（第 743–774 行）在每個節點維護 <span class="kbd">amaf</span> 字典（走法 → [訪問, 勝分]）。RAVE 的 All-Moves-As-First 思想：對弈中出現的所有走法都同時更新其 AMAF 統計，與樹中位置無關，因此共享快且樣本多。選擇公式為（<span class="kbd">best_child</span> 第 759–774 行）：</p>
+<div class="formula">\[
+\beta(n) = \sqrt{\frac{k}{3n + k}},\qquad
+\mathrm{RAVE\text{-}UCT} = (1-\beta)\,q + \beta\, q_{\mathrm{amaf}} + c\sqrt{\frac{\log N}{n}}
+\]</div>
+<p>其中 <span class="kbd">k = rave_k = 150</span>（<span class="kbd">_CFG_DEFAULTS</span> 第 49 行）。AMAF 分數以「該節點行棋方」視角計分（第 821–827 行註解），是標準 all-moves RAVE 語意。代價是每個節點一份 AMAF 表——記憶體與分支因子成正比。</p>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 759–774 行 — RAVENode.best_child：AMAF 混合選擇</span><span>RAVE</span></div>
+<pre><code class="language-python">    def best_child(self, c, k):
+        log_n = math.log(max(1, self.visits))
+        best, best_val = None, -math.inf
+        for child in self.children:
+            if child.visits == 0:
+                uct = math.inf
+            else:
+                q = child.wins / child.visits
+                an, aw = self.amaf.get(child.move, (0, 0.0))
+                q_amaf = aw / an if an else q
+                beta = math.sqrt(k / (3 * child.visits + k))
+                uct = ((1 - beta) * q + beta * q_amaf
+                       + c * math.sqrt(log_n / child.visits))
+            if uct &gt; best_val:
+                best, best_val = child, uct
+        return best</code></pre>
+
+<h4>3.5.3 MCTS+GRAVE：reference node 共享統計</h4>
+<p><span class="kbd">GraveNode</span>（第 859–892 行）是 RAVE 的後繼（Cazenave 2015，決策 D8）：RAVE 統計不複製到每個後代，而是保存在「該走法首次被嘗試的節點」（reference node），後代沿 <span class="kbd">ref</span> 鏈查詢（<span class="kbd">best_child</span> 第 884–885 行：<span class="kbd">ref = child.ref if child.ref is not None else self</span>）。回饋時每個 reference node 只更新一次（<span class="kbd">seen_refs</span>，第 938–958 行），避免同一統計被路徑上多個節點重複累加。數學上與 RAVE 相同，但記憶體從「每節點一份表」降到「每 reference node 一份表」，在 UTTT 的高分支因子上顯著省記憶體且估計更穩——D8 的 30 局/對對戰記錄 GRAVE 勝過 MCTS 與 RAVE。</p>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 876–892 行 — GraveNode.best_child：沿 reference 查詢 RAVE 統計</span><span>GRAVE</span></div>
+<pre><code class="language-python">    def best_child(self, c, k):
+        log_n = math.log(max(1, self.visits))
+        best, best_val = None, -math.inf
+        for child in self.children:
+            if child.visits == 0:
+                uct = math.inf
+            else:
+                q = child.wins / child.visits
+                ref = child.ref if child.ref is not None else self
+                an, aw = ref.rave.get(child.move, (0, 0.0))
+                q_rave = aw / an if an else q
+                beta = math.sqrt(k / (3 * child.visits + k))
+                uct = ((1 - beta) * q + beta * q_rave
+                       + c * math.sqrt(log_n / child.visits))
+            if uct &gt; best_val:
+                best, best_val = child, uct
+        return best</code></pre>
+
+<h4>3.5.4 樹重用：_REUSE_LAST 與 _diff_move</h4>
+<p>樹重用（<span class="kbd">_mcts_move</span> 第 1238–1278 行）讓引擎在本方落子後保留子樹，等對手回應後直接下鑽。實作分兩層：</p>
+<ul>
+  <li><b>直連快取</b>：<span class="kbd">_REUSE[(ai_type, _tt_key(g))] = child</span>（第 1272 行）——以「引擎類型 + 局面鍵」直接命中「自己剛走完的狀態」之子樹；快取上限 <span class="kbd">reuse_cache = 32</span>（第 1274–1275 行）。</li>
+  <li><b>跨回應下鑽</b>：<span class="kbd">_REUSE_LAST[ai_type]</span> 保存「引擎落子後」的節點（第 1273 行）；下一輪若直接命中失敗，則以 <span class="kbd">_diff_move(last.state, game)</span>（第 590–614 行）計算「從上輪狀態到當前局面唯一新增的落子」，並在 <span class="kbd">last.children</span> 中找到對應子節點（第 1256–1259 行）。<span class="kbd">_diff_move</span> 對回退、分支、換局回傳 <span class="kbd">None</span>，自動退回全新搜尋。</li>
+</ul>
+<p><b>命中條件</b>：樹重用依賴「同引擎連續對局」——同一 <span class="kbd">ai_type</span> 的鍵才可命中，因此 CvC 交替對局中不同引擎各自維護自己的 <span class="kbd">_REUSE_LAST</span>，互不干擾。重用時 <span class="kbd">start_visits</span> 增量同時保證動態 UCT（3.5.1）與早期終止邏輯以「本輪新增訪問量」為準。</p>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 576–614 行 — 動態 UCT、重用快取與 _diff_move</span><span>樹重用</span></div>
+<pre><code class="language-python">def _uct_scale(c, root_visits, iterations):
+    &quot;&quot;&quot;Dynamic UCT: explore more early, exploit more as the search matures.&quot;&quot;&quot;
+    if cfg_engine(&#x27;dynamic_uct&#x27;, True):
+        return c * (0.6 + 0.4 * (1.0 - root_visits / max(1, iterations)))
+    return c
+
+
+_REUSE = {}
+
+# The subtree right after the engine&#x27;s own move, per engine. Tree reuse uses
+# it to locate the opponent&#x27;s reply and descend into the matching child.
+_REUSE_LAST = {}
+
+
+def _diff_move(old_state, new_game):
+    &quot;&quot;&quot;Return the single move leading from old_state to new_game, else None.
+
+    Used by tree reuse: _REUSE_LAST holds the position right after the
+    engine&#x27;s own move, so a current position one opponent reply later differs
+    by exactly one filled cell. Rewinds, branches, and different games yield
+    None (fresh search).
+    &quot;&quot;&quot;
+    if isinstance(new_game, NormalGame):
+        if not isinstance(old_state, NormalGame):
+            return None
+        diff = [i for i in range(9) if old_state.board[i] != new_game.board[i]]
+        if len(diff) != 1 or new_game.board[diff[0]] == EMPTY:
+            return None
+        return diff[0]
+    if not hasattr(old_state, &#x27;micro&#x27;):
+        return None
+    diffs = []
+    for m in range(9):
+        for i in range(9):
+            if old_state.micro[m][i] != new_game.micro[m][i]:
+                diffs.append((m, i))
+    if len(diffs) != 1 or new_game.micro[diffs[0][0]][diffs[0][1]] == EMPTY:
+        return None
+    return diffs[0]</code></pre>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 1238–1278 行 — _mcts_move：重用、位板搜尋與快取回填</span><span>引擎調度</span></div>
+<pre><code class="language-python">def _mcts_move(game, ai_type, budget):
+    &quot;&quot;&quot;Run an MCTS-family search, reusing the previous tree when enabled.&quot;&quot;&quot;
+    if (ai_type == &#x27;MCTS&#x27; and cfg_engine(&#x27;multithreaded&#x27;, False)):
+        return mcts_move_parallel(game, budget, cfg_engine(&#x27;workers&#x27;, 4))
+    reuse = cfg_engine(&#x27;tree_reuse&#x27;, True)
+    if cfg_engine(&#x27;bitboard&#x27;, True) and isinstance(game, UltimateGame):
+        search_game = BitUltimateGame.from_game(game)
+    else:
+        search_game = game
+    pool = (_POOL if (ai_type == &#x27;MCTS&#x27;
+                      and cfg_engine(&#x27;object_pool&#x27;, True) and not reuse) else None)
+    key, prev = None, None
+    if reuse:
+        key = (ai_type, _tt_key(game))
+        prev = _REUSE.pop(key, None)
+        if prev is None:
+            last = _REUSE_LAST.get(ai_type)
+            if last is not None:
+                reply = _diff_move(last.state, game)
+                if reply is not None:
+                    prev = next((c for c in last.children
+                                 if c.move == reply), None)
+    if ai_type == &#x27;MCTS&#x27;:
+        root = mcts_search(search_game, budget, prev_root=prev, pool=pool)
+    elif ai_type == &#x27;MCTS+RAVE&#x27;:
+        root = mcts_rave_search(search_game, budget, prev_root=prev)
+    else:
+        root = mcts_grave_search(search_game, budget, prev_root=prev)
+    move = _best_mcts_move(root, game, budget)
+    if reuse:
+        g = game.clone()
+        apply_move(g, move)
+        child = next((c for c in root.children if c.move == move), None)
+        if child is not None:
+            _REUSE[(ai_type, _tt_key(g))] = child
+            _REUSE_LAST[ai_type] = child
+            if len(_REUSE) &gt; cfg_engine(&#x27;reuse_cache&#x27;, 32):
+                _REUSE.pop(next(iter(_REUSE)))
+    if pool is not None:
+        pool.release(root)
+    return move</code></pre>
+
+<h4>3.5.5 Flat MCTS（研究基準）</h4>
+<p><span class="kbd">flat_mcts_move()</span>（第 524–551 行）把預算均分給每個合法走法，各自從根層做獨立 rollout，完全沒有樹結構——是「只看一層」的基準，用來隔離「樹搜尋」本身的價值（D14，選單隱藏、保留研究）。</p>
+
+<h3>3.6 殘局表 Solver 與開局書</h3>
+<p><span class="kbd">build_tablebase()</span>（第 675–718 行）以遞迴 negamax 求解普通井字棋全部 \(3^9 = 19683\) 個盤面，memo 以 <span class="kbd">_board_key()</span>（3 進位編碼）為鍵、<b>不包含行棋方</b>。這在數學上是合法的：井字棋嚴格輪流行棋且 X 先手，因此任何可達盤面的石子數奇偶性唯一決定行棋方（X 數 = O 數 → O 行棋；X 數 = O 數 + 1 → X 行棋）；把「不可能出現的盤面」一併求解也只會得到一致解。<span class="kbd">solver_move()</span>（第 721–736 行）查表後回傳最佳著（平手時隨機），終極模式則退回首搜 MCTS（第 723–724 行，因終極無殘局表）；<span class="kbd">build_micro_tablebase()</span>（第 712–718 行）是同一張表的語意別名，供 <span class="kbd">eval_ultimate</span> 在微觀層使用（D3：Solver 移出選單、保留分析面板）。</p>
+
+<div class="codecap"><span><span class="tag">ai.py</span> 第 675–718 行 — build_tablebase：3^9 殘局表（memo 僅以盤面為鍵）</span><span>Solver</span></div>
+<pre><code class="language-python">def build_tablebase():
+    global _TABLEBASE
+    if _TABLEBASE is not None:
+        return _TABLEBASE
+    memo = {}
+
+    def solve(board, current):
+        key = _board_key(board)
+        if key in memo:
+            return memo[key]
+        w = None
+        for a, b, c in LINES:
+            if board[a] and board[a] == board[b] == board[c]:
+                w = board[a]
+                break
+        if w is not None:
+            memo[key] = 1 if w == current else -1
+            return memo[key]
+        if EMPTY not in board:
+            memo[key] = 0
+            return 0
+        best = -1
+        for i in range(9):
+            if board[i] == EMPTY:
+                board[i] = current
+                val = -solve(board, O if current == X else X)
+                board[i] = EMPTY
+                if val &gt; best:
+                    best = val
+        memo[key] = best
+        return best
+
+    solve([EMPTY] * 9, X)
+    _TABLEBASE = memo
+    return memo
+
+
+def build_micro_tablebase():
+    &quot;&quot;&quot;Exact minimax values for a single 3x3 micro (side-to-move view).
+
+    The Normal-game tablebase already covers exactly these 3^9 states, so
+    this is a thin alias that keeps the intent readable at call sites.
+    &quot;&quot;&quot;
+    return build_tablebase()</code></pre>
+
+<p><b>開局書</b>：<span class="kbd">ULTIMATE_BOOK</span>（第 1181–1195 行）為「X 第一手 → O 回應」的策展表（中心與角落起手），並可經 <span class="kbd">sba.toml</span> 的 <span class="kbd">[engine.opening_book_ultimate]</span> 覆寫（第 1197–1212 行）；<span class="kbd">opening_book_move()</span>（第 1215–1235 行）只在真正的開局（0–1 手）觸發，且所有回應都經 <span class="kbd">legal</span> 驗證後才使用。</p>
+
+<h3>3.7 優化重點小結</h3>
+<table>
+  <thead>
+    <tr><th>優化</th><th>解決的問題</th><th>實作位置</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>位板表示</td><td>逐格走訪的開銷；連線/佔位/威脅判定 O(9) 或 O(81) 降至原生整數運算</td><td>game.py 142–281；ai.py 437–475</td></tr>
+    <tr><td>線程本地置換表 / Killer</td><td>Web 並發 session 互相清空快取、喪失搜尋速度</td><td>ai.py 981–998</td></tr>
+    <tr><td>樹重用（_REUSE + _REUSE_LAST + _diff_move）</td><td>每步重建整棵樹浪費大量已計算的訪問統計</td><td>ai.py 583–614、1238–1278</td></tr>
+    <tr><td>動態 UCT 與 start_visits 解耦</td><td>重用歷史訪問量會讓探索常數瞬間失效</td><td>ai.py 367、576–580</td></tr>
+    <tr><td>物件池</td><td>高迭代下 MCTSNode 的 GC 壓力</td><td>ai.py 321–355</td></tr>
+    <tr><td>D4 對稱去重</td><td>對稱等價走法重複展開浪費預算</td><td>ai.py 563–650</td></tr>
+    <tr><td>多執行緒並行 MCTS</td><td>單執行緒無法吃滿多核心；合併根統計近似全域搜尋</td><td>ai.py 1281–1316</td></tr>
+    <tr><td>啟發式 rollout</td><td>純隨機 rollout 樣本雜訊過大、評估弱（見 6.2 消融）</td><td>ai.py 478–497</td></tr>
+  </tbody>
+</table>
+
+</section>
+
+<section id="s4">
+<h2><span class="no" style="background:var(--chip-dl)">4</span>AlphaZero 神經網路與 MCTS 整合<span class="side dl">深度學習側</span></h2>
+
+<h3>4.1 AZNet：雙頭殘差網路</h3>
+<p><span class="kbd">ResBlock</span>（<span class="kbd">alphazero.py</span> 第 134–145 行）與 <span class="kbd">AZNet</span>（第 148–172 行）構成標準 AlphaZero 雙頭架構：</p>
+<ul>
+  <li><b>輸入</b>：<span class="kbd">[4, size, size]</span>（見 2.5 節 <span class="kbd">encode()</span>）。</li>
+  <li><b>輸入卷積</b>：<span class="kbd">conv_in</span>（4→128 通道，3×3、padding=1）+ BatchNorm + ReLU。</li>
+  <li><b>殘差骨幹</b>：<span class="kbd">blocks</span> 預設 5 個 <span class="kbd">ResBlock</span>，每個含兩組 Conv2d(128→128)+BN，且以 <span class="kbd">relu(x + y)</span> 殘差捷徑（第 142–145 行）穩定深層梯度。</li>
+  <li><b>Policy 頭</b>：1×1 卷積降至 8 通道 → BN → ReLU → 展平 8×81=648 → <span class="kbd">pol_fc</span> Linear(648→81) 輸出完整 81 維 logits（無 softmax，損失端處理）。</li>
+  <li><b>Value 頭</b>：1×1 卷積降至 8 通道 → BN → ReLU → <span class="kbd">val_fc1</span> Linear(648→64) → ReLU → <span class="kbd">val_fc2</span> Linear(64→1) → <span class="kbd">torch.tanh</span>（第 170–172 行）壓到 (−1, 1)。</li>
+</ul>
+<p>以 128 通道 × 5 殘差塊計算，網路總參數量約 <b>158 萬</b>（本機以 <span class="kbd">AZNet(9, 128, 5)</span> 實測 <span class="kbd">sum(p.numel()) = 1,579,658</span>）——屬於刻意縮小的「微型網路」，對應 6.4 節的 GPU 利用率分析。</p>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 134–172 行 — ResBlock 與 AZNet 雙頭網路</span><span>神經網路</span></div>
+<pre><code class="language-python"># Network
+# ---------------------------------------------------------------
+
+class ResBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+    def forward(self, x):
+        y = F.relu(self.bn1(self.conv1(x)))
+        y = self.bn2(self.conv2(y))
+        return F.relu(x + y)
+
+
+class AZNet(nn.Module):
+    def __init__(self, size, channels=32, blocks=3):
+        super().__init__()
+        self.size = size
+        n_out = size * size
+        self.conv_in = nn.Conv2d(4, channels, 3, padding=1)
+        self.bn_in = nn.BatchNorm2d(channels)
+        self.blocks = nn.ModuleList([ResBlock(channels) for _ in range(blocks)])
+        self.pol_conv = nn.Conv2d(channels, 8, 1)
+        self.pol_bn = nn.BatchNorm2d(8)
+        self.pol_fc = nn.Linear(8 * n_out, n_out)
+        self.val_conv = nn.Conv2d(channels, 8, 1)
+        self.val_bn = nn.BatchNorm2d(8)
+        self.val_fc1 = nn.Linear(8 * n_out, 64)
+        self.val_fc2 = nn.Linear(64, 1)
+
+    def forward(self, x):
+        x = F.relu(self.bn_in(self.conv_in(x)))
+        for b in self.blocks:
+            x = b(x)
+        p = F.relu(self.pol_bn(self.pol_conv(x)))
+        p = self.pol_fc(p.flatten(1))</code></pre>
+
+<div class="arch">
+  <div class="box"><b>輸入 4×9×9</b><span>X / O / 輪次 / 活動大格（Wildcard 全 0）</span></div>
+  <div class="arrow">↓</div>
+  <div class="box"><b>conv_in 3×3（4→128）+ BN + ReLU</b><span>輸入卷積</span></div>
+  <div class="arrow">↓</div>
+  <div class="box"><b>ResBlock × 5（128 通道）</b><span>共享殘差骨幹</span></div>
+  <div class="arrow">↓</div>
+  <div class="split">
+    <div class="branch pol">
+      <div class="head">Policy Head</div>
+      <div class="box"><b>conv 1×1（128→8）+ BN + ReLU</b><span>展平 8×81 = 648</span></div>
+      <div class="arrow">↓</div>
+      <div class="box"><b>Linear 648 → 81</b><span>logits（先驗 π）</span></div>
+    </div>
+    <div class="branch val">
+      <div class="head">Value Head</div>
+      <div class="box"><b>conv 1×1（128→8）+ BN + ReLU</b><span>展平 8×81 = 648</span></div>
+      <div class="arrow">↓</div>
+      <div class="box"><b>Linear 648 → 64 → ReLU → Linear 64 → 1 → tanh</b><span>局面價值 v ∈ (−1, 1)</span></div>
+    </div>
+  </div>
+</div>
+
+<h3>4.2 損失函數</h3>
+<p>訓練步（<span class="kbd">train()</span> 第 540–546 行，多進程版第 623–629 行）的損失為 Policy 交叉熵與 Value MSE 之<b>直接相加、無 L2 正則化</b>：</p>
+<div class="formula">\[
+L = L_p + L_v = -\frac{1}{B}\sum_{b=1}^{B}\sum_{a} \pi_{b,a}\,\log \hat p_{b,a}
+    + \frac{1}{B}\sum_{b=1}^{B} \left(v_b - z_b\right)^2
+\]</div>
+<p>其中 \(\pi\) 為自對弈產生的訪問次數目標（5 節），\(z \in \{-1, 0, +1\}\) 為對局結果，\(\hat p\) 為 softmax 後的策略機率，\(v_b\) 為 Value 頭輸出。程式碼以 <span class="kbd">F.log_softmax</span> + 逐元素乘目標（第 542 行）實作交叉熵，無權重衰減。</p>
+
+<h3>4.3 神經引導 MCTS：四步驟逐段解析</h3>
+<p><span class="kbd">mcts_search()</span>（第 250–346 行）實作標準 AlphaZero 語意的四步驟迴圈，但以「葉子並行批推理」執行（見 4.4）。以下依真實程式碼拆解。</p>
+
+<h4>4.3.1 Selection：PUCT 與 Q 的存儲視角</h4>
+<p><span class="kbd">SearchNode.best_child()</span>（第 211–224 行）的選擇公式為：</p>
+<div class="formula">\[
+\mathrm{PUCT}(s,a) = -Q(s,a) + C_{puct}\cdot P(s,a)\cdot
+\sqrt{\frac{\log\big(N(s)+N_v(s)\big)}{N(s,a)+N_v(s,a)}}
+\]</div>
+<p>兩個關鍵設計（皆有程式碼依據）：</p>
+<ul>
+  <li><b>Q 的存儲視角</b>：<span class="kbd">q</span> 以「該節點狀態的行棋方」為視角儲存（第 191–192 行類別註解、第 281 行 <span class="kbd">n.q = n.wins / n.visits</span>）。因此在父節點選擇時，子節點的 q 是「對手視角」，必須取負號才是對父節點行棋方的價值——這就是公式中 <b>−Q(s,a)</b> 的來源，與回饋端的 negamax 交替（第 282 行 <span class="kbd">value = -value</span>）互為鏡像。</li>
+  <li><b>虛擬損失</b>：<span class="kbd">VIRTUAL_LOSS = 2.0</span>（第 180 行）在批選過程中對路徑上每個節點加 <span class="kbd">v_visits += 1</span>、<span class="kbd">v_wins += VIRTUAL_LOSS</span>（第 297–299 行），使同一輪內並行的選擇器傾向走不同分支，並在回饋時移除（第 274–277 行）。注意虛擬損失加到 <span class="kbd">v_wins</span> 是「正值」，會壓低 −q 項，刻意讓已被佔用的分支在虛擬期間失寵——這是發散作用而非統計修正。</li>
+</ul>
+<div class="warn"><b>與文獻公式的差異</b>：經典 AlphaZero 的 PUCT 分母通常寫為 \(1+N(s,a)\)，本專案實作（第 212–221 行）為 \(\sqrt{\log(N_{\mathrm{parent}})/N_{\mathrm{child}}}\)，<b>沒有 +1</b>。由於本專案採全展開（見下），子節點必有 \(N\ge 1\)，+1 的保護作用被最小化；此處以實際程式碼為準，並於附錄 A 記錄此差異。</div>
+
+<h4>4.3.2 Expansion：全展開與根節點 Dirichlet 噪聲</h4>
+<p>每個葉子首次被評估後立即<b>全展開</b>：為所有合法走法建立子節點並寫入先驗（第 325–344 行）。根節點在首次展開時以 <span class="kbd">dirichlet_alpha</span> 加入探索噪聲：</p>
+<div class="formula">\[
+P'(s,a) = (1-\varepsilon)\,P(s,a) + \varepsilon\,\eta_a,\qquad
+\eta \sim \mathrm{Dirichlet}(\alpha),\quad \alpha = \frac{10}{|\mathcal{A}(s)|},\quad \varepsilon = 0.25
+\]</div>
+<p>程式碼（第 328–336 行）以 <span class="kbd">'auto'</span> 觸發 <span class="kbd">alpha = 10.0 / len(moves)</span> 並對每個合法走法取 <span class="kbd">np.random.dirichlet</span> 樣本，混合後寫入 <span class="kbd">node.priors</span>；非根節點則直接取網路先驗（第 338–339 行）。<span class="kbd">select_move()</span> / 評估路徑傳入 <span class="kbd">dirichlet_alpha=None</span>（第 360 行），因此<b>正式對局與評估不加噪聲</b>，只有自對弈加。</p>
+
+<h4>4.3.3 Evaluation：網路價值 × 啟發式 rollout 混合</h4>
+<p>葉子價值由 <span class="kbd">ROLLOUT_WEIGHT = 0.5</span> 混合網路輸出與啟發式對弈（第 319–324 行）：</p>
+<div class="formula">\[
+v_{\mathrm{leaf}}(s) = (1-w)\,v_\theta(s) + w\cdot \mathrm{playout}(s),\qquad w = 0.5
+\]</div>
+<p><span class="kbd">rollout_value()</span>（第 227–245 行）以<b>延遲匯入</b>方式呼叫 <span class="kbd">ai._rollout_move</span>（第 234 行，避免 ai.py 在模組層反向匯入 alphazero.py 造成循環相依），以吃/擋偏置策略對弈至終局並回傳 ±1/0。消融數據（6.2 節）顯示這 50% 的啟發式成分是戰術小遊戲上強度的主力：純網路（w=0）400/800 局僅 70–76% 對隨機勝率，而 w=0.5 在 400 局即達 97.5%。<b>不用純隨機 rollout</b> 的原因與傳統 MCTS 相同——純隨機樣本在 81 格棋盤上幾乎無法分辨走法好壞，而吃/擋策略提供了廉價但有效的局勢訊號。</p>
+
+<h4>4.3.4 Backpropagation：negamax 交替累加</h4>
+<p><span class="kbd">backprop()</span>（第 274–282 行）先沿路徑移除虛擬損失，再以反序路徑累加：<span class="kbd">visits += 1</span>、<span class="kbd">wins += value</span>、更新 <span class="kbd">q</span>，然後 <span class="kbd">value = -value</span> 換手——與 4.3.1 的 −Q 對稱，保證每個節點的統計永遠以「該節點行棋方」視角累積。</p>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 227–245 行 — rollout_value：延遲匯入 ai 的啟發式 rollout</span><span>葉子評估</span></div>
+<pre><code class="language-python">        return best
+
+
+def rollout_value(g):
+    &quot;&quot;&quot;Heuristic playout from g; value from the perspective of g&#x27;s current player.
+
+    Uses the ai.py win/block-biased rollout policy (lazy import: ai.py loads
+    alphazero on demand, never at module level). Tactical playouts are far
+    stronger than uniform random on Ultimate Tic Tac Toe.
+    &quot;&quot;&quot;
+    from ai import _rollout_move
+    player = g.current
+    state = g.clone()
+    while not state.is_over():
+        legal = state.legal_moves()
+        if not legal:
+            break
+        apply_move(state, _rollout_move(state, legal))
+    r = state.result()</code></pre>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 250–305 行 — mcts_search（一）：初始化、backprop 與葉子收集</span><span>搜尋主體</span></div>
+<pre><code class="language-python">
+
+
+@torch.no_grad()
+def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
+                batch_size=BATCH_SIZE, dirichlet_alpha=None,
+                dirichlet_eps=DIRICHLET_EPS):
+    &quot;&quot;&quot;Neural-guided MCTS with leaf-parallel batched inference (standard AZ).
+
+    Every node is expanded in full (all children created with priors) on its
+    first visit, so selection always descends to an unexpanded leaf. Up to
+    ``batch_size`` leaves are selected per round (virtual loss keeps parallel
+    workers on different branches) and evaluated with one batched network call,
+    cutting per-iteration kernel-launch overhead on ROCm/CUDA.
+
+    Returns (root SearchNode, {move: visit_count}).
+
+    ``dirichlet_alpha`` adds exploration noise to the root&#x27;s priors on its
+    first expansion: pass ``&#x27;auto&#x27;`` for 10/len(moves) (standard AZ scaling)
+    or a float for a fixed concentration; None (default) means no noise.
+    &quot;&quot;&quot;
+    if rollout_weight is None:
+        rollout_weight = ROLLOUT_WEIGHT
+    model.eval()  # inference: BatchNorm must use running stats, not batch stats
+    root_state = game.clone()
+    root = SearchNode(root_state, None)
+
+    def backprop(path, value):
+        for n in path:
+            n.v_visits -= 1
+            n.v_wins -= VIRTUAL_LOSS
+        for n in reversed(path):
+            n.visits += 1
+            n.wins += value
+            n.q = n.wins / n.visits
+            value = -value
+
+    iterations = 0
+    while iterations &lt; budget:
+        leaves = []  # (path, node) unexpanded leaves -&gt; value batch
+        queued = set()  # node ids already collected this round
+        while iterations &lt; budget and len(leaves) &lt; batch_size:
+            node = root
+            path = [root]
+            while node.children:
+                node = node.best_child(c_puct)
+                path.append(node)
+            if node.untried and id(node) in queued:
+                break  # every reachable leaf is already queued: evaluate now
+            queued.add(id(node))
+            for n in path:
+                n.v_visits += 1
+                n.v_wins += VIRTUAL_LOSS
+            iterations += 1
+            if node.untried == []:
+                backprop(path, terminal_value(node.state))</code></pre>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 306–346 行 — mcts_search（二）：批次推論、rollout 混合與全展開</span><span>批次整合</span></div>
+<pre><code class="language-python">            else:
+                leaves.append((path, node))
+
+        # Network: one batched forward for every selected leaf. The batch is
+        # padded to a fixed size so MIOpen sees one tensor shape per process
+        # (one kernel lookup instead of a find pass per round size), and the
+        # two outputs are copied with a single sync each. Padded duplicates
+        # are evaluated but discarded.
+        if leaves:
+            pad = batch_size - len(leaves)
+            padded = leaves + [leaves[0]] * pad
+            states = torch.stack(
+                [encode(node.state) for _, node in padded]).to(DEVICE)
+            policies, values = model(states)
+            probs_batch = F.softmax(policies, dim=1).cpu().numpy()[:len(leaves)]
+            values_batch = values.squeeze(1).cpu().numpy()[:len(leaves)]
+            for (path, node), probs, value in zip(leaves, probs_batch, values_batch):
+                value = float(value)
+                if rollout_weight &gt; 0:
+                    value = ((1.0 - rollout_weight) * value
+                             + rollout_weight * rollout_value(node.state))
+                backprop(path, value)
+                if node.untried:
+                    # expand in full (idempotent: duplicate leaves skip)
+                    moves = node.untried
+                    if dirichlet_alpha is not None and node is root:
+                        alpha = (10.0 / len(moves) if dirichlet_alpha == &#x27;auto&#x27;
+                                 else dirichlet_alpha)
+                        eta = np.random.dirichlet([alpha] * len(moves))
+                        node.priors = {
+                            m: ((1.0 - dirichlet_eps)
+                                * float(probs[move_index(node.state, m)])
+                                + dirichlet_eps * float(e))
+                            for m, e in zip(moves, eta)}
+                    else:
+                        node.priors = {m: float(probs[move_index(node.state, m)])
+                                       for m in moves}
+                    for m in moves:
+                        child_state = node.state.clone()
+                        apply_move(child_state, m)
+                        node.children.append(SearchNode(child_state, m))</code></pre>
+
+<h3>4.4 同步批次整合（非異步）：葉子並行批推理</h3>
+<p>本專案的批推理是<b>同步（synchronous）</b>的：同一搜尋回合內收集多個葉子，一次前向，而非異步（asynchronous）樹並行。實作細節（第 306–318 行）：</p>
+<ul>
+  <li><b>固定 256 寬填充批次</b>：<span class="kbd">pad = batch_size - len(leaves)</span>，以 <span class="kbd">leaves + [leaves[0]] * pad</span> 填滿（第 312–313 行）。每個行程只出現一種張量形狀，MIOpen 只需查一次 kernel（決策 D17 的核心動機）。</li>
+  <li><b>單次前向 + 兩次 CPU 拷貝</b>：<span class="kbd">policies, values = model(states)</span> 一次前向，接著 softmax 在 GPU 上完成後各以一次 <span class="kbd">.cpu().numpy()</span> 同步拷回（第 317–318 行），並以 <span class="kbd">[:len(leaves)]</span> 丟棄填充重複項。相較於逐葉子同步（每搜尋最多 160 次，見 6.3 節），這把同步次數壓到每輪固定次數。</li>
+  <li><b>重複葉子偵測</b>：<span class="kbd">queued = set()</span> 以節點 id 記錄本輪已收集的葉子；若「尚未展開的節點」已在佇列中（<span class="kbd">node.untried and id(node) in queued</span>，第 294–295 行），立即停止收集並先做一次前向——防止小預算全部浪費在對同一未展開根節點的重複選擇上。</li>
+  <li><b>終局節點直接回傳</b>：選擇到 <span class="kbd">node.untried == []</span> 的終局節點時不走網路，直接以 <span class="kbd">terminal_value</span> 回饋（第 301–302 行）；<span class="kbd">terminal_value()</span>（第 121–127 行）以「下一步行棋方視角」回傳 −1（敗）或 0（和），與網路價值慣例一致。</li>
+</ul>
+<p>此設計源自 D13→D17 的演進：D13 首次以 <span class="kbd">BATCH_SIZE=16</span> 引入葉子並行批次（20 局基準 GPU 約 3.2×、CPU 約 7.8× 加速，品質不變），並把語意切換為「標準 AZ 全展開」；D17 再固定為 256 寬填充批次並強制 <span class="kbd">model.eval()</span>（避免 train mode 下 BatchNorm 對重複填充樣本算出退化統計），代價是低分支局面最多約 55% 的批次浪費在丟棄的 padding 上。</p>
+
+<h3>4.5 落子選擇與溫度</h3>
+<p><span class="kbd">select_move()</span>（第 357–385 行）把訪問次數轉為機率：</p>
+<div class="formula">\[
+p(a) \propto N(s,a)^{1/\tau}
+\]</div>
+<ul>
+  <li><b>低溫（τ ≤ 0.01）</b>：不依賴純訪問數，而是在「訪問數 ≥ max(5, budget/100)」的子節點中，以 <span class="kbd">-child.q</span>（換回父節點視角）選價值最高者（第 365–379 行）——比「最多訪問」更穩健，避免高噪聲先驗誘導的誤導性熱門。</li>
+  <li><b>高溫（τ &gt; 0.01）</b>：以 <span class="kbd">n ** (1.0 / temp)</span> 加權取樣（第 380–385 行）。</li>
+</ul>
+</section>
+
+<section id="s5">
+<h2><span class="no" style="background:var(--chip-both)">5</span>核心程式碼深度拆解<span class="side both">雙側</span></h2>
+
+<h3>5.1 自對弈迴圈與 Replay Buffer：(s, π, z) 的生成與儲存</h3>
+<p><span class="kbd">self_play_game()</span>（第 414–443 行）是訓練資料的生產者：</p>
+<ol>
+  <li>每一局面以 <span class="kbd">mcts_visit_counts(game, model, sims, dirichlet_alpha='auto', ...)</span> 搜尋，取得各合法走法的訪問次數（第 420–422 行）。</li>
+  <li>以 <span class="kbd">n = counts + 1e-8</span> 平滑後，若 τ &gt; 0.01 則 <span class="kbd">p = n ** (1/τ)</span> 歸一化為策略目標；τ ≤ 0.01 則 one-hot 取最大（第 423–430 行）。</li>
+  <li>儲存三元組：(s) = <span class="kbd">encode(game)</span>；(π) = 81 維目標向量，僅合法走法位置填入 p（第 431–435 行）；(z) 在對局結束後依玩家回算 ±1/0（第 439–442 行）。</li>
+  <li>依 p 取樣實際落子並推進（第 437–438 行）。</li>
+</ol>
+<p><b>Replay Buffer</b>（<span class="kbd">train()</span> 第 513–526 行）上限 <span class="kbd">replay_cap = 100</span> 局，新局塞入、最舊彈出；每局完成後以 <span class="kbd">steps_per_game = 5</span> 次梯度更新，每次從 buffer 隨機抽一局、以 128 樣本（可重複）組成固定批次——固定 128 也是為了「每行程單一張量形狀」的 MIOpen 穩定性（第 534–539 行註解）。</p>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 414–443 行 — self_play_game：MCTS 訪問次數 → 策略目標 → (s, π, z)</span><span>自對弈</span></div>
+<pre><code class="language-python">                &#x27;channels&#x27;: channels, &#x27;blocks&#x27;: blocks}, path)
+
+
+def self_play_game(make_game_fn, model, sims, temp,
+                   dirichlet_eps=DIRICHLET_EPS):
+    game = make_game_fn()
+    states, targets, players = [], [], []
+    while not game.is_over():
+        legal = game.legal_moves()
+        counts = mcts_visit_counts(game, model, sims,
+                                   dirichlet_alpha=&#x27;auto&#x27;,
+                                   dirichlet_eps=dirichlet_eps)
+        n = np.array([counts.get(m, 0) for m in legal], dtype=np.float64)
+        n = n + 1e-8
+        if temp &gt; 0.01:
+            p = n ** (1.0 / temp)
+        else:
+            p = np.zeros_like(n)
+            p[int(np.argmax(n))] = 1.0
+        p = p / p.sum()
+        states.append(encode(game))
+        target = np.zeros(size_of(game) ** 2, dtype=np.float32)
+        for mv, pr in zip(legal, p):
+            target[move_index(game, mv)] = pr
+        targets.append(target)
+        players.append(game.current)
+        idx = int(np.random.choice(len(legal), p=p))
+        apply_move(game, legal[idx])
+    result = game.result()
+    zs = []</code></pre>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 520–547 行 — train()：單進程主迴圈（replay、LR 退火、梯度步）</span><span>訓練管線</span></div>
+<pre><code class="language-python">            eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
+            channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
+            start, ROLLOUT_WEIGHT)
+    for it in range(1, games + 1):
+        temp = max(0.05, 1.0 - it / games)
+        states, targets, zs = self_play_game(
+            make_game_fn, model, sims, temp, dirichlet_eps)
+        replay.append((states, targets, zs))
+        if len(replay) &gt; replay_cap:
+            replay.pop(0)
+        # Linear LR annealing: full rate early, a 5x drop by the final game.
+        optimizer.param_groups[0][&#x27;lr&#x27;] = lr * max(0.2, 1.0 - it / games)
+        model.train()
+        total_loss = 0.0
+        for _ in range(steps_per_game):
+            g_states, g_targets, g_zs = random.choice(replay)
+            n_pos = len(g_states)
+            # Fixed batch size (with replacement when a game is short) keeps
+            # one tensor shape per process: MIOpen only looks up kernels once.
+            idx = np.random.choice(n_pos, 128, replace=True)
+            batch = torch.stack([g_states[i] for i in idx]).to(DEVICE)
+            target = torch.stack([torch.tensor(g_targets[i]) for i in idx]).to(DEVICE)
+            z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32).to(DEVICE)
+            optimizer.zero_grad()
+            pred_p, pred_v = model(batch)
+            loss_p = -(F.log_softmax(pred_p, dim=1) * target).sum(dim=1).mean()
+            loss_v = F.mse_loss(pred_v[:, 0], z)
+            (loss_p + loss_v).backward()</code></pre>
+
+<h3>5.2 多進程自對弈：_train_multiprocess</h3>
+<p><span class="kbd">_train_multiprocess()</span>（第 568–654 行）把自對弈分散到 worker 行程：</p>
+<ul>
+  <li><b>spawn 進程池</b>：<span class="kbd">mp.get_context('spawn')</span>（第 581 行）確保 Windows 相容；每個 worker 經 <span class="kbd">_mp_worker_init</span> 持有結果佇列（第 457–459 行）。</li>
+  <li><b>權重隨任務傳遞</b>：<span class="kbd">submit()</span> 把 <span class="kbd">model.state_dict()</span> 拷到 CPU 後隨 <span class="kbd">pool.apply_async</span> 送出（第 586–590 行）；<span class="kbd">_mp_play_game</span> 在 worker 內重建 <span class="kbd">AZNet</span> 並 <span class="kbd">load_state_dict</span>（第 462–469 行）——worker 無狀態，最壞滯後 2×workers 局（D18）。</li>
+  <li><b>結果佇列回流</b>：worker 完成後 <span class="kbd">_MP_RESULTS_Q.put((idx, (states, targets, zs)))</span>（第 473 行），異常也回傳以便主行程記錄（第 474–475 行）；主行程以 <span class="kbd">results_q.get()</span> 阻塞收集，維持「<b>主進程獨占優化器 / 檢查點 / 評估</b>」的單寫者不變式（第 598–642 行）。</li>
+  <li><b>預載窗口</b>：啟動時一次送出 <span class="kbd">min(workers * 2, games)</span> 個任務（第 592–595 行），每收一件補一件（第 643–645 行），保持管線飽和。</li>
+</ul>
+<div class="note"><b>為何否決「進程內多線程共享推理佇列」</b>：執行緒共享 GIL，CPU 密集的 rollout／樹搜尋在 8 執行緒下實測<b>慢 34%</b>；行程各自持有 GIL 與模型副本，才能讓 CPU 密集部分真正平行（<span class="kbd">_train_multiprocess</span> 第 573–578 行與第 449–452 行註解）。此方案因此被刪除，D18 記錄 8 worker 約 3× 吞吐。</div>
+
+<div class="codecap"><span><span class="tag">alphazero.py</span> 第 568–645 行 — _train_multiprocess：spawn 池、權重隨任務、結果佇列與主進程訓練</span><span>多進程</span></div>
+<pre><code class="language-python">    return model
+
+
+def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
+                        sims, eval_every, lr, save, quiet, steps_per_game,
+                        replay_cap, size, channels, blocks, ckpt_every,
+                        dirichlet_eps, workers, game_type, start,
+                        rollout_weight):
+    &quot;&quot;&quot;Multi-process self-play.
+
+    A worker pool plays the games (each task carries the latest weights and
+    uses its own GPU model copy); the main process collects results, runs the
+    optimizer, checkpoints and evaluates. Spawn context is required on
+    Windows; the pool transparently replaces crashed workers.
+    &quot;&quot;&quot;
+    import multiprocessing as mp
+    ctx = mp.get_context(&#x27;spawn&#x27;)
+    results_q = ctx.Queue()
+    pool = ctx.Pool(workers, initializer=_mp_worker_init, initargs=(results_q,))
+
+    def submit(idx):
+        weights = {k: v.cpu() for k, v in model.state_dict().items()}
+        return pool.apply_async(
+            _mp_play_game,
+            (idx, weights, size, channels, blocks, sims,
+             dirichlet_eps, games, game_type, rollout_weight))
+
+    next_idx = 1
+    for _ in range(min(workers * 2, games)):
+        submit(next_idx)
+        next_idx += 1
+
+    done = 0
+    while done &lt; games:
+        idx, data = results_q.get()
+        done += 1
+        if isinstance(data, Exception):
+            print(&#x27;[%s] self-play worker failed game %d: %s&#x27;
+                  % (game_type, idx, data), flush=True)
+        else:
+            states, targets, zs = data
+            replay.append((states, targets, zs))
+            if len(replay) &gt; replay_cap:
+                replay.pop(0)
+            optimizer.param_groups[0][&#x27;lr&#x27;] = lr * max(0.2, 1.0 - done / games)
+            model.train()
+            total_loss = 0.0
+            for _ in range(steps_per_game):
+                g_states, g_targets, g_zs = random.choice(replay)
+                n_pos = len(g_states)
+                # Fixed batch size (with replacement when a game is short)
+                # keeps one tensor shape per process for MIOpen.
+                idx2 = np.random.choice(n_pos, 128, replace=True)
+                batch = torch.stack([g_states[i] for i in idx2]).to(DEVICE)
+                target = torch.stack(
+                    [torch.tensor(g_targets[i]) for i in idx2]).to(DEVICE)
+                z = torch.tensor([g_zs[i] for i in idx2],
+                                 dtype=torch.float32).to(DEVICE)
+                optimizer.zero_grad()
+                pred_p, pred_v = model(batch)
+                loss_p = -(F.log_softmax(pred_p, dim=1) * target).sum(dim=1).mean()
+                loss_v = F.mse_loss(pred_v[:, 0], z)
+                (loss_p + loss_v).backward()
+                optimizer.step()
+                total_loss += float(loss_p + loss_v)
+            model.eval()
+            if save and ckpt_every and done % ckpt_every == 0:
+                path = model_path(game_type)
+                _save_model(model, size, channels, blocks, path)
+                if not quiet:
+                    print(&#x27;[%s] checkpoint game %d/%d -&gt; %s&#x27;
+                          % (game_type, done, games, path), flush=True)
+            if not quiet and (done % max(1, eval_every) == 0 or done == games):
+                el = time.time() - start
+                w, d, l = evaluate()
+                print(&#x27;[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)&#x27;
+                      % (game_type, done, games, w, d, l,
+                         total_loss / steps_per_game, el), flush=True)</code></pre>
+
+<h3>5.3 Minimax Pro 核心：_negamax_tt 與置換表</h3>
+<div class="codecap"><span><span class="tag">ai.py</span> 第 1053–1106 行 — _negamax_tt：置換表 + LMR + Killer 的 negamax 核心</span><span>Minimax Pro</span></div>
+<pre><code class="language-python">def _negamax_tt(game, depth, alpha, beta):
+    result = game.result()
+    if result is not None:
+        if result == &#x27;D&#x27;:
+            return 0
+        return 100000 if result == game.current else -100000
+    if depth == 0:
+        return eval_ultimate(game, game.current)
+    key = _tt_key(game)
+    entry = _get_tt().get(key)
+    if entry is not None and entry[0] &gt;= depth:
+        _, flag, score, _ = entry
+        if flag == 0:
+            return score
+        if flag == -1:
+            alpha = max(alpha, score)
+        else:
+            beta = min(beta, score)
+        if alpha &gt;= beta:
+            return score
+    alpha0 = alpha
+    best, best_move = -math.inf, None
+    tt_move = entry[3] if entry is not None else None
+    for idx, m in enumerate(_order_moves(game, tt_move, depth)):
+        g = game.clone()
+        apply_move(g, m)
+        if (cfg_engine(&#x27;use_lmr&#x27;, True) and depth &gt;= 4 and idx &gt;= 2
+                and m != tt_move):
+            val = -_negamax_tt(g, depth - 2, -beta, -alpha)
+            if val &gt; alpha:
+                val = -_negamax_tt(g, depth - 1, -beta, -alpha)
+        else:
+            val = -_negamax_tt(g, depth - 1, -beta, -alpha)
+        if val &gt; best:
+            best, best_move = val, m
+        alpha = max(alpha, val)
+        if alpha &gt;= beta:
+            if (cfg_engine(&#x27;use_killers&#x27;, True) and depth &gt;= 2
+                    and best_move is not None and best_move != tt_move):
+                killers = _get_killers()
+                killers.setdefault(depth, [])
+                if best_move not in killers[depth]:
+                    killers[depth].append(best_move)
+                    if len(killers[depth]) &gt; 2:
+                        killers[depth].pop(0)
+            break
+    flag = 0
+    if best &lt;= alpha0:
+        flag = 1
+    elif best &gt;= beta:
+        flag = -1
+    if len(_get_tt()) &lt; _tt_max():
+        _get_tt()[key] = (depth, flag, best, best_move)
+    return best</code></pre>
+
+<h3>5.4 並行 MCTS 合併根統計</h3>
+<div class="codecap"><span><span class="tag">ai.py</span> 第 1281–1316 行 — mcts_move_parallel：多執行緒獨立搜尋、合併根統計</span><span>並行 MCTS</span></div>
+<pre><code class="language-python">def mcts_move_parallel(game, iterations, workers=4):
+    &quot;&quot;&quot;Run several independent MCTS searches and merge their root stats.&quot;&quot;&quot;
+    chunk = max(1, iterations // workers)
+    results = []
+    if cfg_engine(&#x27;bitboard&#x27;, True) and isinstance(game, UltimateGame):
+        base = BitUltimateGame.from_game(game)
+    else:
+        base = game
+
+    def work():
+        results.append(mcts_search(base.clone(), chunk))
+
+    threads = [threading.Thread(target=work) for _ in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    stats = {}
+    for root in results:
+        for c in root.children:
+            s = stats.setdefault(c.move, [0, 0.0])
+            s[0] += c.visits
+            s[1] += c.wins
+    if not stats:
+        moves = game.legal_moves()
+        return random.choice(moves) if moves else None
+    best_move = max(stats, key=lambda m: stats[m][1] / max(1, stats[m][0]))
+    best_ratio = stats[best_move][1] / max(1, stats[best_move][0])
+    for m, (v, w) in stats.items():
+        if w / max(1, v) == best_ratio:
+            g = game.clone()
+            apply_move(g, m)
+            if g.result() == game.current:
+                best_move = m
+                break
+    return best_move</code></pre>
+
+<h3>5.5 三模組協作關係</h3>
+<p>依賴方向單向（D2）：<span class="kbd">game.py</span>（規則與位板）→ <span class="kbd">ai.py</span>（傳統引擎與啟發式）→ <span class="kbd">alphazero.py</span>（神經搜尋與訓練）。跨側復用具體表現為：</p>
+<ul>
+  <li><b>位板被兩側共用</b>：<span class="kbd">BitUltimateGame</span> 同時服務傳統 MCTS（<span class="kbd">_mcts_move</span> 第 1243–1246 行）與局面分析（<span class="kbd">analyze_position</span> 第 1450–1454 行）；AlphaZero 搜尋的狀態雖為列表版，但其 rollout 經 <span class="kbd">ai._rollout_move</span> 間接使用同一套威脅掃描。</li>
+  <li><b>啟發式 rollout 是橋樑</b>：<span class="kbd">alphazero.rollout_value</span> 延遲匯入 <span class="kbd">ai._rollout_move</span>（第 234 行），使深度學習側的葉子評估直接繼承遊戲側的戰術知識。</li>
+  <li><b>引擎調度</b>：<span class="kbd">get_ai_move()</span>（第 1319–1342 行）統一分派全部引擎（含 AlphaZero 無模型時退回 MCTS，第 1167–1174 行），UI 與對戰基準共用同一入口。</li>
+</ul>
+</section>
+
+<section id="s6">
+<h2><span class="no" style="background:var(--chip-dl)">6</span>訓練表現、超參數與效能優化<span class="side dl">深度學習側為主</span></h2>
+
+<h3>6.1 超參數總表</h3>
+<table>
+  <thead>
+    <tr><th>參數</th><th>值</th><th>說明 / 出處</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><span class="kbd">sims</span></td><td>80（訓練）/ 200（評估）</td><td>自對弈與評估的 MCTS 迭代預算（CLI 預設，alphazero.py 第 678–698 行）</td></tr>
+    <tr><td><span class="kbd">BATCH_SIZE</span></td><td>256</td><td>葉子並行批次寬度（第 181 行；D13 原為 16，D17 固定 256）</td></tr>
+    <tr><td>訓練批 / 梯度步</td><td>128 樣本 × 5 步 / 局</td><td>固定 128 可重複取樣（第 534–539 行），每局 5 步更新（第 531 行）</td></tr>
+    <tr><td><span class="kbd">replay_cap</span></td><td>100 局</td><td>Replay Buffer 上限，容納 worker 權重滯後（D18）</td></tr>
+    <tr><td><span class="kbd">channels / blocks</span></td><td>128 / 5</td><td>網路容量（train 預設，第 480–481 行）</td></tr>
+    <tr><td>學習率</td><td>1e-3 → lr/5</td><td>Adam + 線性退火 <span class="kbd">lr * max(0.2, 1 − t/T)</span>（第 528、609 行）</td></tr>
+    <tr><td>溫度 τ</td><td>1.0 → 0.05</td><td><span class="kbd">max(0.05, 1 − t/T)</span>（第 521、469 行）</td></tr>
+    <tr><td>Dirichlet ε / α</td><td>0.25 / 10÷|moves|</td><td>根節點探索噪聲（第 182、329 行）</td></tr>
+    <tr><td><span class="kbd">ROLLOUT_WEIGHT</span></td><td>0.5</td><td>葉子價值混合（第 179 行）</td></tr>
+    <tr><td><span class="kbd">VIRTUAL_LOSS</span></td><td>2.0</td><td>批選階段發散（第 180 行）</td></tr>
+    <tr><td><span class="kbd">C_puct</span></td><td>1.5</td><td>探索常數（<span class="kbd">mcts_search</span> 預設參數，第 251 行）</td></tr>
+    <tr><td>評估 / 檢查點週期</td><td>25 局（可調）</td><td><span class="kbd">eval_every</span> / <span class="kbd">ckpt_every</span>（第 478–481、548–558 行）</td></tr>
+    <tr><td><span class="kbd">workers</span></td><td>1–8</td><td>多進程自對弈（第 481、694–695 行）</td></tr>
+  </tbody>
+</table>
+
+<h3>6.2 實測消融與基準</h3>
+<p>下列數據以 <span class="kbd">docs/decisions.md</span>、本機實測與訓練日誌為準（逐項來源見附錄 A）；因多次訓練的記錄基準不同，各組數字以「如實記錄」方式並列，不做跨組推算。</p>
+
+<div class="grid2">
+  <div class="chart-wrap">
+    <h4>訓練損失曲線</h4>
+    <div class="cap">800 局（3.37 → 1.29）與 6000 局（2.46 → 0.094）。僅記錄起訖端點，虛線為趨勢示意；中間檢查點（每 25 / 500 局）資料未隨附。</div>
+    <canvas id="chartLoss"></canvas>
+  </div>
+  <div class="chart-wrap">
+    <h4>評估勝率 vs 隨機（按對局數）</h4>
+    <div class="cap">400 局（w=0.5）97.5%、800 局 90%、6000 局 95%（38W/1D/1L，200 sims）。各點來自不同記錄 run，僅為趨勢參考。</div>
+    <canvas id="chartEval"></canvas>
+  </div>
+</div>
+
+<ul>
+  <li><b>Rollout 權重消融</b>：純網路（w=0）在 400/800 局僅 70–76% 對隨機勝率；w=0.5 同 400 局即達 <b>97.5%</b>——啟發式 rollout 是 UTTT 這種戰術小遊戲上的強度主力（見下圖）。</li>
+  <li><b>網路容量與對局量</b>：32ch/3 塊 → 128ch/5 塊、800 → 6000 局，loss 由 1.88 降至 0.094、對隨機勝率 90% → 95%。</li>
+  <li><b>對普通 MCTS 的結構性差距</b>：6000 局模型以 1600 sims 對普通 MCTS（800 迭代）為 <b>2 勝 1 平 3 負</b>。差距來源是搜尋哲學：AZ 的全展開 + 先驗引導能快速聚焦高價值分支，但每一葉子只做 80–200 次模擬級評估；而啟發式 rollout 的 MCTS 把同樣預算集中於深層戰術對弈（吃/擋直到終局）。此消彼長正是 6.4 節「搜尋退化」討論的實例。</li>
+</ul>
+
+<div class="grid2">
+  <div class="chart-wrap">
+    <h4>Rollout 權重消融（對隨機勝率）</h4>
+    <div class="cap">純網路（w=0）在 400 與 800 局皆為 70–76% 區間（圖取區間上界）；w=0.5 在 400 局即 97.5%。</div>
+    <canvas id="chartRollout"></canvas>
+  </div>
+  <div class="chart-wrap">
+    <h4>多進程自對弈加速比</h4>
+    <div class="cap">串行 3.17 s/局 → 2 / 4 / 8 workers 為 1.50× / 2.43× / 2.96×（每局時間量測）。</div>
+    <canvas id="chartSpeed"></canvas>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr><th>測量</th><th>串行</th><th>2 workers</th><th>4 workers</th><th>8 workers</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>每局時間</td><td>3.17 s</td><td>≈ 2.11 s</td><td>≈ 1.30 s</td><td>≈ 1.07 s</td></tr>
+    <tr><td>加速比</td><td>1.00×</td><td>1.50×</td><td>2.43×</td><td>2.96×</td></tr>
+    <tr><td>6000 局牆鐘（另一記錄）</td><td>7.1 小時</td><td>—</td><td>—</td><td>62 分鐘</td></tr>
+  </tbody>
+</table>
+<p class="src-label">註：加速比與「7.1 小時 → 62 分鐘」來自不同的量測時點/環境，不互推；附錄 A 有說明。</p>
+
+<h3>6.3 GPU 利用率診斷（優化歷程）</h3>
+<p>在 Windows 原生 ROCm（TheRock wheel，RX 7900 XTX / gfx1100，見 <span class="kbd">docs/rocm-wsl2.md</span>）上，微型網路 + 串行 MCTS 的主要瓶頸並非算力而是<b>kernel 啟動與同步開銷</b>：</p>
+<ul>
+  <li><b>每 conv kernel 啟動阻塞約 640 µs</b>，佔自對弈時間約 60%——128 通道 × 5 塊的網路每次前向僅數 ms，但數十次 kernel 啟動逐次阻塞，浪費遠超計算本身。</li>
+  <li><b>逐葉子同步 160 次/搜尋</b>：改良前每個葉子一次同步往返；改為葉子並行批次後，每搜尋回合僅一次前向 + 兩次 CPU 拷貝（見 4.4），同步次數從 160 降到個位數。</li>
+  <li><b>刪除選擇階段冗餘 clone</b>、<b>去 shuffle</b>（<span class="kbd">SearchNode</span> 第 204–206 行註解說明展開順序無關，故不需洗牌）、<b>numpy 化先驗</b>：把 Python/張量層的每迭代固定成本壓低。</li>
+  <li><b>固定形狀批 + MIOpen 設定</b>：<span class="kbd">alphazero.py</span> 在 import 時設定 <span class="kbd">MIOPEN_USER_DB_PATH</span> / <span class="kbd">MIOPEN_CUSTOM_CACHE_DIR</span> / <span class="kbd">MIOPEN_FIND_MODE=1</span> / <span class="kbd">MIOPEN_FIND_ENFORCE=NONE</span>（第 34–48 行），把 find-db 與 kernel cache 指到專案內磁碟並跳過不穩定的即時 benchmark；配合固定 256 寬批次，每行程只查一次 kernel。</li>
+  <li><b>為何微型網路 + 串行 MCTS 無法打滿 GPU</b>：單次前向計算量小（約 158 萬參數），而 MCTS 的選擇/rollout 是 CPU 工作且與前向串行；<b>合理的優化目標是「對局吞吐」而非 GPU 利用率</b>——8 worker 多進程自對弈把 GPU 前向與各 worker 的 CPU 搜尋重疊，6000 局牆鐘由 7.1 小時降到 62 分鐘（D18）。</li>
+</ul>
+
+<h3>6.4 診斷方法論：過擬合、策略崩塌與搜尋退化</h3>
+<ul>
+  <li><b>過擬合</b>：Replay Buffer 只含近 100 局，理論上容易對近期自對弈過擬；但自對弈對手即當前模型，分布持續漂移，因此觀察重點是「評估勝率 vs 隨機」是否與 loss 同步改善。本專案觀察到<b>評估勝率飽和而 loss 持續下降的分離</b>——loss 反映的是對「近期自對弈分布」的擬合，勝率才是泛化指標。</li>
+  <li><b>策略崩塌（Policy Collapse）</b>：若 Dirichlet 噪聲太弱或 τ 退火太快，模型可能過早鎖定少數走法而喪失探索，自對弈分布退化為對稱盲點。本專案以 ε=0.25 根噪聲 + τ 1.0→0.05 慢退火對抗，且低溫選步以「價值最高」取代「最多訪問」（第 365–379 行），避免噪聲誘導的熱門誤導。</li>
+  <li><b>搜尋退化</b>：全展開 + 先驗引導在固定小預算下，若先驗質量不足，訪問會集中於少數高先驗分支而缺乏深層修正——「vs 隨機 95% 但 vs 啟發式 MCTS 2W/1D/3L」即為此現象的邊界證據；純網路（w=0）的平台期（70–76%）也顯示沒有 rollout 訊號時搜尋難以自我校正。</li>
+</ul>
+</section>
+
+<section id="s7">
+<h2><span class="no" style="background:var(--chip-both)">7</span>結論與未來研究<span class="side both">雙側</span></h2>
+
+<h3>7.1 雙線總結</h3>
+<ul>
+  <li><b>遊戲側</b>：傳統演算法與位板優化已達成熟——Minimax Pro 具備工業級搜尋元件（置換表/Killer/LMR/Aspiration/疊代加深），MCTS 家族具備動態 UCT、啟發式 rollout、樹重用與並行化；<b>MCTS+GRAVE 為最強傳統引擎</b>（D8），優化後純 MCTS 亦能以約 60% 勝率壓制 RAVE/GRAVE（D12）。</li>
+  <li><b>深度學習側</b>：AlphaZero 在 6000 局內學會壓制隨機（95%，38W/1D/1L），並證明「遊戲側啟發式」與「神經先驗」的混合（w=0.5）在資料效率上遠勝純網路；同時以 2W/1D/3L 對啟發式 MCTS 的結果誠實標出當前邊界。</li>
+  <li><b>工程面</b>：Windows ROCm 環境的 kernel 啟動問題（640 µs/次）被固定形狀批次、批次化推論與多進程自對弈有效消化；單檔模組化（D2）使兩側優化可獨立演進、互相復用。</li>
+</ul>
+
+<h3>7.2 未來研究方向</h3>
+<ul>
+  <li><b>MuZero / LightZero 機制</b>：以潛在模型取代顯式狀態編碼，免除人工 4 通道特徵設計，並讓網路自己學習「遞移規則」的轉移函數。</li>
+  <li><b>位板 + 原生算子壓縮 MCTS 常數</b>：把 <span class="kbd">BitUltimateGame</span> 的整數運算向量化（batch bit ops），或移入 C/C++ 擴充，壓縮樹搜尋的每迭代常數。</li>
+  <li><b>模型量化 / 剪枝</b>：158 萬參數的微型網路在 CPU 推理上仍有量化空間，可降低自對弈與部署延遲。</li>
+  <li><b>更強評估基準</b>：與 Minimax Pro、GRAVE 的正式對戰矩陣（多 sims、多深度、先手平衡），取代「vs 隨機」作為主要指標。</li>
+  <li><b>斷點續訓與 worker 容錯重派</b>：目前 worker 失敗僅記錄（第 601–603 行），可加入任務重派與檢查點續訓。</li>
+  <li><b>殘局表輔助 AZ 葉子評估</b>：在微觀殘局（空格 ≤ 2）以 <span class="kbd">build_micro_tablebase()</span> 精確值取代 rollout/網路估值，提升終局精度。</li>
+</ul>
+</section>
+
+<section id="appendix">
+<h2><span class="no" style="background:var(--muted)">附</span>附錄：資料來源、決策對照與差異註記</h2>
+
+<h3>A.1 決策編號對照（docs/decisions.md）</h3>
+<table>
+  <thead>
+    <tr><th>編號</th><th>決策</th><th>報告引用處</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>D2</td><td>程式碼拆分 game.py / ai.py / SBA.py / UI</td><td>§1、§5.5</td></tr>
+    <tr><td>D3</td><td>Solver 移出選單、保留分析面板</td><td>§3.6</td></tr>
+    <tr><td>D4</td><td>AlphaZero 僅限終極模式</td><td>§1</td></tr>
+    <tr><td>D8</td><td>新增 MCTS+GRAVE；RAVE 移出選單；30 局對戰 GRAVE 勝出</td><td>§3.5.3、A.2</td></tr>
+    <tr><td>D11</td><td>引擎參數集中 sba.toml</td><td>§3 開頭</td></tr>
+    <tr><td>D12</td><td>優化清單採用；純 MCTS 約 60% 對 RAVE/GRAVE；bitboard 實測無增益</td><td>§2.4、§3.7、A.2</td></tr>
+    <tr><td>D13</td><td>葉子並行批推理 BATCH_SIZE=16、VIRTUAL_LOSS=2；切換標準 AZ 全展開</td><td>§4.3–4.4</td></tr>
+    <tr><td>D14</td><td>新增 Flat MCTS（研究基準）</td><td>§3.5.5</td></tr>
+    <tr><td>D15</td><td>勝率圖表重用 analyze_position 單一搜尋</td><td>§3.5.1、A.1</td></tr>
+    <tr><td>D17</td><td>固定 256 寬填充批次 + 強制 model.eval()</td><td>§4.4</td></tr>
+    <tr><td>D18</td><td>多進程自對弈；8 worker 約 3× 吞吐；線程方案 GIL 受限</td><td>§5.2、§6.3</td></tr>
+  </tbody>
+</table>
+
+<h3>A.2 數據來源與引用標註</h3>
+<table>
+  <thead>
+    <tr><th>數據</th><th>數值</th><th>來源</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>MCTS 家族基準（10 局/對、200 sims）</td><td>MCTS vs RAVE 40%；MCTS vs GRAVE 60%；RAVE vs GRAVE 50%</td><td>本機實測（使用 <span class="kbd">SBA.py --bench</span> 類流程）</td></tr>
+    <tr><td>歷史基準（30 局/對、300 sims）</td><td>GRAVE 優於 MCTS 與 RAVE；優化後純 MCTS 對 RAVE/GRAVE 約 60%</td><td>docs/decisions.md（D8、D12）</td></tr>
+    <tr><td>位板帶 rollout 無增益</td><td>—</td><td>docs/decisions.md（D12）</td></tr>
+    <tr><td>訓練 loss（800 局）</td><td>3.37 → 1.29</td><td>訓練日誌記錄（起訖端點）</td></tr>
+    <tr><td>訓練 loss（6000 局）</td><td>2.46 → 0.094</td><td>訓練日誌記錄（起訖端點）</td></tr>
+    <tr><td>容量比較（800 → 6000 局）</td><td>loss 1.88 → 0.094；vs 隨機 90% → 95%</td><td>訓練日誌 / 本機實測</td></tr>
+    <tr><td>評估 vs 隨機（200 sims）</td><td>40 盤 38W / 1D / 1L（95%）</td><td>本機實測（<span class="kbd">alphazero.py eval</span>）</td></tr>
+    <tr><td>評估 vs 普通 MCTS（800 迭代、1600 sims）</td><td>2W / 1D / 3L</td><td>本機實測</td></tr>
+    <tr><td>Rollout 消融</td><td>w=0：70–76%（400/800 局）；w=0.5：97.5%（400 局）</td><td>訓練日誌 / 本機實測</td></tr>
+    <tr><td>並行擴展</td><td>1.00× / 1.50× / 2.43× / 2.96×（串行 3.17 s/局）</td><td>本機實測</td></tr>
+    <tr><td>6000 局牆鐘</td><td>7.1 小時（串行）→ 62 分鐘（8 workers）</td><td>訓練日誌 / 本機實測</td></tr>
+    <tr><td>GPU 診斷</td><td>conv kernel 啟動 ≈ 640 µs（佔自對弈 60%）；逐葉子同步 160 次/搜尋；8 執行緒慢 34%</td><td>本機實測（ROCm 環境，docs/rocm-wsl2.md）</td></tr>
+  </tbody>
+</table>
+
+<h3>A.3 差異與誠實註記</h3>
+<ol>
+  <li><b>SearchNode 類別註解 vs 實際展開</b>：<span class="kbd">SearchNode</span> 第 185–192 行類別註解宣稱「一次展開一個子節點（untried list）」，但 <span class="kbd">mcts_search</span> 第 325–344 行的實際行為是<b>首次訪問即全展開所有子節點並填先驗</b>（標準 AZ，與 D13 記錄一致）。本報告以實際行為為準。</li>
+  <li><b>PUCT 分母無 +1</b>：rave.md 建議公式含 \(1+N(s,a)\)，實際程式碼為 \(\sqrt{\log(N_{\mathrm{parent}})/N_{\mathrm{child}}}\)（第 212–221 行）；以實際程式碼為準。</li>
+  <li><b>bitboard 預設值</b>：D12 記載「bitboard 實測無增益故預設關」，但現行 <span class="kbd">_CFG_DEFAULTS</span>（ai.py 第 46 行）與 <span class="kbd">sba.toml</span> 皆為 <span class="kbd">bitboard = true</span>（MCTS 在終極模式預設以位板搜尋）；報告以程式碼現況描述並標註此文件/程式差異。</li>
+  <li><b>BATCH_SIZE 演進</b>：D13 記錄 16、D17 固定 256；現行程式碼為 256。</li>
+  <li><b>損失曲線僅端點</b>：800 局（3.37→1.29）與 6000 局（2.46→0.094）僅有起訖記錄，中間檢查點（每 25 / 500 局）資料未隨附；圖中虛線為趨勢示意而非量測值。</li>
+  <li><b>400 局 97.5% vs 800 局 90%</b>：兩者來自不同訓練 run（配置/記錄基準不同），並列時不代表非單調曲線；圖表已加註。</li>
+  <li><b>加速比與牆鐘不互推</b>：「3.17 s/局 → 1.50×/2.43×/2.96×」與「7.1 h → 62 min」為不同量測時點的記錄，直接相乘會矛盾，故分列。</li>
+  <li><b>環境</b>：GPU 診斷基於 Windows 原生 ROCm（TheRock nightly wheel，RX 7900 XTX）；WSL2 ROCm 6.2.4 路徑因 <span class="kbd">/dev/kfd</span> 驅動問題為備案（docs/rocm-wsl2.md）。</li>
+</ol>
+</section>
+
+<footer>
+  本報告依專案原始碼（game.py / ai.py / alphazero.py，2026-08 現況）與 docs/decisions.md、docs/rocm-wsl2.md 撰寫；
+  所有程式碼區塊逐字引用並標註檔名與行號。GPL-3.0-or-later © 2026 TofuShawn
+</footer>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+<script>
+Chart.defaults.font.family = '"Noto Sans TC","Microsoft JhengHei","Segoe UI",sans-serif';
+Chart.defaults.color = '#475569';
+Chart.defaults.borderColor = '#e2e8f0';
+
+new Chart(document.getElementById('chartLoss'), {
+  type: 'line',
+  data: {
+    labels: [0, 200, 400, 600, 800, 1200, 1600, 2000, 2400, 2800, 3200, 3600, 4000, 4400, 4800, 5200, 5600, 6000],
+    datasets: [
+      {
+        label: '800 局訓練 (3.37 → 1.29)',
+        data: [{x: 0, y: 3.37}, {x: 800, y: 1.29}],
+        borderColor: '#2563eb',
+        backgroundColor: '#2563eb',
+        pointRadius: 4,
+        borderDash: [7, 5],
+        tension: 0,
+        spanGaps: true
+      },
+      {
+        label: '6000 局訓練 (2.46 → 0.094)',
+        data: [{x: 0, y: 2.46}, {x: 6000, y: 0.094}],
+        borderColor: '#0d9488',
+        backgroundColor: '#0d9488',
+        pointRadius: 4,
+        borderDash: [7, 5],
+        tension: 0,
+        spanGaps: true
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: { type: 'linear', title: { display: true, text: '自對弈局數' }, min: 0 },
+      y: { title: { display: true, text: '總損失 (Lp + Lv)' }, min: 0 }
+    },
+    plugins: { legend: { position: 'bottom' } }
+  }
+});
+
+new Chart(document.getElementById('chartEval'), {
+  type: 'line',
+  data: {
+    labels: ['400 局', '800 局', '6000 局'],
+    datasets: [{
+      label: '對隨機勝率 %（含 rollout, w=0.5）',
+      data: [97.5, 90, 95],
+      borderColor: '#2563eb',
+      backgroundColor: '#2563eb',
+      pointRadius: 5,
+      borderDash: [7, 5],
+      tension: 0.15
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: { min: 60, max: 100, title: { display: true, text: '勝率 %' } }
+    },
+    plugins: { legend: { position: 'bottom' } }
+  }
+});
+
+new Chart(document.getElementById('chartRollout'), {
+  type: 'bar',
+  data: {
+    labels: ['純網路 w=0（400 局）', '純網路 w=0（800 局）', '含 rollout w=0.5（400 局）'],
+    datasets: [{
+      label: '對隨機勝率 %',
+      data: [76, 76, 97.5],
+      backgroundColor: ['#94a3b8', '#94a3b8', '#0d9488'],
+      borderRadius: 6
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: { min: 0, max: 100, title: { display: true, text: '勝率 %' } }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+
+new Chart(document.getElementById('chartSpeed'), {
+  type: 'bar',
+  data: {
+    labels: ['1 worker（串行）', '2 workers', '4 workers', '8 workers'],
+    datasets: [{
+      label: '加速比 ×',
+      data: [1.00, 1.50, 2.43, 2.96],
+      backgroundColor: ['#94a3b8', '#60a5fa', '#2563eb', '#0d9488'],
+      borderRadius: 6
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      y: { min: 0, title: { display: true, text: '加速比（對串行）' } }
+    },
+    plugins: { legend: { display: false } }
+  }
+});
+</script>
+</body>
+</html>
