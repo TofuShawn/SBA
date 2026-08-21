@@ -1,6 +1,6 @@
-# SBA - Basically Awful / 基本上很糟
+# SBA - SBA Basically Awful / SBA - SBA糟透了
 
-**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個雙語（English / 繁體中文）的**井字棋**與**終極井字棋**網頁應用，使用 [NiceGUI](https://nicegui.io) 打造。內建 **8 種 AI 對手**、AI 助手分析面板、三種對戰模式，以及 Material Design 3 風格介面。
+**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**網頁應用，使用 [NiceGUI](https://nicegui.io) Material Design 3 風格介面打造。內建 **7 種 AI 對手**、AI 分析面板、三種對戰模式。
 
 > The name is a joke. The game is actually (mostly) fine.
 > 名字是開玩笑的，遊戲其實（大致上）還不錯。
@@ -36,7 +36,7 @@
 ## Requirements / 環境需求
 
 - Python **3.12+**（於 3.13 開發）
-- 核心依賴：`nicegui>=3.16`
+- 核心依賴：`nicegui=3.16`
 
 Install core dependencies / 安裝核心依賴：
 
@@ -54,7 +54,7 @@ PyQt-SiliconUI（PySide6 fork）已隨專案 vendoring 於 `vendor/siui/`（GPLv
 pip install torch numpy
 ```
 
-已訓練的 AlphaZero 網路會存放在 `models/`（已被 gitignore）。
+已訓練的 AlphaZero 網路會在Release發佈。
 
 AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參考
 [`docs/rocm-wsl2.md`](docs/rocm-wsl2.md)。
@@ -65,7 +65,7 @@ AlphaZero 訓練方法與效能分析見
 新手想快速讀懂專案，可依 [`docs/reading-guide.md`](docs/reading-guide.md)
 的閱讀路線進行。
 
-給同學的從零教學見
+給新手的從零教學見
 [`docs/tutorial-zh.md`](docs/tutorial-zh.md)（簡體中文）／
 [`docs/tutorial-zh-Hant.md`](docs/tutorial-zh-Hant.md)（繁體中文）。
 
@@ -219,5 +219,3 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`
 ## License / 授權
 
 This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
-
-The desktop app bundles PyQt-SiliconUI（GPLv3）under `vendor/siui/`, so the combined work is distributed under GPLv3 / 桌面版隨附 PyQt-SiliconUI（GPLv3，見 `vendor/siui/LICENSE`），合併作品因此以 GPLv3 發行。
