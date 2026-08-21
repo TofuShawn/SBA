@@ -253,6 +253,20 @@ Engine-fix evidence: Minimax Pro root move ordering (D19) went 32.5% → 45% vs
 plain Minimax and 40% → 47.5% vs MCTS / 引擎修正證據：Minimax Pro 根節點排序修正（D19）
 對普通 Minimax 32.5% → 45%、對 MCTS 40% → 47.5%。
 
+### MCTS family round-robin (Ultimate, 30 games/pair, 300 sims) / MCTS 家族循環賽
+
+| A vs B / 對戰 | W / D / L | Score / 得分率 |
+|---|---|---|
+| MCTS vs MCTS+RAVE | 14 / 3 / 13 | 51.7% |
+| MCTS vs MCTS+GRAVE | 13 / 3 / 14 | 48.3% |
+| MCTS+RAVE vs MCTS+GRAVE | 10 / 7 / 13 | 45.0% |
+
+Statistically tied (each within ±9%); the shared optimizations (heuristic
+rollout, dynamic UCT, tree reuse) now dominate the RAVE/GRAVE bias term, so
+the older D8/D12 "GRAVE ahead" ranking no longer holds at 300 sims /
+三者統計持平（各在 ±9% 內）；共用優化（啟發式 rollout、動態 UCT、樹重用）已蓋過
+RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立。
+
 ---
 
 ## Credits / 致謝
