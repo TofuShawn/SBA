@@ -28,6 +28,7 @@ import argparse
 import math
 import os
 import random
+import threading
 import time
 
 # Windows + TheRock ROCm wheels: MIOpen (PyTorch's conv backend) keeps its
@@ -169,7 +170,7 @@ class AZNet(nn.Module):
 # Neural-guided MCTS
 # ---------------------------------------------------------------
 
-ROLLOUT_WEIGHT = 0.0  # pure network leaf value (standard AZ); >0 mixes random playouts
+ROLLOUT_WEIGHT = 0.5  # leaf value = (1-w)*network + w*random playout; 0 = pure network
 VIRTUAL_LOSS = 2.0    # applied during batched selection so parallel workers diverge
 BATCH_SIZE = 256      # default leaf-parallel batch size for network inference
 DIRICHLET_EPS = 0.25  # root-prior noise weight in self-play (standard AZ value)
@@ -218,31 +219,116 @@ class SearchNode:
 
 
 def rollout_value(g):
-    """Random playout from g; value from the perspective of g's current player."""
+    """Heuristic playout from g; value from the perspective of g's current player.
+
+    Uses the ai.py win/block-biased rollout policy (lazy import: ai.py loads
+    alphazero on demand, never at module level). Tactical playouts are far
+    stronger than uniform random on Ultimate Tic Tac Toe.
+    """
+    from ai import _rollout_move
     player = g.current
     state = g.clone()
     while not state.is_over():
         legal = state.legal_moves()
         if not legal:
             break
-        apply_move(state, random.choice(legal))
+        apply_move(state, _rollout_move(state, legal))
     r = state.result()
     if r == 'D':
         return 0.0
     return 1.0 if r == player else -1.0
 
 
+class InferenceBatcher:
+    """Shared inference queue for parallel self-play.
+
+    Search threads submit their leaf states and block until the results
+    arrive; a dedicated thread stacks submissions from all games into one big
+    batch per forward, keeping the GPU busy while the (GIL-bound) rollouts
+    run on other threads. The lock also guards weight updates: the trainer
+    holds it while stepping so a forward never runs mid-update.
+    """
+
+    def __init__(self, model, device, max_batch=2048):
+        self.model = model
+        self.device = device
+        self.max_batch = max_batch
+        self.lock = threading.Lock()
+        self._pending = []  # (states_list, n, event, slot)
+        self._stop = False
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop = True
+        if self._thread is not None:
+            self._thread.join()
+
+    def predict(self, states, n):
+        """Forward a list of CPU state tensors; returns (probs, values) numpy."""
+        event = threading.Event()
+        slot = [None]
+        with self.lock:
+            self._pending.append((states, n, event, slot))
+        event.wait()
+        result = slot[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    def _run(self):
+        while not self._stop:
+            with self.lock:
+                reqs = []
+                total = 0
+                while self._pending:
+                    n_next = self._pending[0][1]
+                    if reqs and total + n_next > self.max_batch:
+                        break
+                    states, n, event, slot = self._pending.pop(0)
+                    reqs.append((states, n, event, slot))
+                    total += n
+                if not reqs:
+                    time.sleep(0.001)
+                    continue
+                # The forward runs under the lock so it never overlaps the
+                # trainer's optimizer steps (which hold the same lock).
+                try:
+                    with torch.no_grad():
+                        batch = torch.cat(
+                            [torch.stack(s) for s, _, _, _ in reqs])
+                        batch = batch.to(self.device)
+                        policies, values = self.model(batch)
+                        probs = F.softmax(policies, dim=1).cpu().numpy()
+                        vals = values.squeeze(1).cpu().numpy()
+                    offset = 0
+                    for _, n, _, slot in reqs:
+                        slot[0] = (probs[offset:offset + n],
+                                   vals[offset:offset + n])
+                        offset += n
+                except Exception as e:  # deliver the error instead of deadlocking
+                    for _, _, _, slot in reqs:
+                        slot[0] = e
+                for _, _, event, _ in reqs:
+                    event.set()
+
+
 @torch.no_grad()
 def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
                 batch_size=BATCH_SIZE, dirichlet_alpha=None,
-                dirichlet_eps=DIRICHLET_EPS):
+                dirichlet_eps=DIRICHLET_EPS, batcher=None):
     """Neural-guided MCTS with leaf-parallel batched inference (standard AZ).
 
     Every node is expanded in full (all children created with priors) on its
     first visit, so selection always descends to an unexpanded leaf. Up to
     ``batch_size`` leaves are selected per round (virtual loss keeps parallel
     workers on different branches) and evaluated with one batched network call,
-    cutting per-iteration kernel-launch overhead on ROCm/CUDA.
+    cutting per-iteration kernel-launch overhead on ROCm/CUDA. With a
+    ``batcher``, the evaluation goes through the shared inference queue
+    instead, so concurrent self-play games forward together.
 
     Returns (root SearchNode, {move: visit_count}).
 
@@ -252,7 +338,10 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
     """
     if rollout_weight is None:
         rollout_weight = ROLLOUT_WEIGHT
-    model.eval()  # inference: BatchNorm must use running stats, not batch stats
+    if batcher is None:
+        # Direct path owns the module's train/eval mode; in batched mode the
+        # trainer owns it (flipping it here would race the optimizer steps).
+        model.eval()  # inference: BatchNorm must use running stats, not batch stats
     root_state = game.clone()
     root = SearchNode(root_state, None)
 
@@ -296,11 +385,15 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
         if leaves:
             pad = batch_size - len(leaves)
             padded = leaves + [leaves[0]] * pad
-            states = torch.stack(
-                [encode(node.state) for _, node in padded]).to(DEVICE)
-            policies, values = model(states)
-            probs_batch = F.softmax(policies, dim=1).cpu().numpy()[:len(leaves)]
-            values_batch = values.squeeze(1).cpu().numpy()[:len(leaves)]
+            leaf_states = [encode(node.state) for _, node in padded]
+            if batcher is not None:
+                probs_batch, values_batch = batcher.predict(
+                    leaf_states, len(leaves))
+            else:
+                states = torch.stack(leaf_states).to(DEVICE)
+                policies, values = model(states)
+                probs_batch = F.softmax(policies, dim=1).cpu().numpy()[:len(leaves)]
+                values_batch = values.squeeze(1).cpu().numpy()[:len(leaves)]
             for (path, node), probs, value in zip(leaves, probs_batch, values_batch):
                 value = float(value)
                 if rollout_weight > 0:
@@ -332,10 +425,11 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
 
 
 def mcts_visit_counts(game, model, budget, c_puct=1.5, batch_size=BATCH_SIZE,
-                      dirichlet_alpha=None, dirichlet_eps=DIRICHLET_EPS):
+                      dirichlet_alpha=None, dirichlet_eps=DIRICHLET_EPS,
+                      batcher=None):
     _, counts = mcts_search(game, model, budget, c_puct, batch_size=batch_size,
                             dirichlet_alpha=dirichlet_alpha,
-                            dirichlet_eps=dirichlet_eps)
+                            dirichlet_eps=dirichlet_eps, batcher=batcher)
     return counts
 
 
@@ -397,14 +491,15 @@ def _save_model(model, size, channels, blocks, path):
 
 
 def self_play_game(make_game_fn, model, sims, temp,
-                   dirichlet_eps=DIRICHLET_EPS):
+                   dirichlet_eps=DIRICHLET_EPS, batcher=None):
     game = make_game_fn()
     states, targets, players = [], [], []
     while not game.is_over():
         legal = game.legal_moves()
         counts = mcts_visit_counts(game, model, sims,
                                    dirichlet_alpha='auto',
-                                   dirichlet_eps=dirichlet_eps)
+                                   dirichlet_eps=dirichlet_eps,
+                                   batcher=batcher)
         n = np.array([counts.get(m, 0) for m in legal], dtype=np.float64)
         n = n + 1e-8
         if temp > 0.01:
@@ -428,10 +523,42 @@ def self_play_game(make_game_fn, model, sims, temp,
     return states, targets, zs
 
 
+# ---------------------------------------------------------------
+# Multi-process self-play (Windows spawn-safe)
+# ---------------------------------------------------------------
+# Worker processes each own a GIL and a model copy, so the CPU-bound
+# rollouts/tree code parallelizes for real (unlike threads). Every task
+# carries the latest weights, so workers stay stateless; results come back
+# through a shared queue and the main process alone runs the optimizer.
+
+_MP_RESULTS_Q = None
+
+
+def _mp_worker_init(results_q):
+    global _MP_RESULTS_Q
+    _MP_RESULTS_Q = results_q
+
+
+def _mp_play_game(idx, weights, size, channels, blocks, sims,
+                  dirichlet_eps, games, game_type, rollout_weight):
+    global ROLLOUT_WEIGHT
+    ROLLOUT_WEIGHT = rollout_weight
+    model = AZNet(size, channels, blocks).to(DEVICE)
+    model.load_state_dict(weights)
+    model.eval()
+    temp = max(0.05, 1.0 - idx / games)
+    try:
+        states, targets, zs = self_play_game(
+            lambda: make_game(game_type), model, sims, temp, dirichlet_eps)
+        _MP_RESULTS_Q.put((idx, (states, targets, zs)))
+    except Exception as e:  # noqa: BLE001 - keep the run alive
+        _MP_RESULTS_Q.put((idx, e))
+
+
 def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           lr=1e-3, seed=None, save=True, quiet=False,
           steps_per_game=5, replay_cap=100, channels=128, blocks=5,
-          ckpt_every=None, dirichlet_eps=DIRICHLET_EPS):
+          ckpt_every=None, dirichlet_eps=DIRICHLET_EPS, workers=1):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
@@ -464,6 +591,12 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         return wins, draws, losses
 
     replay = []
+    if workers > 1:
+        return _train_multiprocess(
+            make_game_fn, model, optimizer, evaluate, replay, games, sims,
+            eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
+            channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
+            start, ROLLOUT_WEIGHT)
     for it in range(1, games + 1):
         temp = max(0.05, 1.0 - it / games)
         states, targets, zs = self_play_game(
@@ -512,6 +645,99 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
     return model
 
 
+def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
+                        sims, eval_every, lr, save, quiet, steps_per_game,
+                        replay_cap, size, channels, blocks, ckpt_every,
+                        dirichlet_eps, workers, game_type, start,
+                        rollout_weight):
+    """Multi-process self-play.
+
+    A worker pool plays the games (each task carries the latest weights and
+    uses its own GPU model copy); the main process collects results, runs the
+    optimizer, checkpoints and evaluates. Spawn context is required on
+    Windows; the pool transparently replaces crashed workers.
+    """
+    import multiprocessing as mp
+    ctx = mp.get_context('spawn')
+    results_q = ctx.Queue()
+    pool = ctx.Pool(workers, initializer=_mp_worker_init, initargs=(results_q,))
+
+    def submit(idx):
+        weights = {k: v.cpu() for k, v in model.state_dict().items()}
+        return pool.apply_async(
+            _mp_play_game,
+            (idx, weights, size, channels, blocks, sims,
+             dirichlet_eps, games, game_type, rollout_weight))
+
+    pending = set()
+    next_idx = 1
+    for _ in range(min(workers * 2, games)):
+        pending.add(next_idx)
+        submit(next_idx)
+        next_idx += 1
+
+    done = 0
+    while done < games:
+        idx, data = results_q.get()
+        pending.discard(idx)
+        done += 1
+        if isinstance(data, Exception):
+            print('[%s] self-play worker failed game %d: %s'
+                  % (game_type, idx, data), flush=True)
+        else:
+            states, targets, zs = data
+            replay.append((states, targets, zs))
+            if len(replay) > replay_cap:
+                replay.pop(0)
+            optimizer.param_groups[0]['lr'] = lr * max(0.2, 1.0 - done / games)
+            model.train()
+            total_loss = 0.0
+            for _ in range(steps_per_game):
+                g_states, g_targets, g_zs = random.choice(replay)
+                n_pos = len(g_states)
+                # Fixed batch size (with replacement when a game is short)
+                # keeps one tensor shape per process for MIOpen.
+                idx2 = np.random.choice(n_pos, 128, replace=True)
+                batch = torch.stack([g_states[i] for i in idx2]).to(DEVICE)
+                target = torch.stack(
+                    [torch.tensor(g_targets[i]) for i in idx2]).to(DEVICE)
+                z = torch.tensor([g_zs[i] for i in idx2],
+                                 dtype=torch.float32).to(DEVICE)
+                optimizer.zero_grad()
+                pred_p, pred_v = model(batch)
+                loss_p = -(F.log_softmax(pred_p, dim=1) * target).sum(dim=1).mean()
+                loss_v = F.mse_loss(pred_v[:, 0], z)
+                (loss_p + loss_v).backward()
+                optimizer.step()
+                total_loss += float(loss_p + loss_v)
+            model.eval()
+            if save and ckpt_every and done % ckpt_every == 0:
+                path = model_path(game_type)
+                _save_model(model, size, channels, blocks, path)
+                if not quiet:
+                    print('[%s] checkpoint game %d/%d -> %s'
+                          % (game_type, done, games, path), flush=True)
+            if not quiet and (done % max(1, eval_every) == 0 or done == games):
+                el = time.time() - start
+                w, d, l = evaluate()
+                print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
+                      % (game_type, done, games, w, d, l,
+                         total_loss / steps_per_game, el), flush=True)
+        if next_idx <= games:
+            pending.add(next_idx)
+            submit(next_idx)
+            next_idx += 1
+
+    pool.close()
+    pool.join()
+    if save:
+        path = model_path(game_type)
+        _save_model(model, size, channels, blocks, path)
+        if not quiet:
+            print('saved', path)
+    return model
+
+
 def load_model(game_type):
     path = model_path(game_type)
     if not os.path.exists(path):
@@ -529,6 +755,7 @@ def load_model(game_type):
 # ---------------------------------------------------------------
 
 def main(argv=None):
+    global ROLLOUT_WEIGHT
     ap = argparse.ArgumentParser(description='AlphaZero for (Ultimate) Tic Tac Toe')
     sub = ap.add_subparsers(dest='cmd', required=True)
     tr = sub.add_parser('train')
@@ -538,7 +765,7 @@ def main(argv=None):
     tr.add_argument('--eval-games', type=int, default=20)
     tr.add_argument('--lr', type=float, default=1e-3)
     tr.add_argument('--seed', type=int, default=None)
-    tr.add_argument('--rollout-weight', type=float, default=0.0,
+    tr.add_argument('--rollout-weight', type=float, default=ROLLOUT_WEIGHT,
                     help='random-playout mix in the leaf value (0 = pure network)')
     tr.add_argument('--channels', type=int, default=128,
                     help='conv channels of the residual tower (default: 128)')
@@ -548,18 +775,22 @@ def main(argv=None):
                     help='save a checkpoint every N games (default: 25)')
     tr.add_argument('--dirichlet-eps', type=float, default=DIRICHLET_EPS,
                     help='root-prior exploration noise weight (0 disables)')
+    tr.add_argument('--workers', type=int, default=1,
+                    help='parallel self-play processes, each with its own GPU model copy (default: 1)')
     ev = sub.add_parser('eval')
     ev.add_argument('--games', type=int, default=20)
     ev.add_argument('--sims', type=int, default=200)
+    ev.add_argument('--rollout-weight', type=float, default=ROLLOUT_WEIGHT,
+                    help='random-playout mix in the leaf value (0 = pure network)')
     args = ap.parse_args(argv)
+    ROLLOUT_WEIGHT = args.rollout_weight
     if args.cmd == 'train':
-        global ROLLOUT_WEIGHT
-        ROLLOUT_WEIGHT = args.rollout_weight
         train('ultimate', args.games, args.sims, args.eval_every,
               args.eval_games, args.lr, args.seed,
               channels=args.channels, blocks=args.blocks,
               ckpt_every=args.ckpt_every,
-              dirichlet_eps=args.dirichlet_eps)
+              dirichlet_eps=args.dirichlet_eps,
+              workers=args.workers)
     else:
         model = load_model('ultimate')
         if model is None:

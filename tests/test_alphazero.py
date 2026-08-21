@@ -80,3 +80,28 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
                     quiet=True, save=True, ckpt_every=2,
                     channels=32, blocks=2)
     assert target.exists()
+
+
+def test_inference_batcher_shapes():
+    model = alphazero.AZNet(3).to(alphazero.DEVICE).eval()
+    batcher = alphazero.InferenceBatcher(model, alphazero.DEVICE)
+    batcher.start()
+    try:
+        states = [alphazero.encode(NormalGame()) for _ in range(5)]
+        probs, vals = batcher.predict(states, 5)
+        assert probs.shape == (5, 9) and vals.shape == (5,)
+        assert abs(float(probs[0].sum()) - 1.0) < 1e-5
+    finally:
+        batcher.stop()
+
+
+def test_train_parallel_workers(monkeypatch):
+    monkeypatch.setattr(
+        alphazero, 'alphazero_move',
+        lambda game, model, budget=800: random.choice(game.legal_moves()))
+    model = alphazero.train('ultimate', games=4, sims=2, eval_every=99,
+                            eval_games=1, quiet=True, save=False,
+                            channels=32, blocks=2, workers=2)
+    assert model is not None
+    g = UltimateGame()
+    assert alphazero.select_move(g, model, 10) in g.legal_moves()
