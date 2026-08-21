@@ -135,8 +135,8 @@ python SBA.py --bench --games 10 --iters 200 --normal
 
 Available engines for `--ai-a`/`--ai-b`: Random, Basic, Minimax, Minimax Pro,
 MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero. The first player alternates
-per game and per-match win rates are printed / `--ai-a`/`--ai-b` 可用引擎如上；
-每局輪換先手，輸出各組合勝率。
+per game and per-match scores (win = 1, draw = 0.5) are printed /
+`--ai-a`/`--ai-b` 可用引擎如上；每局輪換先手，輸出各組合得分率（勝 = 1、和 = 0.5）。
 
 ### 3. Train / evaluate AlphaZero / 訓練與評估 AlphaZero
 
@@ -196,6 +196,62 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`
 - If that macro cell is won or full, the player may play any open macro cell / 若該大格已分出勝負或填滿，則可選擇任意未結束的大格。
 - Winning a micro board claims that macro cell; a full micro board with no winner is a neutral draw / 贏得小棋盤即佔領該大格；填滿且無勝負的小棋盤算平局。
 - Win the game by claiming 3 macro cells in a line; otherwise a full board is a draw / 連成三條大格即獲勝；全盤填滿無勝負則平局。
+
+---
+
+## Benchmarks / 實測基準
+
+Measured with `python SBA.py --bench` on this machine (AMD Ryzen 9 9950X,
+RX 7900 XTX); **score% = (wins + draws/2) / games**, 20–30 games per matchup,
+first player alternates. Reproduce any row with `--ai-a X --ai-b Y --games N`.
+/ 本機實測（`python SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20–30 局、輪換先手。
+
+### All engines vs Basic (Ultimate) / 全部引擎 vs Basic（終極，20 局）
+
+| Engine / 引擎 | W / D / L | Score / 得分率 |
+|---|---|---|
+| Minimax (depth 4) | 20 / 0 / 0 | **100%** |
+| Minimax Pro | 19 / 1 / 0 | **97.5%** |
+| MCTS+GRAVE | 19 / 1 / 0 | **97.5%** |
+| Solver\* | 19 / 1 / 0 | **97.5%** |
+| MCTS | 17 / 2 / 1 | 90% |
+| MCTS+RAVE | 17 / 2 / 1 | 90% |
+| Flat MCTS | 14 / 3 / 3 | 77.5% |
+| AlphaZero (300 sims) | 12 / 6 / 2 | 75% |
+| Basic | 1 / 15 / 4 | 42.5% |
+| Random | 1 / 2 / 17 | 10% |
+
+\* On Ultimate, Solver is a plain MCTS fallback — it only truly solves Normal /
+終極模式的 Solver 實為 MCTS fallback（僅普通模式真正求解）。
+
+### All engines vs Basic (Normal) / 全部引擎 vs Basic（普通，20 局）
+
+| Engine / 引擎 | W / D / L | Score / 得分率 |
+|---|---|---|
+| Minimax / Minimax Pro | 4 / 16 / 0 | **60%（0 敗）** |
+| Solver | 2 / 18 / 0 | **55%（0 敗）** |
+| Flat MCTS | 4 / 13 / 3 | 52.5% |
+| MCTS / MCTS+RAVE / MCTS+GRAVE | 0 / 19 / 1 | 47.5% |
+| Basic | 1 / 17 / 2 | 47.5% |
+| AlphaZero\* | 0 / 6 / 14 | 15% |
+| Random | 0 / 1 / 19 | 2.5% |
+
+\* Normal model is legacy; AlphaZero trains on Ultimate only (D4) /
+普通模型為舊版；AlphaZero 僅訓練終極模式（D4）。
+
+### MCTS scales with budget / MCTS 隨預算變強（vs Minimax depth 4，Ultimate）
+
+| Matchup / 對戰（30 局） | Score / 得分率 |
+|---|---|
+| Minimax vs MCTS@800 | **63.3%（Minimax）** |
+| Minimax vs MCTS@2000 | **40.0%（MCTS）** |
+
+Crossover around 1200–1600 sims — MCTS has no depth cap, so it wins as the
+budget grows (D20) / 交叉點約 1200–1600 sims——MCTS 無深度上限，預算越高越強（D20）。
+
+Engine-fix evidence: Minimax Pro root move ordering (D19) went 32.5% → 45% vs
+plain Minimax and 40% → 47.5% vs MCTS / 引擎修正證據：Minimax Pro 根節點排序修正（D19）
+對普通 Minimax 32.5% → 45%、對 MCTS 40% → 47.5%。
 
 ---
 
