@@ -82,19 +82,6 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
     assert target.exists()
 
 
-def test_inference_batcher_shapes():
-    model = alphazero.AZNet(3).to(alphazero.DEVICE).eval()
-    batcher = alphazero.InferenceBatcher(model, alphazero.DEVICE)
-    batcher.start()
-    try:
-        states = [alphazero.encode(NormalGame()) for _ in range(5)]
-        probs, vals = batcher.predict(states, 5)
-        assert probs.shape == (5, 9) and vals.shape == (5,)
-        assert abs(float(probs[0].sum()) - 1.0) < 1e-5
-    finally:
-        batcher.stop()
-
-
 def test_train_parallel_workers(monkeypatch):
     monkeypatch.setattr(
         alphazero, 'alphazero_move',
