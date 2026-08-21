@@ -1,4 +1,4 @@
-# SBA - SBA Basically Awful / SBA - SBA糟透了
+# SBA - Basically Awful / 基本上很糟
 
 **SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**網頁應用，使用 [NiceGUI](https://nicegui.io) Material Design 3 風格介面打造。內建 **7 種 AI 對手**、AI 分析面板、三種對戰模式。
 
@@ -36,7 +36,7 @@
 ## Requirements / 環境需求
 
 - Python **3.12+**（於 3.13 開發）
-- 核心依賴：`nicegui=3.16`
+- 核心依賴：`nicegui>=3.16`
 
 Install core dependencies / 安裝核心依賴：
 
@@ -54,7 +54,8 @@ PyQt-SiliconUI（PySide6 fork）已隨專案 vendoring 於 `vendor/siui/`（GPLv
 pip install torch numpy
 ```
 
-已訓練的 AlphaZero 網路會在Release發佈。
+Trained AlphaZero weights are distributed via GitHub Releases /
+已訓練的 AlphaZero 網路會在 GitHub Releases 發佈。
 
 AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參考
 [`docs/rocm-wsl2.md`](docs/rocm-wsl2.md)。
@@ -219,3 +220,5 @@ Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`
 ## License / 授權
 
 This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
+
+The desktop app bundles PyQt-SiliconUI（GPLv3）under `vendor/siui/`, so the combined work is distributed under GPLv3 / 桌面版隨附 PyQt-SiliconUI（GPLv3，見 `vendor/siui/LICENSE`），合併作品因此以 GPLv3 發行。
