@@ -171,7 +171,13 @@ def _play_match(x_ai, o_ai, game_type, iterations, depth):
 
 def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
           ai_a=None, ai_b=None, depth=4):
-    """Win-rate comparison between two engines (MCTS family by default)."""
+    """Head-to-head score comparison: win = 1, draw = 0.5.
+
+    ``A score%`` = (A wins + draws/2) / games, so draws are not ignored like a
+    plain win rate would. Useful for ranking engines that mostly draw.
+    / 對戰得分比較：勝 = 1、和 = 0.5。``A score%`` =（勝場 + 和局/2）/ 總局數，
+    和局不會被當作無效樣本，適合比較「多半和棋」的引擎強度。
+    """
     random.seed(seed)
     if (ai_a is None) != (ai_b is None):
         print('--ai-a and --ai-b must be given together')
@@ -192,7 +198,7 @@ def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
     else:
         print(f'\nMCTS family benchmark — {game_type} · {games} games/pair · '
               f'{iterations} sims/move')
-    header = f'{"A":<14}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}{"A win%":>8}'
+    header = f'{"A":<14}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}{"A score%":>9}'
     print(header)
     print('-' * len(header))
     for a, b in matchups:
@@ -207,8 +213,8 @@ def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
                 dw += 1
             else:
                 bw += 1
-        pct = 100.0 * aw / games
-        print(f'{a:<14}{b:<14}{aw:7d}{dw:6d}{bw:7d}{pct:7.1f}%')
+        pct = 100.0 * (aw + 0.5 * dw) / games
+        print(f'{a:<14}{b:<14}{aw:7d}{dw:6d}{bw:7d}{pct:8.1f}%')
     return 0
 
 
