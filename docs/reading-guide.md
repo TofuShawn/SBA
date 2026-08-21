@@ -62,11 +62,11 @@ python -m pytest tests/test_game.py -q   # 規則測試，讀懂後應全綠
 `RAVENode` / `GraveNode` 是 MCTS 的研究變體，被保留下來做 A/B 對照
 （D8），**不是必修**。`flat_mcts_move()`（515）是「不建樹」的簡化基準。
 
-### 2f Minimax Pro：剪枝工程（1044–1145）
+### 2f Minimax Pro：剪枝工程（1057–1155）
 `_negamax_tt()`：置換表 + killer moves + LMR + aspiration window。
 讀懂「它在加速什麼」即可，細節是效能工程。
 
-### 2g 助手分析（1342–1507）
+### 2g 助手分析（1355–1522）
 - `reason_for_move()`（1361）：只回傳代號（`'Win'` / `'Block'`…），
   雙語文案在 `SBA.REASON_TEXT`。
 - `analyze_position()`（1407）：一次 MCTS 搜尋，輸出 top moves + 勝率。

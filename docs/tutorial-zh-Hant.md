@@ -642,7 +642,7 @@ def random_move(game):
 
 ### 5.2 分發函數
 
-項目 `ai.py` 有統一入口 `get_ai_move(game, ai_type)`（ai.py 第 1306 行）：
+項目 `ai.py` 有統一入口 `get_ai_move(game, ai_type)`（ai.py 第 1325 行）：
 
 ```python
 def get_ai_move(game, ai_type):
@@ -873,7 +873,7 @@ def eval_ultimate(game, player):
 
 - 普通模式：`_minimax_normal` + `minimax_move_normal`（ai.py 第 138-176 行）
 - 終極模式：`_minimax_ultimate` + `minimax_move_ultimate`（第 234-283 行），還有動態深度（着法少時多搜一層）
-- 進階版 **Minimax Pro**：negamax + 置換表 + 迭代加深 + killer move + LMR + aspiration（第 1044-1140 行）——先跳過，第 9 章介紹思想
+- 進階版 **Minimax Pro**：negamax + 置換表 + 迭代加深 + killer move + LMR + aspiration（第 1057-1155 行）——先跳過，第 9 章介紹思想
 
 ---
 
@@ -1082,7 +1082,7 @@ _ | _ | _
 | Random | 合法着法裏隨機挑 | 很弱 | 很弱 | 0 |
 | Basic | 贏 → 擋 → 中心/角落 | 新手級 | 新手級 | 0 |
 | Minimax | 窮舉 + alpha-beta | **完美（永不輸）** | 深度受限 + 評估函數 | 秒級 |
-| Minimax Pro | negamax + 置換表 + 剪枝 | 完美 | 評估更強 | 可控 |
+| Minimax Pro | negamax + 置換表 + 剪枝 | 完美 | 與 Minimax 持平 | 可控 |
 | MCTS | 隨機模擬幾千盤做統計 | 強 | **實戰首選** | 迭代數 × 毫秒 |
 
 記不住也沒關係：**普通棋盤用 Minimax、終極棋盤用 MCTS**，這就是項目的默認推薦。
@@ -1179,11 +1179,11 @@ class NodePool:
 
 ### 9.3 置換表（Transposition Table）
 
-不同着法順序可能到達**同一個局面**（比如先走 0 再走 4，和先走 4 再走 0）。Minimax 會重複計算這些局面。置換表 = 字典：`局面 → 已算好的分數`，遇到重複局面直接查表。對應項目 `_negamax_tt`（ai.py 第 1044 行），還有 `tt_max` 限制表大小防止內存爆炸。
+不同着法順序可能到達**同一個局面**（比如先走 0 再走 4，和先走 4 再走 0）。Minimax 會重複計算這些局面。置換表 = 字典：`局面 → 已算好的分數`，遇到重複局面直接查表。對應項目 `_negamax_tt`（ai.py 第 1057 行），還有 `tt_max` 限制表大小防止內存爆炸。
 
 ### 9.4 開局書（Opening Book）
 
-開局不需要算，直接查表。項目 `ULTIMATE_BOOK`（ai.py 第 1168 行）：X 第一步走哪裏 → O 應該回哪裏，人工挑選的好應手，省下開局的大量搜索時間。配置化後放在 sba.toml 的 `[engine.opening_book_ultimate]` 段。
+開局不需要算，直接查表。項目 `ULTIMATE_BOOK`（ai.py 第 1181 行）：X 第一步走哪裏 → O 應該回哪裏，人工挑選的好應手，省下開局的大量搜索時間。配置化後放在 sba.toml 的 `[engine.opening_book_ultimate]` 段。
 
 ### 9.5 搜索工程技巧全家桶（Minimax Pro 用了全套）
 
@@ -1192,7 +1192,7 @@ class NodePool:
 - **LMR（Late Move Reduction）**：排序靠後的着法多半差，用較淺深度搜
 - **Aspiration Window**：猜一個分數區間搜，猜錯再放寬
 
-這些是國際象棋引擎的標準套路。井字棋項目裏是"殺雞用牛刀"，但對學習極有價值——這就是項目 ai.py 第 965-1140 行的 Minimax Pro。
+這些是國際象棋引擎的標準套路。井字棋項目裏是"殺雞用牛刀"，但對學習極有價值——這就是項目 ai.py 第 1057-1155 行的 Minimax Pro。
 
 ---
 

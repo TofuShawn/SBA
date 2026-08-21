@@ -362,8 +362,8 @@ footer {
 <p>本報告針對「以 AlphaZero 從零自對弈學會 UTTT」的專案，沿<b>遊戲側（Game Side）</b>與<b>深度學習側（Deep Learning Side）</b>雙線展開，並以 <span class="kbd">game.py</span>、<span class="kbd">ai.py</span>、<span class="kbd">alphazero.py</span> 三個模組的真實程式碼為唯一事實來源。</p>
 
 <ul>
-  <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）、MCTS+RAVE、MCTS+GRAVE、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。在 30 局/對、300 sims 的歷史對戰中，<b>MCTS+GRAVE 勝過 MCTS 與 MCTS+RAVE</b>（D8）；優化配置下的純 MCTS 對 RAVE/GRAVE 約 60% 勝率（D12）。</li>
-  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.46 降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（95%）</b>。對普通 MCTS 在同預算（800/800）下僅 <b>20%</b> 勝率（6W/2D/22L，30 盤）——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
+  <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）、MCTS+RAVE、MCTS+GRAVE、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。現行優化下 MCTS/RAVE/GRAVE 於 30 局/對、300 sims 循環賽中<b>統計持平</b>（51.7% / 48.3% / 45.0%，D21 取代 D8/D12 的舊排名）。</li>
+  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.46 降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（95%）</b>。對普通 MCTS 在同預算（800/800）下得分率僅 <b>23.3%</b>（6W/2D/22L，30 盤）——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
   <li><b>兩側協作</b>：遊戲側的啟發式 rollout（<span class="kbd">ai._rollout_move</span>）與位板搜尋（<span class="kbd">BitUltimateGame</span>）被 AlphaZero 的葉節點評估與 MCTS 搜尋直接復用；位板表示同時服務傳統引擎與神經搜尋，形成單向依賴 <span class="kbd">game.py → ai.py → alphazero.py</span> 的乾淨架構（D2）。</li>
 </ul>
 
@@ -753,7 +753,7 @@ def encode(game):
 </ul>
 
 <h3>3.4 Minimax Pro：negamax + 置換表 + Killer/LMR/Aspiration + 疊代加深</h3>
-<p><span class="kbd">minimax_pro_move()</span>（第 1109–1149 行）是終極模式的最強傳統精確搜尋，關鍵設計：</p>
+<p><span class="kbd">minimax_pro_move()</span>（第 1109–1149 行）是終極模式的進階傳統精確搜尋（D19：根節點排序修正後與普通 Minimax 統計持平），關鍵設計：</p>
 <ul>
   <li><b>線程本地快取</b>：置換表與 Killer 表存放於 <span class="kbd">threading.local()</span>（<span class="kbd">_tls</span>，第 984 行），使 Web 端以 <span class="kbd">asyncio.to_thread</span> 並發的搜尋互不污染（第 981–983 行註解）。</li>
   <li><b>置換表鍵</b>：<span class="kbd">_tt_key()</span>（第 1001–1005 行）對終極模式編碼 micro 字串 + <span class="kbd">active_macro</span> + <span class="kbd">current</span>——因為 <span class="kbd">active_macro</span> 決定合法集合，少了它置換表就會誤用。</li>
@@ -1696,10 +1696,10 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 （終極模式、每局輪換先手）取代先前 6 盤、預算不對等（AZ 1600 vs MCTS 800）的紀錄：</p>
 <table>
   <thead>
-    <tr><th>引擎 A</th><th>引擎 B</th><th>A 勝</th><th>和</th><th>B 勝</th><th>A 勝率</th></tr>
+    <tr><th>引擎 A</th><th>引擎 B</th><th>A 勝</th><th>和</th><th>B 勝</th><th>A 得分率</th></tr>
   </thead>
   <tbody>
-    <tr><td><span class="kbd">AlphaZero</span></td><td><span class="kbd">MCTS</span></td><td>6</td><td>2</td><td>22</td><td><strong>20.0%</strong></td></tr>
+    <tr><td><span class="kbd">AlphaZero</span></td><td><span class="kbd">MCTS</span></td><td>6</td><td>2</td><td>22</td><td><strong>23.3%</strong></td></tr>
   </tbody>
 </table>
 <p class="cap">對等預算下 AZ 明顯落後（6W/2D/22L）。差距來源即 6.4 節「搜尋退化」：全展開＋先驗引導在固定小預算下，先驗質量不足時訪問集中於少數高先驗分支，缺乏啟發式 rollout 的深層戰術修正。</p>
@@ -1749,7 +1749,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <ul>
   <li><b>Rollout 權重消融</b>：純網路（w=0）在 400/800 局僅 70–76% 對隨機勝率；w=0.5 同 400 局即達 <b>97.5%</b>——啟發式 rollout 是 UTTT 這種戰術小遊戲上的強度主力（見下圖）。</li>
   <li><b>網路容量與對局量</b>：32ch/3 塊 → 128ch/5 塊、800 → 6000 局，loss 由 1.88 降至 0.094、對隨機勝率 90% → 95%。</li>
-  <li><b>對普通 MCTS 的結構性差距</b>：同預算（800/800、30 盤）下為 <b>6 勝 2 平 22 負（20%）</b>（見上方基準表）；若給 AZ 雙倍預算（1600 sims vs 800 迭代）則為 2 勝 1 平 3 負。差距來源是搜尋哲學：AZ 的全展開 + 先驗引導能快速聚焦高價值分支，但每一葉子只做 80–200 次模擬級評估；而啟發式 rollout 的 MCTS 把同樣預算集中於深層戰術對弈（吃/擋直到終局）。此消彼長正是 6.4 節「搜尋退化」討論的實例。</li>
+  <li><b>對普通 MCTS 的結構性差距</b>：同預算（800/800、30 盤）下為 <b>6 勝 2 平 22 負（得分率 23.3%）</b>（見上方基準表）；若給 AZ 雙倍預算（1600 sims vs 800 迭代）則為 2 勝 1 平 3 負。差距來源是搜尋哲學：AZ 的全展開 + 先驗引導能快速聚焦高價值分支，但每一葉子只做 80–200 次模擬級評估；而啟發式 rollout 的 MCTS 把同樣預算集中於深層戰術對弈（吃/擋直到終局）。此消彼長正是 6.4 節「搜尋退化」討論的實例。</li>
 </ul>
 
 <div class="grid2">
@@ -1800,7 +1800,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 
 <h3>7.1 雙線總結</h3>
 <ul>
-  <li><b>遊戲側</b>：傳統演算法與位板優化已達成熟——Minimax Pro 具備工業級搜尋元件（置換表/Killer/LMR/Aspiration/疊代加深），MCTS 家族具備動態 UCT、啟發式 rollout、樹重用與並行化；<b>MCTS+GRAVE 為最強傳統引擎</b>（D8），優化後純 MCTS 亦能以約 60% 勝率壓制 RAVE/GRAVE（D12）。</li>
+  <li><b>遊戲側</b>：傳統演算法與位板優化已達成熟——Minimax Pro 具備工業級搜尋元件（置換表/Killer/LMR/Aspiration/疊代加深），MCTS 家族具備動態 UCT、啟發式 rollout、樹重用與並行化；MCTS/RAVE/GRAVE 於現行優化下<b>統計持平</b>（D21 取代 D8/D12 舊排名）。</li>
   <li><b>深度學習側</b>：AlphaZero 在 6000 局內學會壓制隨機（95%，38W/1D/1L），並證明「遊戲側啟發式」與「神經先驗」的混合（w=0.5）在資料效率上遠勝純網路；同時以 2W/1D/3L 對啟發式 MCTS 的結果誠實標出當前邊界。</li>
   <li><b>工程面</b>：Windows ROCm 環境的 kernel 啟動問題（640 µs/次）被固定形狀批次、批次化推論與多進程自對弈有效消化；單檔模組化（D2）使兩側優化可獨立演進、互相復用。</li>
 </ul>
@@ -1846,7 +1846,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
   </thead>
   <tbody>
     <tr><td>MCTS 家族基準（10 局/對、200 sims）</td><td>MCTS vs RAVE 40%；MCTS vs GRAVE 60%；RAVE vs GRAVE 50%</td><td>本機實測（使用 <span class="kbd">SBA.py --bench</span> 類流程）</td></tr>
-    <tr><td>歷史基準（30 局/對、300 sims）</td><td>GRAVE 優於 MCTS 與 RAVE；優化後純 MCTS 對 RAVE/GRAVE 約 60%</td><td>docs/decisions.md（D8、D12）</td></tr>
+    <tr><td>現行循環賽（30 局/對、300 sims）</td><td>MCTS/RAVE/GRAVE 統計持平：51.7% / 48.3% / 45.0%（D21 取代 D8/D12）</td><td>docs/decisions.md（D21）</td></tr>
     <tr><td>位板帶 rollout 無增益</td><td>—</td><td>docs/decisions.md（D12）</td></tr>
     <tr><td>訓練 loss（800 局）</td><td>3.37 → 1.29</td><td>訓練日誌記錄（起訖端點）</td></tr>
     <tr><td>訓練 loss（6000 局）</td><td>2.46 → 0.094</td><td>訓練日誌記錄（起訖端點）</td></tr>
@@ -1871,6 +1871,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
   <li><b>400 局 97.5% vs 800 局 90%</b>：兩者來自不同訓練 run（配置/記錄基準不同），並列時不代表非單調曲線；圖表已加註。</li>
   <li><b>加速比與牆鐘不互推</b>：「3.17 s/局 → 1.50×/2.43×/2.96×」與「7.1 h → 62 min」為不同量測時點的記錄，直接相乘會矛盾，故分列。</li>
   <li><b>環境</b>：GPU 診斷基於 Windows 原生 ROCm（TheRock nightly wheel，RX 7900 XTX）；WSL2 ROCm 6.2.4 路徑因 <span class="kbd">/dev/kfd</span> 驅動問題為備案（docs/rocm-wsl2.md）。</li>
+  <li><b>行號與基準更新</b>：本報告行號以撰寫時程式碼為準；型別註解重構（f264b56）與 D19 後部分行號漂移，請以實際程式碼為準。MCTS/RAVE/GRAVE 排名已依 D21 更新為統計持平；bench 指標統一為得分率（勝 = 1、和 = 0.5）。</li>
 </ol>
 </section>
 
