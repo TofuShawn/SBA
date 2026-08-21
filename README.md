@@ -65,6 +65,9 @@ AlphaZero 訓練方法與效能分析見
 新手想快速讀懂專案，可依 [`docs/reading-guide.md`](docs/reading-guide.md)
 的閱讀路線進行。
 
+給同學的從零教學（簡體中文）見
+[`docs/tutorial-zh.md`](docs/tutorial-zh.md)。
+
 ---
 
 ## Usage / 使用方式
