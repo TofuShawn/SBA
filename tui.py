@@ -1095,15 +1095,13 @@ class GameScreen(Screen):
         s = self.session
         self._analysis_items = items
         self._last_rates = rates
-        x, d, o = rates
-        tot = x + d + o
+        x, o = rates[0], rates[2]
+        tot = x + o
         if tot > 0:
-            x, d, o = x / tot, d / tot, o / tot
+            x, o = x / tot, o / tot
         bar = Text.assemble(
             ('✕ ' + _bar(x), f'bold {X_COLOR}'),
             (f' {x:.0%}', ''),
-            ('  ' + t('draw', '和') + ' ' + _bar(d), f'dim {SUB}'),
-            (f' {d:.0%}', ''),
             ('  ○ ' + _bar(o), f'bold {O_COLOR}'),
             (f' {o:.0%}', ''),
         )
