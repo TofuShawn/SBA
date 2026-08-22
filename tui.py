@@ -299,6 +299,8 @@ class Board(Static):
                         m = br * 3 + bc
                         chars = list(boxes[m][ln])
                         for rel_l, rel_c in self._box_cells():
+                            if rel_l != ln:
+                                continue
                             lr, lc = rel_l // 2, rel_c // 4
                             mark = game.micro[m][lr * 3 + lc]
                             chars[rel_c + 1] = mark if mark in (X, O) else ' '
