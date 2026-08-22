@@ -691,6 +691,19 @@ class BoardWidget(QWidget):
                     badge = QRectF(rect.left() + pad, rect.top() + pad,
                                    rect.width() - 2 * pad, rect.height() - 2 * pad)
                     self._paint_mark(painter, badge, winner, badge_color)
+                # grey-highlight the connected winning X/O marks in the micro
+                # board (on top of the badge so the win is readable)
+                line = micro_win_line(self.game.micro[m])
+                if line is not None:
+                    grey = QColor(138, 138, 150)
+                    grey.setAlpha(int(255 * (1.0 - blend)))
+                    mr, mc = divmod(m, 3)
+                    for idx in line:
+                        cmark = self.game.micro[m][idx]
+                        row = mr * 3 + idx // 3
+                        col = mc * 3 + idx % 3
+                        crect = self._cell_rect(row, col, cell, ox, oy)
+                        self._paint_mark(painter, crect, cmark, grey)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
                     painter.setPen(QPen(QColor(229, 57, 53), max(2.0, cell * 0.06)))
