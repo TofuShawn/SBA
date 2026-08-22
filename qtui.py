@@ -767,29 +767,33 @@ class EndfieldPage(QWidget):
         w, h = self.width(), self.height()
         if w < 200 or h < 200:
             return
-        cx, cy = w * 0.72, h * 0.36
-        n = 64
         two_pi = 2.0 * math.pi
-        for i in range(1, 10):
-            base = i * 30.0
-            amp = min(6.0, base * 0.06)
-            phase = i * 0.9
-            path = QPainterPath()
-            first = True
-            for k in range(n + 1):
-                ang = two_pi * k / n
-                r = base + amp * math.sin(3 * ang + phase) \
-                    + amp * 0.6 * math.sin(7 * ang + phase * 1.7)
-                x, y = cx + r * math.cos(ang), cy + r * math.sin(ang)
-                if first:
-                    path.moveTo(x, y)
-                    first = False
-                else:
-                    path.lineTo(x, y)
-            color = QColor(255, 250, 0, 18) if i == 4 else QColor(255, 255, 255, 13)
-            painter.setPen(QPen(color, 1))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawPath(path)
+        n = 72
+        # two topographic clusters for a denser field backdrop
+        for cx, cy, scale in ((w * 0.72, h * 0.36, 1.0),
+                              (w * 0.20, h * 0.72, 0.65),
+                              (w * 0.86, h * 0.80, 0.45)):
+            for i in range(1, 17):
+                base = i * 26.0 * scale
+                amp = min(6.0, base * 0.07)
+                phase = i * 0.85
+                path = QPainterPath()
+                first = True
+                for k in range(n + 1):
+                    ang = two_pi * k / n
+                    r = base + amp * math.sin(3 * ang + phase) \
+                        + amp * 0.7 * math.sin(7 * ang + phase * 1.7)
+                    x, y = cx + r * math.cos(ang), cy + r * math.sin(ang)
+                    if first:
+                        path.moveTo(x, y)
+                        first = False
+                    else:
+                        path.lineTo(x, y)
+                color = (QColor(255, 250, 0, 16) if i % 5 == 0
+                         else QColor(255, 255, 255, 11))
+                painter.setPen(QPen(color, 1))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(path)
 
     def _paint_giant(self, painter):
         w, h = self.width(), self.height()
