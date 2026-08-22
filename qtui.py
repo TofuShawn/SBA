@@ -61,6 +61,9 @@ from SBA import (
 # fallbacks so CJK and Latin both render cleanly.
 FONT_FAMILIES = ['Noto Sans TC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
 
+# Arknights Endfield palette olive-green used for win outlines/masks/labels.
+WIN_GREEN = '#657136'
+
 
 def _blur_pixmap(pm, radius):
     """Return a blurred copy of ``pm`` (frosted-glass backdrop)."""
@@ -676,8 +679,7 @@ class BoardWidget(QWidget):
                     painter.setOpacity(1.0 - blend)
                     painter.drawPixmap(int(rect.left()), int(rect.top()), frosted)
                     painter.restore()
-                fill = QColor(PAL['win_fill_x'] if winner == X
-                              else PAL['win_fill_o'])
+                fill = QColor(WIN_GREEN)
                 fill.setAlpha(int(200 * (1.0 - blend)))  # frosted winner tint
                 if fill.alpha() > 0:
                     painter.setPen(Qt.NoPen)
@@ -696,18 +698,18 @@ class BoardWidget(QWidget):
                 # default frosted label
                 line = micro_win_line(self.game.micro[m])
                 if line is not None and blend > 0:
-                    grey = QColor(138, 138, 150)
-                    grey.setAlpha(int(255 * blend))
+                    conn = QColor(WIN_GREEN)
+                    conn.setAlpha(int(255 * blend))
                     mr, mc = divmod(m, 3)
                     for idx in line:
                         cmark = self.game.micro[m][idx]
                         row = mr * 3 + idx // 3
                         col = mc * 3 + idx % 3
                         crect = self._cell_rect(row, col, cell, ox, oy)
-                        self._paint_mark(painter, crect, cmark, grey)
+                        self._paint_mark(painter, crect, cmark, conn)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
-                    painter.setPen(QPen(QColor(229, 57, 53), max(2.0, cell * 0.06)))
+                    painter.setPen(QPen(QColor(WIN_GREEN), max(2.0, cell * 0.06)))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
 
