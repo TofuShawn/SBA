@@ -658,6 +658,8 @@ class BoardWidget(QWidget):
                                 max(8.0, cell * 0.35))
         mp.end()
         painter.drawPixmap(0, 0, pm)
+        # macro-level winning line (the "connected" chunks) for the green tint
+        whole = micro_win_line(self.game.macro)
         # won macro chunks: blur the underlying board region, then the
         # translucent winner tint + mark (frosted-glass win label)
         for m in range(9):
@@ -674,7 +676,8 @@ class BoardWidget(QWidget):
                     painter.setOpacity(1.0 - blend)
                     painter.drawPixmap(int(rect.left()), int(rect.top()), frosted)
                     painter.restore()
-                fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
+                fill = QColor(PAL['win_fill_x'] if winner == X
+                              else PAL['win_fill_o'])
                 fill.setAlpha(int(200 * (1.0 - blend)))  # frosted winner tint
                 if fill.alpha() > 0:
                     painter.setPen(Qt.NoPen)
@@ -693,8 +696,12 @@ class BoardWidget(QWidget):
                     line_color.setAlpha(int(255 * blend))
                     self._paint_win_line(painter, line, micro_centers[m],
                                          line_color, cell * 0.12, rect)
+                # green outline marks the chunks that make the macro win line
+                if whole is not None and m in whole:
+                    painter.setPen(QPen(QColor(46, 93, 58), max(2.0, cell * 0.06)))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
         # overall macro win line
-        whole = micro_win_line(self.game.macro)
         if whole:
             winner = self.game.macro[whole[0]]
             bounds = QRectF(ox, oy, 9 * cell + 8 * self.GAP, 9 * cell + 8 * self.GAP)
