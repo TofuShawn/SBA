@@ -679,7 +679,12 @@ class BoardWidget(QWidget):
                     painter.setOpacity(1.0 - blend)
                     painter.drawPixmap(int(rect.left()), int(rect.top()), frosted)
                     painter.restore()
-                fill = QColor(WIN_GREEN)
+                connected = whole is not None and m in whole
+                if connected:
+                    fill = QColor(WIN_GREEN)
+                else:
+                    fill = QColor(PAL['win_fill_x'] if winner == X
+                                  else PAL['win_fill_o'])
                 fill.setAlpha(int(200 * (1.0 - blend)))  # frosted winner tint
                 if fill.alpha() > 0:
                     painter.setPen(Qt.NoPen)
@@ -698,7 +703,9 @@ class BoardWidget(QWidget):
                 # default frosted label
                 line = micro_win_line(self.game.micro[m])
                 if line is not None and blend > 0:
-                    conn = QColor(WIN_GREEN)
+                    conn = (QColor(WIN_GREEN) if connected
+                            else QColor(PAL['win_fill_x'] if winner == X
+                                        else PAL['win_fill_o']))
                     conn.setAlpha(int(255 * blend))
                     mr, mc = divmod(m, 3)
                     for idx in line:
