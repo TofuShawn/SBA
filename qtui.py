@@ -692,21 +692,22 @@ class BoardWidget(QWidget):
                     self._paint_mark(painter, badge, winner, mark)
                 line = micro_win_line(self.game.micro[m])
                 if line is not None:
-                    line_color = _mark_color(winner)
-                    line_color.setAlpha(int(255 * blend))
-                    self._paint_win_line(painter, line, micro_centers[m],
-                                         line_color, cell * 0.12, rect)
+                    # color the winning cells instead of crossing them out
+                    mr, mc = divmod(m, 3)
+                    cell_color = _mark_color(winner)
+                    cell_color.setAlpha(int(190))
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(cell_color)
+                    for idx in line:
+                        r, c = divmod(idx, 3)
+                        crect = self._cell_rect(mr * 3 + r, mc * 3 + c,
+                                                cell, ox, oy)
+                        painter.drawRect(crect)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
                     painter.setPen(QPen(QColor(46, 93, 58), max(2.0, cell * 0.06)))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
-        # overall macro win line
-        if whole:
-            winner = self.game.macro[whole[0]]
-            bounds = QRectF(ox, oy, 9 * cell + 8 * self.GAP, 9 * cell + 8 * self.GAP)
-            self._paint_win_line(painter, whole, macro_centers,
-                                 _mark_color(winner), cell * 0.16, bounds)
 
 # ---------------------------------------------------------------------------
 # Workers
