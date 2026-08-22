@@ -509,6 +509,20 @@ RadioSet {
     height: auto;
 }
 
+RadioButton {
+    color: #CAC4D0;
+    padding: 0 1;
+}
+RadioButton.-selected,
+RadioButton.-on {
+    background: #2A3B5A;
+    color: #FFFFFF;
+    text-style: bold;
+}
+RadioButton:hover {
+    color: #E8DEF8;
+}
+
 /* ---- game screen ------------------------------------------------- */
 
 Horizontal#split {
