@@ -209,6 +209,7 @@ class Board(Static):
         self._lines = []
         self._ranges = []           # (line, c0, c1, style)
         self.on_board_click = None  # callable(move)
+        self._human_turn = True
 
     def _game(self):
         return self.session['game'] if self.session else None
@@ -216,8 +217,12 @@ class Board(Static):
     def set_session(self, session):
         old = self.cursor
         self.session = session
-        self._legal = list(session['game'].legal_moves())
-        if old in self._legal:
+        game = session['game']
+        self._legal = list(game.legal_moves())
+        self._human_turn = (not is_ai_turn(session)) and not game.is_over()
+        if not self._human_turn:
+            self.cursor = None
+        elif old in self._legal:
             self.cursor = old
         else:
             # Standing on a history step (< end): put the cursor on the cell
@@ -278,7 +283,7 @@ class Board(Static):
                 styled(line, col, col + 3, 'on #134E4A')
             if move == last:
                 styled(line, col + 1, col + 2, f'bold {FLASH_COLOR}')
-            if move == self.cursor:
+            if move == self.cursor and self._human_turn:
                 styled(line, col, col + 3, 'reverse')
             if move in win_moves:
                 styled(line, col, col + 3, f'on #1E3D2F bold {GREEN}')
