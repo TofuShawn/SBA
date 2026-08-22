@@ -404,15 +404,108 @@ def _save_model(model, size, channels, blocks, path):
                 'channels': channels, 'blocks': blocks}, path)
 
 
+# ---------------------------------------------------------------
+# Recipe helpers: D4 flip augmentation and root-mean value target
+# ---------------------------------------------------------------
+
+def _aug_state(state, t):
+    """Apply D4 transform t (0..7) to the spatial planes of an encoded state."""
+    if t == 0:
+        return state
+    s = state
+    if t == 1:
+        s = torch.rot90(s, -1, dims=(1, 2))
+    elif t == 2:
+        s = torch.rot90(s, 2, dims=(1, 2))
+    elif t == 3:
+        s = torch.rot90(s, 1, dims=(1, 2))
+    elif t == 4:
+        s = torch.flip(s, dims=(2,))
+    elif t == 5:
+        s = torch.flip(s, dims=(1,))
+    elif t == 6:
+        s = torch.transpose(s, 1, 2)
+    else:  # t == 7: anti-diagonal reflection
+        s = torch.flip(torch.transpose(s, 1, 2), dims=(1, 2))
+    return s
+
+
+def _aug_perms(size):
+    """Policy-index permutations of the 8 D4 transforms of an NxN board.
+
+    Derived by simulating ``_aug_state`` on one-hot grids, so the policy
+    permutation is guaranteed to match the spatial tensor transform.
+    """
+    perms = []
+    for t in range(8):
+        perm = []
+        for i in range(size * size):
+            r, c = divmod(i, size)
+            grid = torch.zeros(1, size, size)
+            grid[0, r, c] = 1.0
+            moved = _aug_state(grid, t)
+            rr, cc = torch.nonzero(moved[0])[0].tolist()
+            perm.append(rr * size + cc)
+        perms.append(perm)
+    return perms
+
+
+_AUG_POLICY = {}
+
+
+def _augment_sample(state, target, t, size):
+    """Apply D4 transform t (0..7) to an encoded state tensor and policy.
+
+    Both the spatial op and the policy permutation come from ``_aug_state``,
+    so the active-macro plane and macro routing stay consistent. ``target``
+    is a 1-D numpy array over all cells.
+    """
+    if t == 0:
+        return state, target
+    perms = _AUG_POLICY.get(size)
+    if perms is None:
+        perms = _aug_perms(size)
+        _AUG_POLICY[size] = perms
+    # Scatter: the probability at old cell i moves to new cell perms[t][i]
+    # (the forward map), matching the spatial transform direction.
+    moved = np.empty_like(target)
+    moved[perms[t]] = target
+    return _aug_state(state, t), moved
+
+
+def _root_value(root):
+    """Mean value for the side to move, weighted by root children visits.
+
+    root.mover is None (its own wins only ever count draws), so the value is
+    derived from the children; each child's wins are recorded from the
+    perspective of the player who moved into it (= the side to move).
+    """
+    tot_v = tot = 0.0
+    for child in root.children:
+        if child.visits:
+            tot_v += child.visits * (child.wins / child.visits)
+            tot += child.visits
+    return tot_v / tot if tot else 0.0
+
+
 def self_play_game(make_game_fn, model, sims, temp,
-                   dirichlet_eps=DIRICHLET_EPS):
+                   dirichlet_eps=DIRICHLET_EPS, value_target='root_mean',
+                   use_network=True):
     game = make_game_fn()
-    states, targets, players = [], [], []
+    states, targets, players, values = [], [], [], []
     while not game.is_over():
         legal = game.legal_moves()
-        counts = mcts_visit_counts(game, model, sims,
-                                   dirichlet_alpha='auto',
-                                   dirichlet_eps=dirichlet_eps)
+        if use_network:
+            root, counts = mcts_search(game, model, sims,
+                                       dirichlet_alpha='auto',
+                                       dirichlet_eps=dirichlet_eps)
+        else:
+            # Stage 1: pure MCTS (heuristic rollouts, no network) so policy
+            # and value targets come from classical search quality.
+            from ai import mcts_search as pure_mcts
+            root = pure_mcts(game.clone(), sims)
+            counts = {c.move: c.visits for c in root.children}
+        value = _root_value(root)
         n = np.array([counts.get(m, 0) for m in legal], dtype=np.float64)
         n = n + 1e-8
         if temp > 0.01:
@@ -427,12 +520,16 @@ def self_play_game(make_game_fn, model, sims, temp,
             target[move_index(game, mv)] = pr
         targets.append(target)
         players.append(game.current)
+        values.append(value)
         idx = int(np.random.choice(len(legal), p=p))
         apply_move(game, legal[idx])
     result = game.result()
-    zs = []
-    for p in players:
-        zs.append(0.0 if result == 'D' else (1.0 if p == result else -1.0))
+    if value_target == 'root_mean':
+        zs = list(values)
+    else:
+        zs = []
+        for p in players:
+            zs.append(0.0 if result == 'D' else (1.0 if p == result else -1.0))
     return states, targets, zs
 
 
@@ -453,7 +550,8 @@ def _mp_worker_init(results_q):
 
 
 def _mp_play_game(idx, weights, size, channels, blocks, sims,
-                  dirichlet_eps, games, game_type, rollout_weight):
+                  dirichlet_eps, games, game_type, rollout_weight,
+                  value_target, use_network):
     global ROLLOUT_WEIGHT
     ROLLOUT_WEIGHT = rollout_weight
     model = AZNet(size, channels, blocks).to(DEVICE)
@@ -462,7 +560,8 @@ def _mp_play_game(idx, weights, size, channels, blocks, sims,
     temp = max(0.05, 1.0 - idx / games)
     try:
         states, targets, zs = self_play_game(
-            lambda: make_game(game_type), model, sims, temp, dirichlet_eps)
+            lambda: make_game(game_type), model, sims, temp, dirichlet_eps,
+            value_target=value_target, use_network=use_network)
         _MP_RESULTS_Q.put((idx, (states, targets, zs)))
     except Exception as e:  # noqa: BLE001 - keep the run alive
         _MP_RESULTS_Q.put((idx, e))
@@ -470,17 +569,34 @@ def _mp_play_game(idx, weights, size, channels, blocks, sims,
 
 def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           lr=1e-3, seed=None, save=True, quiet=False,
-          steps_per_game=5, replay_cap=100, channels=128, blocks=5,
-          ckpt_every=None, dirichlet_eps=DIRICHLET_EPS, workers=1):
+          steps_per_game=5, replay_cap=500, channels=128, blocks=5,
+          ckpt_every=None, dirichlet_eps=DIRICHLET_EPS, workers=1,
+          weight_decay=1e-4, value_target='root_mean', policy_loss='kl',
+          augment=True, stage=2, resume=None, save_path=None):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
     size = 3 if game_type == 'normal' else 9
-    model = AZNet(size, channels, blocks).to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    if resume:
+        ckpt = torch.load(resume, map_location='cpu')
+        size = ckpt['size']
+        channels = ckpt.get('channels', 128)
+        blocks = ckpt.get('blocks', 5)
+        model = AZNet(size, channels, blocks).to(DEVICE)
+        model.load_state_dict(ckpt['state_dict'])
+        model.eval()
+        if not quiet:
+            print('[%s] resumed from %s (channels=%d blocks=%d)'
+                  % (game_type, resume, channels, blocks), flush=True)
+    else:
+        model = AZNet(size, channels, blocks).to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr,
+                                 weight_decay=weight_decay)
     make_game_fn = lambda: make_game(game_type)
     start = time.time()
+    save_path = save_path or model_path(game_type)
+    use_network = stage == 2
 
     def evaluate():
         wins = draws = losses = 0
@@ -509,11 +625,13 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             make_game_fn, model, optimizer, evaluate, replay, games, sims,
             eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
             channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
-            start, ROLLOUT_WEIGHT)
+            start, ROLLOUT_WEIGHT, value_target, use_network,
+            policy_loss, augment, save_path)
     for it in range(1, games + 1):
         temp = max(0.05, 1.0 - it / games)
         states, targets, zs = self_play_game(
-            make_game_fn, model, sims, temp, dirichlet_eps)
+            make_game_fn, model, sims, temp, dirichlet_eps,
+            value_target=value_target, use_network=use_network)
         replay.append((states, targets, zs))
         if len(replay) > replay_cap:
             replay.pop(0)
@@ -527,23 +645,36 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             # Fixed batch size (with replacement when a game is short) keeps
             # one tensor shape per process: MIOpen only looks up kernels once.
             idx = np.random.choice(n_pos, 128, replace=True)
-            batch = torch.stack([g_states[i] for i in idx]).to(DEVICE)
-            target = torch.stack([torch.tensor(g_targets[i]) for i in idx]).to(DEVICE)
+            states_batch = [g_states[i] for i in idx]
+            targets_batch = [g_targets[i] for i in idx]
+            if augment:
+                for j in range(len(idx)):
+                    t = random.randrange(8)
+                    if t:
+                        states_batch[j], targets_batch[j] = _augment_sample(
+                            states_batch[j], targets_batch[j], t, size)
+            batch = torch.stack(states_batch).to(DEVICE)
+            target = torch.stack(
+                [torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
             z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32).to(DEVICE)
             optimizer.zero_grad()
             pred_p, pred_v = model(batch)
-            loss_p = -(F.log_softmax(pred_p, dim=1) * target).sum(dim=1).mean()
+            logp = F.log_softmax(pred_p, dim=1)
+            if policy_loss == 'kl':
+                loss_p = (target * (target.clamp_min(1e-8).log() - logp)
+                          ).sum(dim=1).mean()
+            else:
+                loss_p = -(logp * target).sum(dim=1).mean()
             loss_v = F.mse_loss(pred_v[:, 0], z)
             (loss_p + loss_v).backward()
             optimizer.step()
             total_loss += float(loss_p + loss_v)
         model.eval()
         if save and ckpt_every and it % ckpt_every == 0:
-            path = model_path(game_type)
-            _save_model(model, size, channels, blocks, path)
+            _save_model(model, size, channels, blocks, save_path)
             if not quiet:
                 print('[%s] checkpoint game %d/%d -> %s'
-                      % (game_type, it, games, path), flush=True)
+                      % (game_type, it, games, save_path), flush=True)
         if not quiet and (it % max(1, eval_every) == 0 or it == games):
             el = time.time() - start
             w, d, l = evaluate()
@@ -551,10 +682,9 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
                   % (game_type, it, games, w, d, l, total_loss / steps_per_game, el), flush=True)
 
     if save:
-        path = model_path(game_type)
-        _save_model(model, size, channels, blocks, path)
+        _save_model(model, size, channels, blocks, save_path)
         if not quiet:
-            print('saved', path)
+            print('saved', save_path)
     return model
 
 
@@ -562,7 +692,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                         sims, eval_every, lr, save, quiet, steps_per_game,
                         replay_cap, size, channels, blocks, ckpt_every,
                         dirichlet_eps, workers, game_type, start,
-                        rollout_weight):
+                        rollout_weight, value_target, use_network,
+                        policy_loss, augment, save_path):
     """Multi-process self-play.
 
     A worker pool plays the games (each task carries the latest weights and
@@ -580,7 +711,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
         return pool.apply_async(
             _mp_play_game,
             (idx, weights, size, channels, blocks, sims,
-             dirichlet_eps, games, game_type, rollout_weight))
+             dirichlet_eps, games, game_type, rollout_weight,
+             value_target, use_network))
 
     next_idx = 1
     for _ in range(min(workers * 2, games)):
@@ -608,25 +740,37 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                 # Fixed batch size (with replacement when a game is short)
                 # keeps one tensor shape per process for MIOpen.
                 idx2 = np.random.choice(n_pos, 128, replace=True)
-                batch = torch.stack([g_states[i] for i in idx2]).to(DEVICE)
+                states_batch = [g_states[i] for i in idx2]
+                targets_batch = [g_targets[i] for i in idx2]
+                if augment:
+                    for j in range(len(idx2)):
+                        t = random.randrange(8)
+                        if t:
+                            states_batch[j], targets_batch[j] = _augment_sample(
+                                states_batch[j], targets_batch[j], t, size)
+                batch = torch.stack(states_batch).to(DEVICE)
                 target = torch.stack(
-                    [torch.tensor(g_targets[i]) for i in idx2]).to(DEVICE)
+                    [torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
                 z = torch.tensor([g_zs[i] for i in idx2],
                                  dtype=torch.float32).to(DEVICE)
                 optimizer.zero_grad()
                 pred_p, pred_v = model(batch)
-                loss_p = -(F.log_softmax(pred_p, dim=1) * target).sum(dim=1).mean()
+                logp = F.log_softmax(pred_p, dim=1)
+                if policy_loss == 'kl':
+                    loss_p = (target * (target.clamp_min(1e-8).log() - logp)
+                              ).sum(dim=1).mean()
+                else:
+                    loss_p = -(logp * target).sum(dim=1).mean()
                 loss_v = F.mse_loss(pred_v[:, 0], z)
                 (loss_p + loss_v).backward()
                 optimizer.step()
                 total_loss += float(loss_p + loss_v)
             model.eval()
             if save and ckpt_every and done % ckpt_every == 0:
-                path = model_path(game_type)
-                _save_model(model, size, channels, blocks, path)
+                _save_model(model, size, channels, blocks, save_path)
                 if not quiet:
                     print('[%s] checkpoint game %d/%d -> %s'
-                          % (game_type, done, games, path), flush=True)
+                          % (game_type, done, games, save_path), flush=True)
             if not quiet and (done % max(1, eval_every) == 0 or done == games):
                 el = time.time() - start
                 w, d, l = evaluate()
@@ -640,10 +784,9 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     pool.close()
     pool.join()
     if save:
-        path = model_path(game_type)
-        _save_model(model, size, channels, blocks, path)
+        _save_model(model, size, channels, blocks, save_path)
         if not quiet:
-            print('saved', path)
+            print('saved', save_path)
     return model
 
 
@@ -686,6 +829,23 @@ def main(argv=None):
                     help='root-prior exploration noise weight (0 disables)')
     tr.add_argument('--workers', type=int, default=1,
                     help='parallel self-play processes, each with its own GPU model copy (default: 1)')
+    tr.add_argument('--replay-cap', type=int, default=500,
+                    help='replay buffer cap (default: 500)')
+    tr.add_argument('--weight-decay', type=float, default=1e-4,
+                    help='Adam L2 weight decay (default: 1e-4)')
+    tr.add_argument('--value-target', choices=('outcome', 'root_mean'),
+                    default='root_mean',
+                    help='value target: final outcome or MCTS root mean value')
+    tr.add_argument('--policy-loss', choices=('ce', 'kl'), default='kl',
+                    help='policy head loss: cross entropy or masked KL')
+    tr.add_argument('--no-augment', action='store_true',
+                    help='disable D4 flip augmentation')
+    tr.add_argument('--stage', type=int, choices=(1, 2), default=2,
+                    help='1 = pure-MCTS self-play data, 2 = neural self-play')
+    tr.add_argument('--resume', type=str, default=None,
+                    help='path to a checkpoint to continue training from')
+    tr.add_argument('--model-path', type=str, default=None,
+                    help='where to save the model (default: models/az_<game>.pt)')
     ev = sub.add_parser('eval')
     ev.add_argument('--games', type=int, default=20)
     ev.add_argument('--sims', type=int, default=200)
@@ -699,7 +859,11 @@ def main(argv=None):
               channels=args.channels, blocks=args.blocks,
               ckpt_every=args.ckpt_every,
               dirichlet_eps=args.dirichlet_eps,
-              workers=args.workers)
+              workers=args.workers,
+              replay_cap=args.replay_cap, weight_decay=args.weight_decay,
+              value_target=args.value_target, policy_loss=args.policy_loss,
+              augment=not args.no_augment, stage=args.stage,
+              resume=args.resume, save_path=args.model_path)
     else:
         model = load_model('ultimate')
         if model is None:
