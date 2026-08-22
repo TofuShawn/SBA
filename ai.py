@@ -283,7 +283,7 @@ def minimax_move_ultimate(game, depth=3):
     return random.choice(best_moves)
 
 class MCTSNode:
-    __slots__ = ('state', 'move', 'parent', 'children', 'mover', 'visits', 'wins', 'draws', 'untried')
+    __slots__ = ('state', 'move', 'parent', 'children', 'mover', 'visits', 'wins', 'untried')
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -293,7 +293,6 @@ class MCTSNode:
         self.mover = mover
         self.visits = 0
         self.wins = 0.0
-        self.draws = 0
         self.untried = state.legal_moves()
         random.shuffle(self.untried)
 
@@ -330,7 +329,6 @@ class NodePool:
             n.mover = mover
             n.visits = 0
             n.wins = 0.0
-            n.draws = 0
             n.untried = [] if state.is_over() else state.legal_moves()
             random.shuffle(n.untried)
             return n
@@ -392,7 +390,6 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
                 node.wins += 1.0
             elif result == 'D':
                 node.wins += 0.5
-                node.draws += 1
             node = node.parent
         if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
                 and root.children):
@@ -1401,34 +1398,23 @@ def reason_for_move(game, move):
     return 'Positional'
 
 def _rates_from_root(root, game):
-    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root.
-
-    Draws are tracked separately (node.draws), not folded into the win rate,
-    so a draw-heavy position reports draw > 0 rather than attributing every
-    draw to the opponent's side.
-    """
-    tot_x = tot_o = tot_d = tot = 0.0
+    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root."""
+    tot_x = tot_o = tot = 0.0
     for child in root.children:
         if child.visits == 0:
             continue
-        v = float(child.visits)
-        tot += v
-        d = float(getattr(child, 'draws', 0)) / v
-        # child.wins counts a win as 1.0 and a draw as 0.5, so the mover's
-        # actual wins = wins - 0.5*draws, losses = v - wins - 0.5*draws.
-        w = child.wins / v
-        mover_wins = w - 0.5 * d
-        mover_loss = 1.0 - w - 0.5 * d
+        w = child.wins / child.visits
+        tot += child.visits
         if child.mover == X:
-            tot_x += v * mover_wins
-            tot_o += v * mover_loss
+            tot_x += child.visits * w
+            tot_o += child.visits * (1.0 - w)
         else:
-            tot_o += v * mover_wins
-            tot_x += v * mover_loss
-        tot_d += v * d
+            tot_o += child.visits * w
+            tot_x += child.visits * (1.0 - w)
     if tot == 0:
         return (0.5, 0.0, 0.5)
-    return (tot_x / tot, tot_d / tot, tot_o / tot)
+    x, o = tot_x / tot, tot_o / tot
+    return (x, max(0.0, 1.0 - x - o), o)
 
 
 def analyze_position(game, mcts_budget):
