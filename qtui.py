@@ -683,7 +683,7 @@ class BoardWidget(QWidget):
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(fill)
                     painter.drawRect(rect)
-                mark = QColor(PAL['win_mark'])
+                mark = _mark_color(winner)
                 mark.setAlpha(int(255 * (1.0 - blend)))
                 if mark.alpha() > 0:
                     pad = rect.width() * 0.18
@@ -692,7 +692,7 @@ class BoardWidget(QWidget):
                     self._paint_mark(painter, badge, winner, mark)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
-                    painter.setPen(QPen(QColor(46, 93, 58), max(2.0, cell * 0.06)))
+                    painter.setPen(QPen(QColor(229, 57, 53), max(2.0, cell * 0.06)))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
 
