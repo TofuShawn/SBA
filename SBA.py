@@ -8,14 +8,15 @@ in webui.py. This module wires them together, keeps the per-session UI state,
 runs the headless self-tests, and provides the CLI entry point.
 
 Run:
-    python SBA.py              # start the terminal (Textual) app (default)
+    python SBA.py              # start the PySide6 desktop app (default)
+    python SBA.py --qt         # start the desktop app explicitly
     python SBA.py --web        # start the NiceGUI web app at http://127.0.0.1:8080
     python SBA.py --self-test  # run headless checks
     python SBA.py --debug      # verbose backend logs
 
 Maintenance notes:
-- The terminal (Textual) app is the default entry; the NiceGUI web server only
-  starts with --web (decision D1).
+- The desktop app is the default entry; the NiceGUI web server only starts
+  with --web or the desktop's "Enable NiceGUI Web UI" switch (decision D1).
 - Session state lives here; the module is aliased as 'SBA' so tui/webui
   reuse it instead of importing a second copy.
 """
@@ -240,17 +241,18 @@ def main():
             depth=_flag_value('--depth', 4),
         ))
     # When SBA.py is the entry script it is '__main__'; register it under the
-    # canonical name so tui.py / webui.py reuse this module instead of
+    # canonical name so qtui.py / webui.py reuse this module instead of
     # importing a second copy.
     sys.modules.setdefault('SBA', sys.modules['__main__'])
     if '--web' in sys.argv:
         import webui
         webui.run()
         return
-    # Default entry: Textual terminal UI. The NiceGUI web UI is opt-in
-    # only (--web).
-    import tui
-    tui.main()
+    # Default entry (also explicit via --qt): PySide6 desktop app. The
+    # NiceGUI web UI is opt-in only (see the --web flag or the desktop
+    # app's "Enable NiceGUI Web UI" switch).
+    import qtui
+    qtui.main()
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
 nicegui>=3.16
+pyside6>=6.6
 pytest>=7
 textual>=3.0
