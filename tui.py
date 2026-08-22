@@ -319,11 +319,16 @@ class Board(Static):
                     cells[(line, col)] = (m, i)
                     cell_style((m, i), line, col, game.micro[m][i])
                 # chunk frame emphasis
-                c0, c1 = bc * 16, bc * 16 + 13
+                    c0, c1 = bc * 16, bc * 16 + 13
                 for rel_l in range(7):
                     line = br * 8 + rel_l
                     if win:
-                        styled(line, c0, c1, f'on #1E3D2F bold {GREEN}')
+                        color = X_COLOR if game.macro[m] == X else O_COLOR
+                        if rel_l in (0, 6):
+                            styled(line, c0, c1, f'bold {color}')
+                        else:
+                            styled(line, c0, c0 + 1, f'bold {color}')
+                            styled(line, c1 - 1, c1, f'bold {color}')
                     elif m == active and game.macro_open(m):
                         if rel_l in (0, 6):
                             styled(line, c0, c1, f'bold {ACTIVE_FRAME}')
@@ -473,6 +478,11 @@ VerticalScroll#menu-form {
 #menu-form .field { margin-bottom: 1; }
 
 #menu-form Slider { width: 1fr; }
+
+#menu-form Static#val-mcts,
+#menu-form Static#val-mm,
+#menu-form Static#val-speed,
+#side-col Static#val-speed { width: 6; }
 
 #menu-form Select { width: 1fr; }
 
