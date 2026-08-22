@@ -324,7 +324,9 @@ class Board(Static):
                     c0, c1 = bc * 16, bc * 16 + 13
                 for rel_l in range(7):
                     line = br * 8 + rel_l
-                    if game.macro[m] in (X, O):
+                    if win:  # part of the macro-level winning line -> green
+                        styled(line, c0, c1, f'on #2E5D3A bold {GREEN}')
+                    elif game.macro[m] in (X, O):
                         fill = WIN_FILL_X if game.macro[m] == X else WIN_FILL_O
                         styled(line, c0, c1, f'on {fill}')
                     elif m == active and game.macro_open(m):
