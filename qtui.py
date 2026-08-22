@@ -683,13 +683,20 @@ class BoardWidget(QWidget):
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(fill)
                     painter.drawRect(rect)
-                mark = _mark_color(winner)
-                mark.setAlpha(int(255 * (1.0 - blend)))
-                if mark.alpha() > 0:
-                    pad = rect.width() * 0.18
-                    badge = QRectF(rect.left() + pad, rect.top() + pad,
-                                   rect.width() - 2 * pad, rect.height() - 2 * pad)
-                    self._paint_mark(painter, badge, winner, mark)
+                # micro-level label: redraw the chunk's X/O marks in color on
+                # top of the frosted tint (instead of one big badge)
+                mr, mc = divmod(m, 3)
+                mark_alpha = int(255 * (1.0 - blend))
+                if mark_alpha > 0:
+                    for i in range(9):
+                        cmark = self.game.micro[m][i]
+                        if cmark in (X, O):
+                            row = mr * 3 + i // 3
+                            col = mc * 3 + i % 3
+                            crect = self._cell_rect(row, col, cell, ox, oy)
+                            cm = _mark_color(cmark)
+                            cm.setAlpha(mark_alpha)
+                            self._paint_mark(painter, crect, cmark, cm)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
                     painter.setPen(QPen(QColor(229, 57, 53), max(2.0, cell * 0.06)))
