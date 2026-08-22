@@ -1023,6 +1023,7 @@ class GamePage(QWidget):
         self.win_bar_lay.addWidget(self.bar_x, 1)
         self.win_bar_lay.addWidget(self.bar_d, 1)
         self.win_bar_lay.addWidget(self.bar_o, 1)
+        self.bar_d.setVisible(False)
         az_lay.addWidget(self.win_bar)
         self.analysis_pct = QLabel('')
         self.analysis_pct.setStyleSheet('font-size: 13px; color: #CAC4D0;')
@@ -1389,11 +1390,14 @@ class GamePage(QWidget):
     def render_analysis(self, items, rates):
         self.analysis_list.clear()
         x, d, o = rates
+        tot = x + o
+        if tot > 0:
+            x, o = x / tot, o / tot
         self.win_bar.setVisible(True)
         self.win_bar_lay.setStretchFactor(self.bar_x, int(x * 1000))
-        self.win_bar_lay.setStretchFactor(self.bar_d, int(d * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_d, 0)
         self.win_bar_lay.setStretchFactor(self.bar_o, int(o * 1000))
-        self.analysis_pct.setText(f'X {x:.0%} · 和 {d:.0%} · O {o:.0%}')
+        self.analysis_pct.setText(f'X {x:.0%} · O {o:.0%}')
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
             return
