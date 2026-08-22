@@ -692,11 +692,12 @@ class BoardWidget(QWidget):
                                    rect.width() - 2 * pad, rect.height() - 2 * pad)
                     self._paint_mark(painter, badge, winner, badge_color)
                 # grey-highlight the connected winning X/O marks in the micro
-                # board (on top of the badge so the win is readable)
+                # board — shown only after clicking (reveal), never on the
+                # default frosted label
                 line = micro_win_line(self.game.micro[m])
-                if line is not None:
+                if line is not None and blend > 0:
                     grey = QColor(138, 138, 150)
-                    grey.setAlpha(int(255 * (1.0 - blend)))
+                    grey.setAlpha(int(255 * blend))
                     mr, mc = divmod(m, 3)
                     for idx in line:
                         cmark = self.game.micro[m][idx]
