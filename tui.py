@@ -883,8 +883,7 @@ class GameScreen(Screen):
         s = self.session
         game = self._game()
         if game.is_over():
-            self.notify(t('The game is over', '遊戲已經結束'), timeout=2)
-            return
+            return  # silently ignore clicks after the game is over (no overlay)
         if self._ai_busy:
             self.notify(t('AI is thinking — please wait', 'AI 思考中，請稍候'), timeout=2)
             return
