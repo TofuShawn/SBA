@@ -1,8 +1,12 @@
 # 從零開始：用 Python 寫一個井字棋項目（SBA 同款教程）
 
-> 本教程面向**完全沒有編程基礎**的初學者。目標：帶你一步步寫出一個和本倉庫 SBA 類似的項目——普通井字棋 + 終極井字棋，多種 AI 引擎（隨機、啓發式、Minimax、MCTS），再加上 PySide6 圖形界面和 pytest 測試。
+> 本教程面向**完全沒有編程基礎**的初學者。目標：帶你一步步寫出一個和本倉庫 SBA 類似的項目——普通井字棋 + 終極井字棋，多種 AI 引擎（隨機、啓發式、Minimax、MCTS），再加上終端圖形界面（Textual）和 pytest 測試。
 >
 > 每一章的代碼都可以直接運行，建議**邊看邊敲**（不要複製粘貼，手敲記憶更深）。
+>
+> 注：本倉庫的實際界面目前是 **Textual 終端界面**（`python SBA.py`）；
+> 第 11 章仍以 PySide6 教學 Qt 的核心概念（信號槽、事件循環、線程），
+> 當作圖形界面的入門素材。
 >
 > 文中「對照項目源碼」提到的**行號僅供參考**，代碼演進後可能漂移；找不到就按函數名搜索（VS Code 按 `Ctrl+F`）。
 
@@ -21,7 +25,7 @@
 - [第 8 章：MCTS —— 蒙特卡洛樹搜索](#第-8-章mcts--蒙特卡洛樹搜索)
 - [第 9 章：優化技巧（進階）](#第-9-章優化技巧進階)
 - [第 10 章：配置文件（對應 sba.toml）](#第-10-章配置文件對應-sbatoml)
-- [第 11 章：桌面圖形界面（PySide6）](#第-11-章桌面圖形界面pyside6)
+- [第 11 章：圖形界面（PySide6 教學）](#第-11-章圖形界面pyside6-教學)
 - [第 12 章：測試（pytest）](#第-12-章測試pytest)
 - [第 13 章：AlphaZero 概念入門](#第-13-章alphazero-概念入門)
 - [第 14 章：Git 版本控制](#第-14-章git-版本控制)
@@ -51,7 +55,7 @@
 第9章 優化技巧（bitboard、樹重用、開局書…）
 第10章 配置文件
   ↓
-第11章 PySide6 圖形界面
+第11章 圖形界面（PySide6 教學）
 第12章 pytest 測試
   ↓
 第13章 AlphaZero 概念
@@ -1245,7 +1249,11 @@ def cfg_engine(name, default=None):
 
 ---
 
-## 第 11 章：桌面圖形界面（PySide6）
+## 第 11 章：圖形界面（PySide6 教學——項目現用 Textual TUI）
+
+> 注：本項目目前的實際界面是 **Textual 終端界面**（`python SBA.py`）。
+> 本章用 PySide6 講 Qt 的核心概念（窗口、佈局、信號槽、事件循環、線程），
+> 這些概念對任何 GUI 框架都通用，當作入門素材。
 
 ### 11.1 安裝與核心概念
 
@@ -1348,7 +1356,7 @@ class AIWorker(QThread):
 
 ### 11.7 對照項目源碼
 
-項目的 `qtui.py` 有 1000+ 行，包括：Material Design 3 配色、深淺主題、動畫、勝率圖表（QtCharts）、AI 助手面板、可選 SiliconUI 主題。作爲新手，先實現：棋盤繪製 + 點擊落子 + AI 線程 + 菜單，其他逐步加。
+項目的終端界面 `tui.py`（Textual）有 1000+ 行，包括：自定義棋盤繪製、AI 助手面板、歷史與控制、CvC 控制；此前的桌面版 `qtui.py`（PySide6 + SiliconUI）已被取代。作爲新手，先實現：棋盤繪製 + 點擊落子 + AI 線程 + 菜單，其他逐步加。
 
 ---
 
@@ -1542,7 +1550,7 @@ pip freeze > requirements.txt      # 導出當前依賴清單
 pip install -r requirements.txt    # 別人（或新電腦）一鍵安裝
 ```
 
-看本倉庫的 `requirements.txt`：就 3 行（nicegui / pyside6 / pytest）——因爲大型依賴
+看本倉庫的 `requirements.txt`：就 3 行（nicegui / textual / pytest）——因爲大型依賴
 （PyTorch、ROCm）體積大、版本挑環境，單獨手動裝。
 
 ### 15.3 三個常見坑

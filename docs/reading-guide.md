@@ -8,7 +8,7 @@
 先建立「它在做什麼」的直覺，再開始讀代碼：
 
 ```powershell
-python SBA.py          # PySide6 桌面版
+python SBA.py          # Textual 終端介面
 python SBA.py --web    # NiceGUI 網頁版 → http://127.0.0.1:8080
 ```
 
@@ -97,9 +97,9 @@ python alphazero.py eval --games 30 --sims 200   # 用現有模型評估
 小檔案，但負責：`new_session()`（44）、雙語 helper `t()`（108）與
 `REASON_TEXT`、`--bench`（158）與 `--self-test`。最後讀，當作「總覽地圖」。
 
-## 5. UI：先 `webui.py`（746 行）再 `qtui.py`（1514 行）
+## 5. UI：先 `webui.py`（746 行）再 `tui.py`（1290 行）
 - `webui.py`：NiceGUI，宣告式頁面，讀 `@ui.page` 與 session 用法即可。
-- `qtui.py`：PySide6，**最後讀**——它有自訂 `BoardWidget` 繪圖、執行緒 worker、
+- `tui.py`：Textual 終端介面，**最後讀**——它有自訂棋盤繪製、執行緒 worker、
   歷史/控制列，是專案最複雜的單一檔案。初讀只須抓 `MenuPage` / `GamePage` 骨架，
   繪圖細節略過。
 
