@@ -168,6 +168,10 @@ class Slider(Widget):
     BINDINGS = [
         Binding('left', 'decrease', '−', show=False),
         Binding('right', 'increase', '+', show=False),
+        Binding('down', 'decrease', '−', show=False),
+        Binding('up', 'increase', '+', show=False),
+        Binding('-', 'decrease', '−', show=False),
+        Binding('+', 'increase', '+', show=False),
         Binding('home', 'min', 'min', show=False),
         Binding('end', 'max', 'max', show=False),
     ]
@@ -500,6 +504,12 @@ Vertical#board-col {
     width: 1fr;
     height: 1fr;
     padding: 0 1;
+    overflow-y: auto;
+}
+
+Static#board {
+    height: auto;
+    width: auto;
 }
 
 Vertical#side-col {
@@ -1086,6 +1096,9 @@ class GameScreen(Screen):
         self._analysis_items = items
         self._last_rates = rates
         x, d, o = rates
+        tot = x + d + o
+        if tot > 0:
+            x, d, o = x / tot, d / tot, o / tot
         bar = Text.assemble(
             ('✕ ' + _bar(x), f'bold {X_COLOR}'),
             (f' {x:.0%}', ''),
