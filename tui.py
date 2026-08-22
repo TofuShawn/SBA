@@ -63,8 +63,8 @@ O_COLOR = '#FF9E9E'   # O red
 FLASH_COLOR = '#FFD54F'
 GREEN = '#7FD8A3'
 ACTIVE_FRAME = '#4CB8FF'
-WIN_FILL_X = '#3D2A5C'   # dark purple fill for a won X chunk
-WIN_FILL_O = '#5C2323'   # dark red fill for a won O chunk
+WIN_FILL_X = '#4E3A75'   # purple fill for a won X chunk
+WIN_FILL_O = '#75393B'   # red fill for a won O chunk
 MUTED = '#8A8A96'
 HEADER = '#E8DEF8'
 TEXT = '#E6E0E9'
@@ -324,7 +324,7 @@ class Board(Static):
                     c0, c1 = bc * 16, bc * 16 + 13
                 for rel_l in range(7):
                     line = br * 8 + rel_l
-                    if win:
+                    if game.macro[m] in (X, O):
                         fill = WIN_FILL_X if game.macro[m] == X else WIN_FILL_O
                         styled(line, c0, c1, f'on {fill}')
                     elif m == active and game.macro_open(m):
