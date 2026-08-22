@@ -473,10 +473,7 @@ class BoardWidget(QWidget):
         if self.game is None:
             return
         if isinstance(self.game, UltimateGame):
-            m = self._macro_at(event.position().x(), event.position().y())
-            if m is not None and self.game.macro[m] in (X, O):
-                self._toggle_reveal(m)
-                return
+            return  # clicking a decided chunk is a no-op (frosted label stays)
         if self.game.is_over():
             return
         move = self._move_at(event.position().x(), event.position().y())
@@ -664,7 +661,7 @@ class BoardWidget(QWidget):
             if self.game.macro[m] in (X, O):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
-                blend = self._reveal_blend if m == self._revealed_macro else 0.0
+                # frosted-glass win label: blurred backdrop + translucent tint
                 chunk = pm.copy(rect.toRect())
                 frosted = _blur_pixmap(chunk, max(0.0, cell * 0.22))
                 painter.save()
@@ -672,24 +669,20 @@ class BoardWidget(QWidget):
                 painter.drawPixmap(int(rect.left()), int(rect.top()), frosted)
                 painter.restore()
                 fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
-                fill.setAlpha(int(200 * (1.0 - blend)))  # winner tint mask
-                if fill.alpha() > 0:
-                    painter.setPen(Qt.NoPen)
-                    painter.setBrush(fill)
-                    painter.drawRect(rect)
+                fill.setAlpha(200)  # frosted winner tint
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(fill)
+                painter.drawRect(rect)
                 mark = QColor(PAL['win_mark'])
-                mark.setAlpha(int(255 * (1.0 - blend)))
-                if mark.alpha() > 0:
-                    pad = rect.width() * 0.18
-                    badge = QRectF(rect.left() + pad, rect.top() + pad,
-                                   rect.width() - 2 * pad, rect.height() - 2 * pad)
-                    self._paint_mark(painter, badge, winner, mark)
+                mark.setAlpha(255)
+                pad = rect.width() * 0.18
+                badge = QRectF(rect.left() + pad, rect.top() + pad,
+                               rect.width() - 2 * pad, rect.height() - 2 * pad)
+                self._paint_mark(painter, badge, winner, mark)
                 line = micro_win_line(self.game.micro[m])
-                if line is not None and blend > 0:
-                    line_color = _mark_color(winner)
-                    line_color.setAlpha(int(255 * blend))
+                if line is not None:
                     self._paint_win_line(painter, line, micro_centers[m],
-                                         line_color, cell * 0.12, rect)
+                                         _mark_color(winner), cell * 0.12, rect)
         # overall macro win line
         whole = micro_win_line(self.game.macro)
         if whole:
