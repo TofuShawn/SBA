@@ -703,9 +703,7 @@ class BoardWidget(QWidget):
                 # default frosted label
                 line = micro_win_line(self.game.micro[m])
                 if line is not None and blend > 0:
-                    conn = (QColor(WIN_GREEN) if connected
-                            else QColor(PAL['win_fill_x'] if winner == X
-                                        else PAL['win_fill_o']))
+                    conn = QColor(WIN_GREEN)
                     conn.setAlpha(int(255 * blend))
                     mr, mc = divmod(m, 3)
                     for idx in line:
