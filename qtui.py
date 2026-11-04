@@ -24,6 +24,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 
 try:
     from PySide6.QtCore import (QEasingCurve, QPropertyAnimation, QPointF, QRectF,
@@ -61,8 +62,9 @@ from SBA import (
 # fallbacks so CJK and Latin both render cleanly.
 FONT_FAMILIES = ['Noto Sans TC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
 
-# Arknights Endfield palette olive-green used for win outlines/masks/labels.
-WIN_GREEN = '#657136'
+# Arknights Endfield palette: signal orange for win outlines/masks/labels
+# (was olive green; orange separates from the yellow O-side accent).
+WIN_ACCENT = '#E8721C'
 
 
 def _blur_pixmap(pm, radius):
@@ -491,13 +493,16 @@ class BoardWidget(QWidget):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        # Opaque field plate: cells sit 3px apart, so without this the
-        # backdrop image bleeds through the gaps and the board looks dirty.
-        plate = QColor('#0D0E10')
-        painter.fillRect(self.rect(), plate)
+        # Opaque plate sized to the board only (not the whole widget): the
+        # backdrop must not bleed through the 3px cell gaps, but the margins
+        # around the board stay transparent so the page reads as one canvas.
+        n, cell, ox, oy = self._grid()
+        span = n * cell + (n - 1) * self.GAP
+        plate_rect = QRectF(ox, oy, span, span).adjusted(-8.0, -8.0, 8.0, 8.0)
+        painter.fillRect(plate_rect, QColor('#0D0E10'))
         painter.setPen(QPen(QColor('#35373C'), 1))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        painter.drawRect(plate_rect.adjusted(0, 0, -1, -1))
         if isinstance(self.game, UltimateGame):
             self._paint_ultimate(painter)
         else:
@@ -681,7 +686,7 @@ class BoardWidget(QWidget):
                         painter.drawRect(rect)
                     connected = whole is not None and m in whole
                     if connected:
-                        fill = QColor(WIN_GREEN)
+                        fill = QColor(WIN_ACCENT)
                     else:
                         fill = QColor(PAL['win_fill_x'] if winner == X
                                       else PAL['win_fill_o'])
@@ -689,7 +694,9 @@ class BoardWidget(QWidget):
                     if fill.alpha() > 0:
                         painter.setBrush(fill)
                         painter.drawRect(rect)
-                    badge_color = _mark_color(winner)
+                    badge_color = QColor(PAL['win_mark'])  # dark ink on the
+                    # colored plate — a yellow badge on a yellow O plate
+                    # vanished; ink on signal colors stays readable
                     badge_color.setAlpha(int(255 * (1.0 - blend)))
                     if badge_color.alpha() > 0:
                         pad = rect.width() * 0.18
@@ -701,7 +708,7 @@ class BoardWidget(QWidget):
                 # after clicking (reveal)
                 line = micro_win_line(self.game.micro[m])
                 if line is not None and blend > 0:
-                    conn = QColor(WIN_GREEN)
+                    conn = QColor(WIN_ACCENT)
                     conn.setAlpha(int(255 * blend))
                     mr, mc = divmod(m, 3)
                     for idx in line:
@@ -712,7 +719,7 @@ class BoardWidget(QWidget):
                         self._paint_mark(painter, crect, cmark, conn)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
-                    painter.setPen(QPen(QColor(WIN_GREEN), max(2.0, cell * 0.06)))
+                    painter.setPen(QPen(QColor(WIN_ACCENT), max(2.0, cell * 0.06)))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
 
@@ -1409,9 +1416,16 @@ class GamePage(EndfieldPage):
             self.hist_x_series.append(k, x * 100.0)
             self.hist_ref.append(k, 50.0)
         if history:
-            self.hist_axis.setRange(0, max(1, len(history) - 1))
-            # integer-friendly ticks: divide the span into whole steps
-            self.hist_axis.setTickCount(min(6, max(2, len(history))))
+            # Fixed x-scale with scrolling (user feedback): the window is
+            # always 12 steps wide; once the game grows past it, the window
+            # slides so the latest step sits at the right edge.
+            n_steps = max(1, len(history) - 1)
+            window = 12
+            if n_steps <= window:
+                self.hist_axis.setRange(0, window)
+            else:
+                self.hist_axis.setRange(n_steps - window, n_steps)
+            self.hist_axis.setTickCount(7)  # 0, 2, 4 … 12
             self.hist_axis_y.setRange(0, 100)
             if history[self.step_idx] is not None:
                 self.hist_dot.append(self.step_idx,
@@ -1521,7 +1535,9 @@ class GamePage(EndfieldPage):
         ai_type = x_type if self.game.current == X else o_type
         self.busy = True
         self.refresh()
-        trace = {}
+        self._ai_started = time.monotonic()
+        trace = {'engine': ai_type}  # pre-filled: the live status shows the
+        # engine name while searching (the impl shell only setdefaults it)
         self._last_trace = trace
         worker = AIWorker(self.game.clone(), ai_type,
                           self.session['mcts'], self.session.get('minimax_depth', 3),
@@ -1535,36 +1551,28 @@ class GamePage(EndfieldPage):
         worker.start()
 
     def on_ai_progress(self, info):
-        """Live thinking display (D24): status line + side-panel thinking row."""
+        """Liveness status (user feedback): just the sim counter ticking —
+        no probabilities; a moving counter is what proves the AI isn't stuck."""
         if not self.busy or self.game is None:
             return
         player = self.game.current
         mark = '✕' if player == X else '○'
-        line = (f'{mark} · {t("thinking...", "思考中")}'
-                f' · {info.get("it", 0)}/{info.get("iterations", 0)}')
-        best = info.get('best_text')
-        if best:
-            line += f' · {best} {info.get("wr", 0):.0%}'
-        self.status_text.setText(line)
+        engine = (getattr(self, '_last_trace', None) or {}).get('engine', '')
+        self.status_text.setText(
+            f'{mark} · {t("thinking...", "思考中")} · '
+            f'{info.get("it", 0)}/{info.get("iterations", 0)}')
         self.think_lbl.setText(
-            f"SCANNING · {info.get('it', 0)}/{info.get('iterations', 0)}"
-            + (f" · best {best} {info.get('wr', 0):.0%}" if best else ''))
+            f'{engine} · {info.get("it", 0)}/{info.get("iterations", 0)}')
         self.think_lbl.setVisible(True)
 
     def _show_thinking_trace(self):
-        """Post-move summary (D24) in the Best Moves card; candidates other
-        than the pick are listed as 'next' so the pick never repeats."""
-        tr = getattr(self, '_last_trace', None)
-        if not tr:
-            return
-        picked = tr.get('picked_text', '')
-        tops = ' · '.join(f'{tx} {wr:.0%}' for tx, _s, wr in tr.get('top', [])
-                          if tx != picked)
-        note = f" ({tr['note']})" if tr.get('note') else ''
-        line = f"{tr.get('engine', '')}{note} → {picked}"
-        if tops:
-            line += f'\n{t("next", "次選")}： {tops}'
-        self.think_lbl.setText(line)
+        """Completion status (D24, simplified): engine + wall time — enough
+        to see the AI finished and how long it took."""
+        engine = (getattr(self, '_last_trace', None) or {}).get('engine', 'AI')
+        elapsed = time.monotonic() - getattr(self, '_ai_started',
+                                             time.monotonic())
+        self.think_lbl.setText(
+            f'{engine} {t("done ·", "完成 ·")} {elapsed:.1f}s')
         self.think_lbl.setVisible(True)
 
     def on_ai_done(self, move, gen=None):

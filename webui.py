@@ -19,6 +19,7 @@ Maintenance notes:
 import asyncio
 import logging
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -387,6 +388,7 @@ def main_page():
                 g0 = game
             trace = {}
             session['ai_progress'] = None
+            t0 = time.monotonic()
 
             def _on_progress(info):
                 # worker thread → dict write is GIL-atomic; the poll timer reads it
@@ -405,6 +407,7 @@ def main_page():
             session['ai_progress'] = None
             if g0 is not session['game']:
                 return  # rewound/restarted while thinking: drop the stale move
+            trace['_elapsed'] = time.monotonic() - t0
             session['ai_trace'] = trace
             if session.get('ai_busy') == id(g0):
                 session['ai_busy'] = None
@@ -736,24 +739,22 @@ def main_page():
         game_timer = ui.timer(max(0.05, session.get('cvc_speed', 0.4)), ai_loop)
 
         def poll_ai_thinking():
-            """D24: mirror the AI worker's progress/trace dicts into labels."""
+            """D24 (simplified): liveness only — a ticking sim counter; the
+            completion line shows engine + wall time, no probabilities."""
             info = session.get('ai_progress')
             if info:
-                line = f"{info.get('it', 0)}/{info.get('iterations', 0)}"
-                if info.get('best_text'):
-                    line += f" · {info['best_text']} {info.get('wr', 0):.0%}"
-                ai_progress_lbl.set_text(f"{t('thinking', '思考中')} · {line}")
+                ai_progress_lbl.set_text(
+                    f"{t('thinking', '思考中')} · "
+                    f"{info.get('it', 0)}/{info.get('iterations', 0)}")
                 ai_progress_lbl.set_visibility(True)
             elif ai_progress_lbl.visible:
                 ai_progress_lbl.set_visibility(False)
             tr = session.get('ai_trace')
             if tr:
-                tops = ' · '.join(f"{tx} {wr:.0%}" for tx, _s, wr in tr.get('top', []))
-                note = f" ({tr['note']})" if tr.get('note') else ''
-                line = f"{tr.get('engine', '')}{note} → {tr.get('picked_text', '')}"
-                if tops:
-                    line += f' · {tops}'
-                ai_trace_lbl.set_text(f"{t('AI last move:', 'AI 上一步：')} {line}")
+                elapsed = tr.get('_elapsed', 0.0)
+                ai_trace_lbl.set_text(
+                    f"{tr.get('engine', 'AI')} "
+                    f"{t('done ·', '完成 ·')} {elapsed:.1f}s")
 
         ui.timer(0.25, poll_ai_thinking)
 

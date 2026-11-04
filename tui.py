@@ -956,6 +956,7 @@ class GameScreen(Screen):
     @work(thread=True, group='ai')
     def _ai_job(self, game, ai_type, gen, gid, tok):
         trace = {}
+        t0 = time.monotonic()
 
         def _on_progress(info):
             # worker thread → UI thread; keep a copy (engine reuses dicts)
@@ -969,13 +970,15 @@ class GameScreen(Screen):
             log.error('AI move failed: %s', e)
             self.app.call_from_thread(self._ai_failed, gen, gid, tok)
             return
-        self.app.call_from_thread(self._ai_done, move, gen, gid, tok, trace)
+        elapsed = time.monotonic() - t0
+        self.app.call_from_thread(self._ai_done, move, gen, gid, tok,
+                                  trace, elapsed)
 
     def _on_ai_progress(self, info):
         self._ai_progress = info
         self._render_status()
 
-    def _ai_done(self, move, gen, gid, tok, trace=None):
+    def _ai_done(self, move, gen, gid, tok, trace=None, elapsed=0.0):
         if self._closed or tok != self._ai_token:
             return  # paused / rewound / restarted while thinking: drop it
         if gid != self.session['game_id'] or gen != self.session['analysis_gen']:
@@ -985,6 +988,7 @@ class GameScreen(Screen):
         self._ai_busy = False
         self._ai_progress = None
         if trace:
+            trace['_elapsed'] = elapsed
             self._ai_trace = trace
         self._apply_move(move)
 
@@ -1234,9 +1238,8 @@ class GameScreen(Screen):
                 if self._ai_busy:
                     prog = self._ai_progress
                     if prog:
-                        live = (f"{prog.get('it', 0)}/{prog.get('iterations', 0)}"
-                                f" · best {prog.get('best_text') or '…'}"
-                                f" {prog.get('wr', 0):.0%}")
+                        live = (f"{prog.get('it', 0)}/"
+                                f"{prog.get('iterations', 0)}")
                         txt.append(' · ' + t('thinking', '思考中') + ' ' + live,
                                    style='dim')
                     else:
@@ -1248,13 +1251,10 @@ class GameScreen(Screen):
                 txt.append(' · ' + t('your move', '輪到你'))
                 if self._ai_trace:
                     tr = self._ai_trace
-                    tops = ' '.join(f'{tx} {wr:.0%}'
-                                    for tx, _s, wr in tr.get('top', [])[:2])
-                    last = f"{tr.get('picked_text', '')}"
-                    if tops:
-                        last += f' ({tops})'
-                    txt.append(' · ' + t('AI last', 'AI 上一步') + ' ' + last,
-                               style='dim')
+                    done = (f"{tr.get('engine', 'AI')} "
+                            f"{t('done ·', '完成 ·')} "
+                            f"{tr.get('_elapsed', 0.0):.1f}s")
+                    txt.append(' · ' + done, style='dim')
             txt.append(f' · {t("step", "步")} {s["step"]}/{len(s["moves"])}')
             if isinstance(game, UltimateGame) and game.active_macro is not None \
                     and game.macro_open(game.active_macro):
