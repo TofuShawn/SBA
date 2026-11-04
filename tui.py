@@ -781,6 +781,8 @@ class GameScreen(Screen):
         self._ai_worker = None
         self._ai_token = 0
         self._ai_busy = False
+        self._ai_progress = None   # D24: live search info from the AI worker
+        self._ai_trace = None      # D24: last move's thinking summary
         self._analysis_token = 0
         self._analysis_items = []
         self._last_rates = None
@@ -953,16 +955,27 @@ class GameScreen(Screen):
 
     @work(thread=True, group='ai')
     def _ai_job(self, game, ai_type, gen, gid, tok):
+        trace = {}
+
+        def _on_progress(info):
+            # worker thread → UI thread; keep a copy (engine reuses dicts)
+            self.app.call_from_thread(self._on_ai_progress, dict(info))
+
         try:
             move = get_ai_move(game, ai_type, self.session['mcts'],
-                               self.session.get('minimax_depth', 4))
+                               self.session.get('minimax_depth', 4),
+                               on_progress=_on_progress, trace=trace)
         except Exception as e:  # noqa: BLE001 - report engine failures to the UI
             log.error('AI move failed: %s', e)
             self.app.call_from_thread(self._ai_failed, gen, gid, tok)
             return
-        self.app.call_from_thread(self._ai_done, move, gen, gid, tok)
+        self.app.call_from_thread(self._ai_done, move, gen, gid, tok, trace)
 
-    def _ai_done(self, move, gen, gid, tok):
+    def _on_ai_progress(self, info):
+        self._ai_progress = info
+        self._render_status()
+
+    def _ai_done(self, move, gen, gid, tok, trace=None):
         if self._closed or tok != self._ai_token:
             return  # paused / rewound / restarted while thinking: drop it
         if gid != self.session['game_id'] or gen != self.session['analysis_gen']:
@@ -970,12 +983,16 @@ class GameScreen(Screen):
             self._render_status()
             return
         self._ai_busy = False
+        self._ai_progress = None
+        if trace:
+            self._ai_trace = trace
         self._apply_move(move)
 
     def _ai_failed(self, gen, gid, tok):
         if self._closed or tok != self._ai_token:
             return
         self._ai_busy = False
+        self._ai_progress = None
         self._render_status()
         self.notify(t('AI error — see the log', 'AI 發生錯誤，請看日誌'),
                     severity='error', timeout=4)
@@ -1214,11 +1231,30 @@ class GameScreen(Screen):
             if current_side_type(s) != 'Human':
                 kind = current_side_type(s)
                 txt.append(f'Computer ({kind}) — 電腦 ({kind})', style='bold')
-                txt.append(' · ' + (t('thinking...', '思考中') if self._ai_busy
-                                    else t('AI turn', 'AI 回合')))
+                if self._ai_busy:
+                    prog = self._ai_progress
+                    if prog:
+                        live = (f"{prog.get('it', 0)}/{prog.get('iterations', 0)}"
+                                f" · best {prog.get('best_text') or '…'}"
+                                f" {prog.get('wr', 0):.0%}")
+                        txt.append(' · ' + t('thinking', '思考中') + ' ' + live,
+                                   style='dim')
+                    else:
+                        txt.append(' · ' + t('thinking...', '思考中'))
+                else:
+                    txt.append(' · ' + t('AI turn', 'AI 回合'))
             else:
                 txt.append(f'Player {player} — 玩家 {player}', style='bold')
                 txt.append(' · ' + t('your move', '輪到你'))
+                if self._ai_trace:
+                    tr = self._ai_trace
+                    tops = ' '.join(f'{tx} {wr:.0%}'
+                                    for tx, _s, wr in tr.get('top', [])[:2])
+                    last = f"{tr.get('picked_text', '')}"
+                    if tops:
+                        last += f' ({tops})'
+                    txt.append(' · ' + t('AI last', 'AI 上一步') + ' ' + last,
+                               style='dim')
             txt.append(f' · {t("step", "步")} {s["step"]}/{len(s["moves"])}')
             if isinstance(game, UltimateGame) and game.active_macro is not None \
                     and game.macro_open(game.active_macro):

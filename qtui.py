@@ -725,17 +725,20 @@ class BoardWidget(QWidget):
 class AIWorker(QThread):
     move_ready = Signal(object)
     move_failed = Signal(str)
+    progress = Signal(dict)
 
-    def __init__(self, game, ai_type, budget, depth, parent=None):
+    def __init__(self, game, ai_type, budget, depth, parent=None, trace=None):
         super().__init__(parent)
         self.game = game
         self.ai_type = ai_type
         self.budget = budget
         self.depth = depth
+        self.trace = trace
 
     def run(self):
         try:
-            move = get_ai_move(self.game, self.ai_type, self.budget, self.depth)
+            move = get_ai_move(self.game, self.ai_type, self.budget, self.depth,
+                               on_progress=self.progress.emit, trace=self.trace)
             self.move_ready.emit(move)
         except Exception as e:  # noqa: BLE001 - report any engine failure to the UI
             self.move_failed.emit(str(e))
@@ -759,26 +762,64 @@ class AnalysisWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
-# Endfield backdrop: topographic contour rings painted behind every page
+# Endfield backdrop: topographic survey imagery behind every page
 # ---------------------------------------------------------------------------
 
 class EndfieldPage(QWidget):
     """Shared Endfield backdrop for the menu/game pages.
 
-    Paints procedural topographic contour rings (no image assets) and an
-    optional giant hollow title used as background structure, per the
-    Hypergryph-inspired brief. Children (cards, controls) draw on top.
+    Subclasses point BACKDROP at a survey image under static/backgrounds/;
+    it is drawn aspect-fill, center-cropped, and cached per class. When the
+    image is missing the page falls back to procedural contour rings plus
+    the giant hollow title, so the theme still works on a bare checkout.
+    Children (cards, controls) draw on top.
     """
 
-    GIANT_TEXT = None
+    BACKDROP = None      # e.g. 'static/backgrounds/topography-dark.jpg'
+    GIANT_TEXT = None    # only drawn in the procedural fallback
+    _backdrop_cache = {}
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        self._paint_contours(painter)
-        if self.GIANT_TEXT:
-            self._paint_giant(painter)
+        pix = self._backdrop_pixmap()
+        if pix is not None:
+            self._paint_backdrop(painter, pix)
+        else:
+            self._paint_contours(painter)
+            if self.GIANT_TEXT:
+                self._paint_giant(painter)
         painter.end()
+
+    def _backdrop_pixmap(self):
+        """Class-cached, DPI-scaled backdrop; None when the file is missing."""
+        if not self.BACKDROP:
+            return None
+        pix = EndfieldPage._backdrop_cache.get(self.BACKDROP)
+        if pix is None:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                self.BACKDROP)
+            if not os.path.isfile(path):
+                return None
+            pix = QPixmap(path)
+            if pix.isNull():
+                return None
+            dpr = self.devicePixelRatioF()
+            if dpr > 1.0:  # keep the survey lines crisp on scaled displays
+                pix.setDevicePixelRatio(dpr)
+            EndfieldPage._backdrop_cache[self.BACKDROP] = pix
+        return pix
+
+    def _paint_backdrop(self, painter, pix):
+        """Aspect-fill, center-cropped: cover the page, never distort."""
+        iw, ih = pix.width(), pix.height()
+        if iw < 1 or ih < 1:
+            return
+        w, h = self.width(), self.height()
+        scale = max(w / iw, h / ih)
+        dw, dh = iw * scale, ih * scale
+        x, y = (w - dw) / 2.0, (h - dh) / 2.0
+        painter.drawPixmap(QRectF(x, y, dw, dh).toRect(), pix)
 
     def _paint_contours(self, painter):
         w, h = self.width(), self.height()
@@ -832,6 +873,7 @@ class MenuPage(EndfieldPage):
     start_requested = Signal(object)
     web_toggled = Signal(bool)
     GIANT_TEXT = 'UTTT'
+    BACKDROP = 'static/backgrounds/survey-dark.jpg'
 
     def __init__(self, web_port=8080):
         super().__init__()
@@ -992,6 +1034,7 @@ class MenuPage(EndfieldPage):
 
 class GamePage(EndfieldPage):
     back_requested = Signal()
+    BACKDROP = 'static/backgrounds/topography-dark.jpg'
 
     def __init__(self):
         super().__init__()
@@ -1158,6 +1201,12 @@ class GamePage(EndfieldPage):
         info_lay.addWidget(self.info_mode)
         info_lay.addWidget(self.info_x)
         info_lay.addWidget(self.info_o)
+        # AI thinking summary (D24): engine → pick + top candidates, filled
+        # after every AI move by _show_thinking_trace().
+        self.trace_lbl = QLabel('')
+        self.trace_lbl.setObjectName('muted')
+        self.trace_lbl.setWordWrap(True)
+        info_lay.addWidget(self.trace_lbl)
         self.assistant_switch = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant_switch.setChecked(True)
         self.assistant_switch.toggled.connect(self.on_assistant_toggled)
@@ -1275,6 +1324,7 @@ class GamePage(EndfieldPage):
         self.analysis_busy = False
         self.analysis_pending = False
         self.cvc_timer.stop()
+        self.trace_lbl.setText('')
         self.speed_slider.setValue(int(s.get('cvc_speed', 0.4) * 10))
         self.cvc_timer.setInterval(max(50, int(s.get('cvc_speed', 0.4) * 1000)))
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
@@ -1457,19 +1507,49 @@ class GamePage(EndfieldPage):
         ai_type = x_type if self.game.current == X else o_type
         self.busy = True
         self.refresh()
+        trace = {}
+        self._last_trace = trace
         worker = AIWorker(self.game.clone(), ai_type,
-                          self.session['mcts'], self.session.get('minimax_depth', 3))
+                          self.session['mcts'], self.session.get('minimax_depth', 3),
+                          trace=trace)
         gen = self.gen
+        worker.progress.connect(self.on_ai_progress)
         worker.move_ready.connect(lambda move, g=gen: self.on_ai_done(move, g))
         worker.move_failed.connect(lambda msg, g=gen: self.on_ai_failed(msg, g))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
+    def on_ai_progress(self, info):
+        """Live thinking display (D24): search progress + current best child."""
+        if not self.busy or self.game is None:
+            return
+        player = self.game.current
+        mark = '✕' if player == X else '○'
+        line = (f'{mark} · {t("thinking...", "思考中")}'
+                f' · {info.get("it", 0)}/{info.get("iterations", 0)}')
+        best = info.get('best_text')
+        if best:
+            line += f' · {best} {info.get("wr", 0):.0%}'
+        self.status_text.setText(line)
+
+    def _show_thinking_trace(self):
+        """Post-move summary (D24): engine → pick, then top candidates."""
+        tr = getattr(self, '_last_trace', None)
+        if not tr:
+            return
+        tops = ' · '.join(f'{tx} {wr:.0%}' for tx, _s, wr in tr.get('top', []))
+        note = f" ({tr['note']})" if tr.get('note') else ''
+        line = f"{tr.get('engine', '')}{note} → {tr.get('picked_text', '')}"
+        if tops:
+            line += f' · {tops}'
+        self.trace_lbl.setText(t('AI last move:', 'AI 上一步：') + ' ' + line)
+
     def on_ai_done(self, move, gen=None):
         if gen is not None and gen != self.gen:
             return  # position changed while the engine was thinking: drop it
         self.busy = False
+        self._show_thinking_trace()
         self.apply_move(move)
 
     def on_ai_failed(self, message, gen=None):
