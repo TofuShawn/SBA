@@ -1224,6 +1224,21 @@ class GamePage(EndfieldPage):
         info_lay.addWidget(self.assistant_switch)
         panel.addWidget(info_card)
 
+        # History card (user request): every step listed; clicking an entry
+        # rewinds the game to that step via go_to_step (same replay path as
+        # the timeline slider).
+        hist_card = QFrame()
+        hist_card.setObjectName('card')
+        hist_lay = QVBoxLayout(hist_card)
+        hist_title = QLabel(t('History', '歷史'))
+        hist_title.setObjectName('cardTitle')
+        hist_lay.addWidget(hist_title)
+        self.hist_list = QListWidget()
+        self.hist_list.setMaximumHeight(160)
+        self.hist_list.itemClicked.connect(self.on_history_clicked)
+        hist_lay.addWidget(self.hist_list)
+        panel.addWidget(hist_card)
+
         # Assistant card
         az_card = QFrame()
         az_card.setObjectName('card')
@@ -1414,22 +1429,51 @@ class GamePage(EndfieldPage):
                 continue  # Ultimate point still awaiting the assistant's search
             x, d, o = point
             self.hist_x_series.append(k, x * 100.0)
-            self.hist_ref.append(k, 50.0)
+        # Fixed x-scale with scrolling (user feedback): the window is always
+        # 12 steps wide; past that it slides so the latest step stays at the
+        # right edge.
+        n_steps = max(1, len(history) - 1)
+        window = 12
+        if n_steps <= window:
+            ax_min, ax_max = 0, window
+        else:
+            ax_min, ax_max = n_steps - window, n_steps
+        # 50% reference spans the whole window (2 fixed points) so the chart
+        # never looks empty in the opening moves, even before the X line has
+        # two points to connect.
+        self.hist_ref.append(ax_min, 50.0)
+        self.hist_ref.append(ax_max, 50.0)
         if history:
-            # Fixed x-scale with scrolling (user feedback): the window is
-            # always 12 steps wide; once the game grows past it, the window
-            # slides so the latest step sits at the right edge.
-            n_steps = max(1, len(history) - 1)
-            window = 12
-            if n_steps <= window:
-                self.hist_axis.setRange(0, window)
-            else:
-                self.hist_axis.setRange(n_steps - window, n_steps)
+            self.hist_axis.setRange(ax_min, ax_max)
             self.hist_axis.setTickCount(7)  # 0, 2, 4 … 12
             self.hist_axis_y.setRange(0, 100)
             if history[self.step_idx] is not None:
                 self.hist_dot.append(self.step_idx,
                                      history[self.step_idx][0] * 100.0)
+        # rebuild the history card list; clicking a row rewinds to that step
+        self.hist_list.blockSignals(True)
+        self.hist_list.clear()
+        self.hist_list.addItem(self._hist_item(0, None))
+        for k, mv in enumerate(moves, start=1):
+            self.hist_list.addItem(self._hist_item(k, mv))
+        self.hist_list.setCurrentRow(self.step_idx)
+        self.hist_list.blockSignals(False)
+
+    def _hist_item(self, k, mv):
+        """History card row: '07 · ✕ B2 (1,2)'; data carries the step index."""
+        if mv is None:
+            text = f'{k:02d} · {t("start", "開局")}'
+        else:
+            side = '✕' if (k - 1) % 2 == 0 else '○'
+            text = f'{k:02d} · {side} {move_text(mv)}'
+        item = QListWidgetItem(text)
+        item.setData(Qt.UserRole, k)
+        return item
+
+    def on_history_clicked(self, item):
+        k = item.data(Qt.UserRole)
+        if k is not None and k != self.step_idx:
+            self.go_to_step(k)
 
     def refresh(self):
         if self.game is None:
