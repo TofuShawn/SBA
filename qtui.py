@@ -491,6 +491,13 @@ class BoardWidget(QWidget):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        # Opaque field plate: cells sit 3px apart, so without this the
+        # backdrop image bleeds through the gaps and the board looks dirty.
+        plate = QColor('#0D0E10')
+        painter.fillRect(self.rect(), plate)
+        painter.setPen(QPen(QColor('#35373C'), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         if isinstance(self.game, UltimateGame):
             self._paint_ultimate(painter)
         else:
@@ -792,7 +799,12 @@ class EndfieldPage(QWidget):
         painter.end()
 
     def _backdrop_pixmap(self):
-        """Class-cached, DPI-scaled backdrop; None when the file is missing."""
+        """Class-cached, blurred backdrop; None when the file is missing.
+
+        The survey images are sharp and fairly contrasty — blurred once at
+        load (and cached) they read as soft field texture instead of competing
+        with the board (user feedback: "opacity too high, try blurry or dark").
+        """
         if not self.BACKDROP:
             return None
         pix = EndfieldPage._backdrop_cache.get(self.BACKDROP)
@@ -804,14 +816,12 @@ class EndfieldPage(QWidget):
             pix = QPixmap(path)
             if pix.isNull():
                 return None
-            dpr = self.devicePixelRatioF()
-            if dpr > 1.0:  # keep the survey lines crisp on scaled displays
-                pix.setDevicePixelRatio(dpr)
+            pix = _blur_pixmap(pix, 8.0)  # soften once; cached afterwards
             EndfieldPage._backdrop_cache[self.BACKDROP] = pix
         return pix
 
     def _paint_backdrop(self, painter, pix):
-        """Aspect-fill, center-cropped: cover the page, never distort."""
+        """Aspect-fill, center-cropped, then a dark wash to keep it subdued."""
         iw, ih = pix.width(), pix.height()
         if iw < 1 or ih < 1:
             return
@@ -820,6 +830,7 @@ class EndfieldPage(QWidget):
         dw, dh = iw * scale, ih * scale
         x, y = (w - dw) / 2.0, (h - dh) / 2.0
         painter.drawPixmap(QRectF(x, y, dw, dh).toRect(), pix)
+        painter.fillRect(self.rect(), QColor(9, 9, 11, 168))
 
     def _paint_contours(self, painter):
         w, h = self.width(), self.height()
@@ -1201,12 +1212,6 @@ class GamePage(EndfieldPage):
         info_lay.addWidget(self.info_mode)
         info_lay.addWidget(self.info_x)
         info_lay.addWidget(self.info_o)
-        # AI thinking summary (D24): engine → pick + top candidates, filled
-        # after every AI move by _show_thinking_trace().
-        self.trace_lbl = QLabel('')
-        self.trace_lbl.setObjectName('muted')
-        self.trace_lbl.setWordWrap(True)
-        info_lay.addWidget(self.trace_lbl)
         self.assistant_switch = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant_switch.setChecked(True)
         self.assistant_switch.toggled.connect(self.on_assistant_toggled)
@@ -1219,7 +1224,6 @@ class GamePage(EndfieldPage):
         az_lay = QVBoxLayout(az_card)
         az_title = QLabel(t('Best Moves', '最佳棋步'))
         az_title.setObjectName('cardTitle')
-        az_lay.addWidget(deck_num('02'))
         az_lay.addWidget(az_title)
         self.win_bar = QWidget()
         self.win_bar.setFixedHeight(14)
@@ -1256,6 +1260,14 @@ class GamePage(EndfieldPage):
         scan_row.addSpacing(8)
         scan_row.addWidget(self.scan_lbl)
         az_lay.addLayout(scan_row)
+        # AI thinking line (D24): live search progress while the engine runs,
+        # then the post-move summary — both live next to the move list so the
+        # side panel is where "what is the AI doing" is read.
+        self.think_lbl = QLabel('')
+        self.think_lbl.setObjectName('muted')
+        self.think_lbl.setWordWrap(True)
+        self.think_lbl.setVisible(False)
+        az_lay.addWidget(self.think_lbl)
         self.analysis_list = QListWidget()
         self.analysis_list.setMinimumHeight(160)
         self.analysis_list.itemClicked.connect(self.on_analysis_clicked)
@@ -1324,7 +1336,8 @@ class GamePage(EndfieldPage):
         self.analysis_busy = False
         self.analysis_pending = False
         self.cvc_timer.stop()
-        self.trace_lbl.setText('')
+        self.think_lbl.setText('')
+        self.think_lbl.setVisible(False)
         self.speed_slider.setValue(int(s.get('cvc_speed', 0.4) * 10))
         self.cvc_timer.setInterval(max(50, int(s.get('cvc_speed', 0.4) * 1000)))
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
@@ -1521,7 +1534,7 @@ class GamePage(EndfieldPage):
         worker.start()
 
     def on_ai_progress(self, info):
-        """Live thinking display (D24): search progress + current best child."""
+        """Live thinking display (D24): status line + side-panel thinking row."""
         if not self.busy or self.game is None:
             return
         player = self.game.current
@@ -1532,18 +1545,26 @@ class GamePage(EndfieldPage):
         if best:
             line += f' · {best} {info.get("wr", 0):.0%}'
         self.status_text.setText(line)
+        self.think_lbl.setText(
+            f"SCANNING · {info.get('it', 0)}/{info.get('iterations', 0)}"
+            + (f" · best {best} {info.get('wr', 0):.0%}" if best else ''))
+        self.think_lbl.setVisible(True)
 
     def _show_thinking_trace(self):
-        """Post-move summary (D24): engine → pick, then top candidates."""
+        """Post-move summary (D24) in the Best Moves card; candidates other
+        than the pick are listed as 'next' so the pick never repeats."""
         tr = getattr(self, '_last_trace', None)
         if not tr:
             return
-        tops = ' · '.join(f'{tx} {wr:.0%}' for tx, _s, wr in tr.get('top', []))
+        picked = tr.get('picked_text', '')
+        tops = ' · '.join(f'{tx} {wr:.0%}' for tx, _s, wr in tr.get('top', [])
+                          if tx != picked)
         note = f" ({tr['note']})" if tr.get('note') else ''
-        line = f"{tr.get('engine', '')}{note} → {tr.get('picked_text', '')}"
+        line = f"{tr.get('engine', '')}{note} → {picked}"
         if tops:
-            line += f' · {tops}'
-        self.trace_lbl.setText(t('AI last move:', 'AI 上一步：') + ' ' + line)
+            line += f'\n{t("next", "次選")}： {tops}'
+        self.think_lbl.setText(line)
+        self.think_lbl.setVisible(True)
 
     def on_ai_done(self, move, gen=None):
         if gen is not None and gen != self.gen:
