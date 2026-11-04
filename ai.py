@@ -346,7 +346,9 @@ class NodePool:
 _POOL = NodePool()
 
 
-def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
+def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress=None):
+    """Plain MCTS. `on_progress(info)` fires ~10 times per search with the
+    current best child so UIs can show the engine's thinking (D24)."""
     c = cfg_engine('uct_c', 1.4) if c is None else c
     if prev_root is not None:
         root = prev_root
@@ -357,6 +359,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
                 if pool is not None else MCTSNode(root_state, None, None, None))
     start_visits = root.visits
     root_sym = set()
+    report_at = max(1, iterations // 10) if on_progress else 0
     for it in range(iterations):
         node = root
         state = root_state.clone()
@@ -397,6 +400,13 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None):
             if root.visits and top.visits / root.visits > 0.6 \
                     and top.wins / top.visits > 0.55:
                 break
+        if report_at and (it + 1) % report_at == 0 and root.children:
+            top = max(root.children, key=lambda ch: ch.visits)
+            if root.visits and top.visits:
+                on_progress({'it': it + 1, 'iterations': iterations,
+                             'best_text': move_text(top.move),
+                             'share': top.visits / root.visits,
+                             'wr': top.wins / top.visits})
     return root
 
 
@@ -1235,10 +1245,11 @@ def opening_book_move(game):
     return None
 
 
-def _mcts_move(game, ai_type, budget):
+def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
     if (ai_type == 'MCTS' and cfg_engine('multithreaded', False)):
-        return mcts_move_parallel(game, budget, cfg_engine('workers', 8))
+        return mcts_move_parallel(game, budget, cfg_engine('workers', 8),
+                                  on_progress, trace)
     reuse = cfg_engine('tree_reuse', True)
     if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
         search_game = BitUltimateGame.from_game(game)
@@ -1258,12 +1269,22 @@ def _mcts_move(game, ai_type, budget):
                     prev = next((c for c in last.children
                                  if c.move == reply), None)
     if ai_type == 'MCTS':
-        root = mcts_search(search_game, budget, prev_root=prev, pool=pool)
+        root = mcts_search(search_game, budget, prev_root=prev, pool=pool,
+                           on_progress=on_progress)
     elif ai_type == 'MCTS+RAVE':
         root = mcts_rave_search(search_game, budget, prev_root=prev)
     else:
         root = mcts_grave_search(search_game, budget, prev_root=prev)
     move = _best_mcts_move(root, game, budget)
+    # Thinking trace: top candidates by visit share (read BEFORE any pool
+    # release / tree-reuse bookkeeping — nodes may be recycled afterwards).
+    if trace is not None:
+        root_visits = root.visits or 1
+        min_visits = max(5, budget // 100)
+        cands = [c for c in root.children if c.visits >= min_visits]
+        cands.sort(key=lambda c: -c.visits)
+        trace['top'] = [(move_text(c.move), c.visits / root_visits,
+                         c.wins / c.visits) for c in cands[:3]]
     if reuse:
         g = game.clone()
         apply_move(g, move)
@@ -1278,13 +1299,16 @@ def _mcts_move(game, ai_type, budget):
     return move
 
 
-def mcts_move_parallel(game, iterations, workers=8):
+def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None):
     """Run several independent MCTS searches and merge their root stats.
 
     Experimental (C4): pure-Python tree search holds the GIL, so threads do
     NOT give real parallelism on CPU-bound work — this mostly overlaps the
     tree-building overhead and is kept for A/B comparison. For true
     parallelism use processes instead (see alphazero.py's spawn pool).
+
+    Progress is coarse here: one report per finished thread (D24) — the
+    threads run concurrently, so the counter moves in jumps, not smoothly.
     """
     chunk = max(1, iterations // workers)
     results = []
@@ -1299,14 +1323,22 @@ def mcts_move_parallel(game, iterations, workers=8):
     threads = [threading.Thread(target=work) for _ in range(workers)]
     for t in threads:
         t.start()
-    for t in threads:
+    for i, t in enumerate(threads):
         t.join()
+        if on_progress is not None:
+            on_progress({'it': (i + 1) * chunk, 'iterations': iterations,
+                         'best_text': '', 'share': 0.0, 'wr': 0.0})
     stats = {}
     for root in results:
         for c in root.children:
             s = stats.setdefault(c.move, [0, 0.0])
             s[0] += c.visits
             s[1] += c.wins
+    if trace is not None:
+        total_v = sum(s[0] for s in stats.values()) or 1
+        top = sorted(stats.items(), key=lambda kv: -kv[1][0])[:3]
+        trace['top'] = [(move_text(m), s[0] / total_v, s[1] / max(1, s[0]))
+                        for m, s in top]
     if not stats:
         moves = game.legal_moves()
         return random.choice(moves) if moves else None
@@ -1322,10 +1354,35 @@ def mcts_move_parallel(game, iterations, workers=8):
     return best_move
 
 
-def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
+def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3,
+                on_progress=None, trace=None):
+    """Pick a move for `ai_type`.
+
+    Optional hooks for showing the engine's thinking (D24):
+    - `on_progress(info)` — called ~10x during an MCTS search with
+      {'it', 'iterations', 'best_text', 'share', 'wr'}.
+    - `trace` — a dict the caller owns; filled after the search with
+      {'engine', 'budget', 'depth', 'picked_text', 'top': [(text, share, wr)],
+      'note'} so UIs can display what the engine considered.
+    """
+    move = _get_ai_move_impl(game, ai_type, mcts_budget, minimax_depth,
+                             on_progress, trace)
+    if trace is not None:
+        trace.setdefault('engine', ai_type)
+        trace['picked_text'] = move_text(move)
+    return move
+
+
+def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
+                      on_progress=None, trace=None):
+    if trace is not None:
+        trace['budget'] = mcts_budget
+        trace['depth'] = minimax_depth
     if cfg_engine('opening_book', True) and ai_type in _BOOK_ENGINES:
         book_move = opening_book_move(game)
         if book_move is not None:
+            if trace is not None:
+                trace['note'] = 'opening book'
             return book_move
     if ai_type == 'Random':
         return random.choice(game.legal_moves())
@@ -1338,7 +1395,7 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3):
     if ai_type == 'Minimax Pro':
         return minimax_pro_move(game, depth=minimax_depth)
     if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
-        return _mcts_move(game, ai_type, mcts_budget)
+        return _mcts_move(game, ai_type, mcts_budget, on_progress, trace)
     if ai_type == 'Flat MCTS':
         return flat_mcts_move(game, mcts_budget)
     if ai_type == 'Solver':
