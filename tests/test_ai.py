@@ -287,9 +287,9 @@ def test_tree_reuse_across_opponent_reply(monkeypatch):
     seen = []
     orig = ai.mcts_search
 
-    def spy(game, iterations, c=None, prev_root=None, pool=None):
+    def spy(game, iterations, c=None, prev_root=None, pool=None, **kwargs):
         seen.append(prev_root is not None)
-        return orig(game, iterations, c, prev_root, pool)
+        return orig(game, iterations, c, prev_root, pool, **kwargs)
 
     monkeypatch.setattr(ai, 'mcts_search', spy)
     g = NormalGame()
