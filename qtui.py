@@ -612,24 +612,19 @@ class BoardWidget(QWidget):
 
     def _paint_ultimate(self, painter):
         n, cell, ox, oy = self._grid()
-        # paint the base board to an offscreen pixmap so a won chunk can be
-        # re-composited over a blurred backdrop (frosted-glass win label).
-        pm = QPixmap(max(1, self.width()), max(1, self.height()))
-        pm.fill(Qt.transparent)
-        mp = QPainter(pm)
         # macro region highlights
         for m in range(9):
             rect = self._macro_rect(m, cell, ox, oy)
             if self.game.macro[m] == X:
-                mp.setBrush(QColor(PAL['macro_won_x']))
+                painter.setBrush(QColor(PAL['macro_won_x']))
             elif self.game.macro[m] == O:
-                mp.setBrush(QColor(PAL['macro_won_o']))
+                painter.setBrush(QColor(PAL['macro_won_o']))
             elif m == self.game.active_macro and self.game.macro_open(m):
-                mp.setBrush(QColor(PAL['macro_active']))
+                painter.setBrush(QColor(PAL['macro_active']))
             else:
                 continue
-            mp.setPen(Qt.NoPen)
-            mp.drawRect(rect)
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(rect)
         # micro cells
         macro_centers = []
         micro_centers = [[] for _ in range(9)]
@@ -642,72 +637,68 @@ class BoardWidget(QWidget):
                 col = mc * 3 + i % 3
                 rect = self._cell_rect(row, col, cell, ox, oy)
                 micro_centers[m].append(rect.center())
-                self._paint_cell(mp, rect, self.game.micro[m][i],
+                self._paint_cell(painter, rect, self.game.micro[m][i],
                                  self.flash_cell == (m, i))
         # grid lines
-        mp.setPen(QPen(QColor(PAL['grid_line']), 1))
+        painter.setPen(QPen(QColor(PAL['grid_line']), 1))
         for i in range(1, 9):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
-            mp.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
-            mp.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
-        mp.setPen(QPen(QColor(PAL['macro_line']), 2))
+            painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
+            painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
+        painter.setPen(QPen(QColor(PAL['macro_line']), 2))
         for i in (3, 6):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
-            mp.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
-            mp.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
+            painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
+            painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
         # yellow targeting brackets on the chunk the player must play in
         # (Ultimate); drawn on top and slightly outside the chunk so cells
         # don't cover it
         if (self.game.active_macro is not None
                 and self.game.macro_open(self.game.active_macro)):
             rect = self._macro_rect(self.game.active_macro, cell, ox, oy)
-            self._draw_brackets(mp, rect.adjusted(-2.5, -2.5, 2.5, 2.5),
+            self._draw_brackets(painter, rect.adjusted(-2.5, -2.5, 2.5, 2.5),
                                 QColor(PAL['active_outline']), 2.5,
                                 max(8.0, cell * 0.35))
-        mp.end()
-        painter.drawPixmap(0, 0, pm)
         # macro-level winning line (the "connected" chunks) for the green tint
         whole = micro_win_line(self.game.macro)
-        # won macro chunks: blur the underlying board region, then the
-        # translucent winner tint + mark (frosted-glass win label)
+        # won macro chunks: a flat, opaque field label (no frosted glass — the
+        # blurred-under-tint composite read as dirty mottling), plus the big
+        # winner badge; clicking fades it into the real cells
         for m in range(9):
             if self.game.macro[m] in (X, O):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
-                # frosted-glass win label; clicking fades into the real cells
                 blend = self._reveal_blend if m == self._revealed_macro else 0.0
-                chunk = pm.copy(rect.toRect())
                 if blend < 1.0:
-                    frosted = _blur_pixmap(chunk, max(0.0, cell * 0.22))
-                    painter.save()
-                    painter.setClipRect(rect)
-                    painter.setOpacity(1.0 - blend)
-                    painter.drawPixmap(int(rect.left()), int(rect.top()), frosted)
-                    painter.restore()
-                connected = whole is not None and m in whole
-                if connected:
-                    fill = QColor(WIN_GREEN)
-                else:
-                    fill = QColor(PAL['win_fill_x'] if winner == X
-                                  else PAL['win_fill_o'])
-                fill.setAlpha(int(200 * (1.0 - blend)))  # frosted winner tint
-                if fill.alpha() > 0:
+                    # flat dark base so nothing bleeds through, then the tint
                     painter.setPen(Qt.NoPen)
-                    painter.setBrush(fill)
-                    painter.drawRect(rect)
-                # big win badge over the frosted label
-                badge_color = _mark_color(winner)
-                badge_color.setAlpha(int(255 * (1.0 - blend)))
-                if badge_color.alpha() > 0:
-                    pad = rect.width() * 0.18
-                    badge = QRectF(rect.left() + pad, rect.top() + pad,
-                                   rect.width() - 2 * pad, rect.height() - 2 * pad)
-                    self._paint_mark(painter, badge, winner, badge_color)
-                # grey-highlight the connected winning X/O marks in the micro
-                # board — shown only after clicking (reveal), never on the
-                # default frosted label
+                    base = QColor('#0D0E10')
+                    base.setAlpha(int(255 * (1.0 - blend)))
+                    if base.alpha() > 0:
+                        painter.setBrush(base)
+                        painter.drawRect(rect)
+                    connected = whole is not None and m in whole
+                    if connected:
+                        fill = QColor(WIN_GREEN)
+                    else:
+                        fill = QColor(PAL['win_fill_x'] if winner == X
+                                      else PAL['win_fill_o'])
+                    fill.setAlpha(int(215 * (1.0 - blend)))
+                    if fill.alpha() > 0:
+                        painter.setBrush(fill)
+                        painter.drawRect(rect)
+                    badge_color = _mark_color(winner)
+                    badge_color.setAlpha(int(255 * (1.0 - blend)))
+                    if badge_color.alpha() > 0:
+                        pad = rect.width() * 0.18
+                        badge = QRectF(rect.left() + pad, rect.top() + pad,
+                                       rect.width() - 2 * pad,
+                                       rect.height() - 2 * pad)
+                        self._paint_mark(painter, badge, winner, badge_color)
+                # green-highlight the connected winning X/O marks — shown only
+                # after clicking (reveal)
                 line = micro_win_line(self.game.micro[m])
                 if line is not None and blend > 0:
                     conn = QColor(WIN_GREEN)
@@ -1167,7 +1158,15 @@ class GamePage(EndfieldPage):
         self.hist_chart.addSeries(self.hist_dot)
         self.hist_dot.attachAxis(self.hist_axis)
         self.hist_dot.attachAxis(self.hist_axis_y)
-        self.hist_x_series.setPointsVisible(True)
+        # Endfield look: one clean 2px line, no per-point markers (the dot
+        # markers made the polyline read as "broken"), integer axis labels.
+        self.hist_x_series.setPointsVisible(False)
+        line_pen = QPen(QColor(PAL['x']), 2)
+        line_pen.setCapStyle(Qt.FlatCap)
+        self.hist_x_series.setPen(line_pen)
+        self.hist_axis.setLabelFormat('%d')
+        self.hist_axis_y.setLabelFormat('%d')
+        self.hist_dot.setMarkerSize(10.0)
         self.hist_chart_view = QChartView(self.hist_chart)
         self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
         self.hist_chart_view.setMinimumHeight(200)
@@ -1411,6 +1410,8 @@ class GamePage(EndfieldPage):
             self.hist_ref.append(k, 50.0)
         if history:
             self.hist_axis.setRange(0, max(1, len(history) - 1))
+            # integer-friendly ticks: divide the span into whole steps
+            self.hist_axis.setTickCount(min(6, max(2, len(history))))
             self.hist_axis_y.setRange(0, 100)
             if history[self.step_idx] is not None:
                 self.hist_dot.append(self.step_idx,
