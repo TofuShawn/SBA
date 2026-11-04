@@ -29,3 +29,6 @@ Thumbs.db
 # MIOpen cache (Windows ROCm) / MIOpen 快取（Windows ROCm）
 .miopen/
 .miopen_cache/
+
+# Training logs / 訓練 log
+logs/

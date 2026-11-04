@@ -20,19 +20,25 @@ Maintenance notes:
 
 import argparse
 import logging
+import math
 import os
 import subprocess
 import sys
 
 try:
-    from PySide6.QtCore import (QEasingCurve, QRectF, QSize, Qt, QThread,
-                                QTimer, QVariantAnimation, Signal)
-    from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+    from PySide6.QtCore import (QEasingCurve, QPropertyAnimation, QPointF, QRectF,
+                                QSettings, QSize, Qt, QThread, QTimer,
+                                QVariantAnimation, QAbstractAnimation, Signal)
+    from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetrics,
+                               QImage, QPainter, QPainterPath, QPen, QPixmap,
+                               QPolygonF)
     from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
     from PySide6.QtWidgets import (
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
-        QGraphicsDropShadowEffect, QListWidget, QListWidgetItem, QMainWindow,
-        QPushButton, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout, QWidget,
+        QGraphicsBlurEffect, QGraphicsOpacityEffect, QGraphicsPixmapItem,
+        QGraphicsScene, QListWidget, QListWidgetItem, QMainWindow, QProgressBar,
+        QPushButton, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout,
+        QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -55,65 +61,143 @@ from SBA import (
 # fallbacks so CJK and Latin both render cleanly.
 FONT_FAMILIES = ['Noto Sans TC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
 
+# Arknights Endfield palette olive-green used for win outlines/masks/labels.
+WIN_GREEN = '#657136'
 
-# Board palettes. BoardWidget paints from the active palette; the native dark
-# glass fallback theme switches ACTIVE_THEME to 'DARK'.
+
+def _blur_pixmap(pm, radius):
+    """Return a blurred copy of ``pm`` (frosted-glass backdrop)."""
+    if radius <= 0:
+        return pm
+    scene = QGraphicsScene()
+    item = QGraphicsPixmapItem(pm)
+    blur = QGraphicsBlurEffect()
+    blur.setBlurRadius(radius)
+    item.setGraphicsEffect(blur)
+    scene.addItem(item)
+    out = QImage(pm.size(), QImage.Format_ARGB32_Premultiplied)
+    out.fill(Qt.transparent)
+    rp = QPainter(out)
+    scene.render(rp, QRectF(), QRectF(0, 0, pm.width(), pm.height()))
+    rp.end()
+    return QPixmap.fromImage(out)
+
+# Mechanical Latin faces ('Bender' etc.) are usually absent on a stock system;
+# _deck_font() picks the first installed face, so this stays zero-asset (D23).
+DECK_FONT_FAMILIES = ['Bender', 'NovecentoSansWide', 'Oswald', 'Gilroy',
+                      'Space Grotesk', 'Segoe UI']
+
+
+def _deck_font():
+    """First installed mechanical Latin face, else the platform default."""
+    available = set(QFontDatabase.families())
+    for fam in DECK_FONT_FAMILIES:
+        if fam in available:
+            return QFont(fam)
+    return QFont()
+
+
+def anim_enabled():
+    """Master switch for non-essential animation (Reduce Motion checkbox)."""
+    return not QSettings('SBA', 'SBA').value('reduce_motion', False, type=bool)
+
+
+def deck_label(text, size=13, accent=False):
+    """Endfield field-console label: mechanical Latin + wide tracking + caps."""
+    lab = QLabel(text.upper() if text.isascii() else text)
+    font = _deck_font()
+    font.setPixelSize(size)
+    font.setBold(True)
+    # AbsoluteSpacing keeps 0.06em tracking without the percentage-spacing
+    # helper's 100=normal semantics (PercentageSpacing 6 would collapse glyphs).
+    font.setLetterSpacing(QFont.AbsoluteSpacing, max(0.5, round(size * 0.06, 2)))
+    lab.setFont(font)
+    lab.setObjectName('deckAccent' if accent else 'deck')
+    # Inline sheet: keeps the per-call size above the app-wide 16px rule.
+    lab.setStyleSheet(f'font-size: {size}px;')
+    return lab
+
+
+def deck_num(text):
+    """Oversized engineering section numeral (background watermark)."""
+    lab = QLabel(text)
+    font = _deck_font()
+    font.setPixelSize(36)
+    font.setBold(True)
+    lab.setFont(font)
+    lab.setObjectName('deckNum')
+    lab.setStyleSheet('font-size: 36px;')
+    return lab
+
+
+def make_stripe():
+    """Endfield magenta/green/yellow technical marker (one per screen)."""
+    stripe = QWidget()
+    stripe.setFixedHeight(3)
+    lay = QHBoxLayout(stripe)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(0)
+    for name in ('stripeM', 'stripeG', 'stripeY'):
+        seg = QFrame()
+        seg.setObjectName(name)
+        seg.setFixedSize(36, 3)
+        lay.addWidget(seg)
+    lay.addStretch(1)
+    return stripe
+
+
+# Board palettes. BoardWidget paints from the active palette; the Endfield
+# theme (D23) is light-on-dark charcoal with signal yellow for the O side.
 PALETTE = {
     'LIGHT': {
-        'x': '#6750A4',
-        'o': '#B3261E',
-        'cell_empty': '#F3EDF7',
-        'cell_filled': '#ECE6F0',
-        'macro_active': 'rgba(103, 80, 164, 0.10)',
-        'active_outline': '#1976D2',
-        'macro_won_x': 'rgba(103, 80, 164, 0.14)',
-        'macro_won_o': 'rgba(179, 38, 30, 0.10)',
-        'grid_line': '#CAC4D0',
-        'macro_line': '#79747E',
-        'flash': '#6750A4',
-        'win_fill_x': '#6750A4',
-        'win_fill_o': '#B3261E',
+        'x': '#242424',
+        'o': '#A29A00',
+        'cell_empty': '#ECEDEE',
+        'cell_filled': '#DFE1E3',
+        'macro_active': 'rgba(162, 154, 0, 0.08)',
+        'active_outline': '#8A8400',
+        'macro_won_x': 'rgba(36, 36, 36, 0.10)',
+        'macro_won_o': 'rgba(162, 154, 0, 0.10)',
+        'grid_line': '#C6C8CC',
+        'macro_line': '#8A8D91',
+        'flash': '#8A8400',
+        'win_fill_x': '#242424',
+        'win_fill_o': '#A29A00',
         'win_mark': '#FFFFFF',
     },
     'DARK': {
-        'x': '#D0BCFF',
-        'o': '#FFB4AB',
-        'cell_empty': '#211F26',
-        'cell_filled': '#2B2930',
-        'macro_active': 'rgba(208, 188, 255, 0.12)',
-        'active_outline': '#64B5F6',
-        'macro_won_x': 'rgba(208, 188, 255, 0.16)',
-        'macro_won_o': 'rgba(255, 180, 171, 0.14)',
-        'grid_line': '#49454F',
-        'macro_line': '#938F99',
-        'flash': '#D0BCFF',
-        'win_fill_x': '#6750A4',
-        'win_fill_o': '#B3261E',
-        'win_mark': '#FFFFFF',
+        'x': '#F7F7F7',
+        'o': '#FFFA00',
+        'cell_empty': '#0A0A0C',
+        'cell_filled': '#121317',
+        'macro_active': 'rgba(255, 250, 0, 0.06)',
+        'active_outline': '#FFFA00',
+        'macro_won_x': 'rgba(247, 247, 247, 0.09)',
+        'macro_won_o': 'rgba(255, 250, 0, 0.09)',
+        'grid_line': '#232529',
+        'macro_line': '#35373C',
+        'flash': '#FFFA00',
+        'win_fill_x': '#F7F7F7',
+        'win_fill_o': '#FFFA00',
+        'win_mark': '#09090B',
     },
 }
-ACTIVE_THEME = 'DARK'  # dark glass is the default; siui theme overrides later.
+ACTIVE_THEME = 'DARK'  # Endfield field-console look; LIGHT is for future use
 PAL = PALETTE[ACTIVE_THEME]
-
-
-def _glass_shadow(widget):
-    """Attach a soft drop shadow to a glass panel."""
-    effect = QGraphicsDropShadowEffect(widget)
-    effect.setBlurRadius(26)
-    effect.setOffset(0, 6)
-    effect.setColor(QColor(0, 0, 0, 100))
-    widget.setGraphicsEffect(effect)
 
 
 # ---------------------------------------------------------------------------
 # PyQt-SiliconUI integration (optional; vendored under vendor/siui, GPLv3)
 # ---------------------------------------------------------------------------
+USE_SIUI = False  # the Endfield QSS theme replaces the vendored skin (D23)
 SIUI = None
 
 
 def _load_siui():
     """Load the vendored PyQt-SiliconUI (PySide6 fork) when present."""
     global SIUI
+    if not USE_SIUI:
+        return None
     siui_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor', 'siui')
     if not os.path.isdir(os.path.join(siui_root, 'silicon')):
         return None
@@ -128,7 +212,7 @@ def _load_siui():
         SIUI = silicon
         log.info('PyQt-SiliconUI loaded (%s)', siui_root)
     except Exception as e:  # noqa: BLE001
-        log.warning('PyQt-SiliconUI unavailable, using native dark theme: %s', e)
+        log.warning('PyQt-SiliconUI unavailable, using the Endfield QSS theme: %s', e)
         SIUI = None
     return SIUI
 
@@ -255,93 +339,30 @@ if SIUI is not None:
     except Exception:  # noqa: BLE001
         pass
 
-# Native dark-glass theme (fallback used when the PyQt-SiliconUI package is
-# not installed): dark background, translucent glass cards, capsule buttons
-# and smooth controls.
-QSS = '''
-QWidget { background: #141218; color: #E6E0E9; font-size: 14px;
-    font-family: "Noto Sans TC", "Noto Sans SC", "Microsoft YaHei", "Segoe UI"; }
-QMainWindow { background: #141218; }
-QLabel#title { font-size: 20px; font-weight: 700; color: #E8DEF8; }
-QLabel#cardTitle { font-weight: 600; color: #E8DEF8; }
-QLabel#muted { color: #CAC4D0; font-size: 12px; }
-QFrame#card {
-    background: rgba(45, 40, 52, 0.86);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 18px;
-}
-QFrame#sidePanel {
-    background: rgba(24, 21, 28, 0.72);
-    border-left: 1px solid rgba(255, 255, 255, 0.07);
-}
-QPushButton {
-    background: rgba(73, 69, 79, 0.55); color: #E6E0E9; border: none;
-    border-radius: 16px; padding: 8px 18px; font-weight: 500;
-}
-QPushButton:hover { background: rgba(93, 88, 103, 0.75); }
-QPushButton:pressed { background: rgba(103, 80, 164, 0.55); }
-QPushButton#primary {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #7C6BB0, stop:1 #4F378B);
-    color: #FFFFFF; font-weight: 600; padding: 10px 22px; border-radius: 18px;
-}
-QPushButton#primary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #8B79BE, stop:1 #5B46A0); }
-QPushButton#primary:pressed { background: #4F378B; }
-QPushButton:disabled { background: rgba(73, 69, 79, 0.4); color: #6F6A76; }
-QComboBox, QSpinBox {
-    background: rgba(45, 40, 52, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
-    padding: 5px 10px; min-height: 22px;
-}
-QComboBox:hover, QSpinBox:hover { border-color: #6750A4; }
-QComboBox::drop-down { border: none; width: 22px; }
-QComboBox QAbstractItemView {
-    background: #211F26; color: #E6E0E9;
-    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;
-    selection-background-color: #4F378B; selection-color: #FFFFFF;
-}
-QSlider::groove:horizontal { height: 6px; background: #49454F; border-radius: 3px; }
-QSlider::sub-page:horizontal {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #B39DDB, stop:1 #6750A4); border-radius: 3px;
-}
-QSlider::handle:horizontal {
-    background: #E6E0E9; border: 2px solid #6750A4;
-    width: 18px; height: 18px; margin: -8px 0; border-radius: 9px;
-}
-QSlider::handle:horizontal:hover { background: #D0BCFF; }
-QCheckBox::indicator {
-    width: 18px; height: 18px; border-radius: 6px;
-    border: 2px solid #938F99; background: #211F26;
-}
-QCheckBox::indicator:hover { border-color: #D0BCFF; }
-QCheckBox::indicator:checked { background: #6750A4; border-color: #6750A4; }
-QRadioButton::indicator {
-    width: 18px; height: 18px; border-radius: 9px;
-    border: 2px solid #938F99; background: #211F26;
-}
-QRadioButton::indicator:hover { border-color: #D0BCFF; }
-QRadioButton::indicator:checked { background: #6750A4; border-color: #6750A4; }
-QListWidget {
-    background: rgba(33, 30, 38, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 14px; padding: 4px;
-}
-QListWidget::item { padding: 8px; border-radius: 8px; }
-QListWidget::item:hover { background: rgba(103, 80, 164, 0.35); }
-QListWidget::item:selected { background: #4F378B; color: #FFFFFF; }
-QToolTip {
-    background: #2B2930; color: #E6E0E9;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px; padding: 6px 10px;
-}
-QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
-QScrollBar::handle:vertical { background: #49454F; border-radius: 4px; min-height: 30px; }
-QScrollBar::handle:vertical:hover { background: #6F6A76; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QMessageBox { background: #211F26; }
-QMessageBox QPushButton { min-width: 90px; }
-'''
+# ---------------------------------------------------------------------------
+# Endfield field-engineering theme (D23). The full styling lives in
+# static/endfield.qss so visuals can be retuned without touching logic; only
+# a tiny fallback is embedded for a missing file.
+# ---------------------------------------------------------------------------
+_QSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         'static', 'endfield.qss')
+_QSS_FALLBACK = (
+    'QWidget { background: #09090b; color: #ffffff; }'
+    'QPushButton#primary { background: #fffa00; color: #09090b; }'
+)
+
+
+def _load_qss():
+    try:
+        with open(_QSS_PATH, encoding='utf-8') as fh:
+            return fh.read()
+    except OSError:
+        log.warning('endfield.qss not found at %s; using inline fallback',
+                    _QSS_PATH)
+        return _QSS_FALLBACK
+
+
+QSS = _load_qss()
 
 
 def _mark_color(player):
@@ -480,19 +501,20 @@ class BoardWidget(QWidget):
     def _paint_cell(self, painter, rect, mark, is_flash):
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(PAL['cell_filled'] if mark else PAL['cell_empty']))
-        painter.drawRoundedRect(rect, 4, 4)
+        painter.drawRect(rect)
         if mark in (X, O):
             self._paint_mark(painter, rect, mark)
         if is_flash:
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(QColor(PAL['flash']), 3))
-            painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 4, 4)
+            painter.drawRect(rect.adjusted(1, 1, -1, -1))
 
     def _paint_mark(self, painter, rect, player, color=None):
         pad = rect.width() * 0.22
         color = _mark_color(player) if color is None else QColor(color)
         pen = QPen(color, max(2.0, rect.width() * 0.09))
-        pen.setCapStyle(Qt.RoundCap)
+        pen.setCapStyle(Qt.SquareCap)
+        pen.setJoinStyle(Qt.MiterJoin)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
         if player == X:
@@ -501,8 +523,16 @@ class BoardWidget(QWidget):
             painter.drawLine(rect.right() - pad, rect.top() + pad,
                              rect.left() + pad, rect.bottom() - pad)
         else:
-            painter.drawEllipse(QRectF(rect.left() + pad, rect.top() + pad,
-                                       rect.width() - 2 * pad, rect.height() - 2 * pad))
+            # Octagonal ring instead of a circle: mechanical Endfield emblem,
+            # and the shape alone separates O from the straight-stroke X.
+            cx, cy = rect.center().x(), rect.center().y()
+            radius = rect.width() / 2.0 - pad
+            poly = QPolygonF()
+            for k in range(8):
+                ang = math.radians(22.5 + 45.0 * k)
+                poly.append(QPointF(cx + radius * math.cos(ang),
+                                    cy + radius * math.sin(ang)))
+            painter.drawPolygon(poly)
 
     def _win_segment(self, line, centers, bounds):
         """Extend a win line across `bounds`, mirroring the web UI's win_segment."""
@@ -529,6 +559,23 @@ class BoardWidget(QWidget):
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
         painter.drawLine(x1, y1, x2, y2)
+
+    def _draw_brackets(self, painter, rect, color, width=2.0, tick=10.0):
+        """Targeting brackets (four L-shaped corner ticks) around a rect."""
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.SquareCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        x0, y0, x1, y1 = rect.left(), rect.top(), rect.right(), rect.bottom()
+        corners = (
+            ((x0, y0 + tick), (x0, y0), (x0 + tick, y0)),
+            ((x1 - tick, y0), (x1, y0), (x1, y0 + tick)),
+            ((x0, y1 - tick), (x0, y1), (x0 + tick, y1)),
+            ((x1 - tick, y1), (x1, y1), (x1, y1 - tick)),
+        )
+        for (ax, ay), (bx, by), (cx, cy) in corners:
+            painter.drawLine(ax, ay, bx, by)
+            painter.drawLine(bx, by, cx, cy)
 
     # -- Normal ------------------------------------------------------------
 
@@ -558,19 +605,24 @@ class BoardWidget(QWidget):
 
     def _paint_ultimate(self, painter):
         n, cell, ox, oy = self._grid()
+        # paint the base board to an offscreen pixmap so a won chunk can be
+        # re-composited over a blurred backdrop (frosted-glass win label).
+        pm = QPixmap(max(1, self.width()), max(1, self.height()))
+        pm.fill(Qt.transparent)
+        mp = QPainter(pm)
         # macro region highlights
         for m in range(9):
             rect = self._macro_rect(m, cell, ox, oy)
             if self.game.macro[m] == X:
-                painter.setBrush(QColor(PAL['macro_won_x']))
+                mp.setBrush(QColor(PAL['macro_won_x']))
             elif self.game.macro[m] == O:
-                painter.setBrush(QColor(PAL['macro_won_o']))
+                mp.setBrush(QColor(PAL['macro_won_o']))
             elif m == self.game.active_macro and self.game.macro_open(m):
-                painter.setBrush(QColor(PAL['macro_active']))
+                mp.setBrush(QColor(PAL['macro_active']))
             else:
                 continue
-            painter.setPen(Qt.NoPen)
-            painter.drawRoundedRect(rect, 10, 10)
+            mp.setPen(Qt.NoPen)
+            mp.drawRect(rect)
         # micro cells
         macro_centers = []
         micro_centers = [[] for _ in range(9)]
@@ -583,63 +635,88 @@ class BoardWidget(QWidget):
                 col = mc * 3 + i % 3
                 rect = self._cell_rect(row, col, cell, ox, oy)
                 micro_centers[m].append(rect.center())
-                self._paint_cell(painter, rect, self.game.micro[m][i],
+                self._paint_cell(mp, rect, self.game.micro[m][i],
                                  self.flash_cell == (m, i))
         # grid lines
-        painter.setPen(QPen(QColor(PAL['grid_line']), 1))
+        mp.setPen(QPen(QColor(PAL['grid_line']), 1))
         for i in range(1, 9):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
-            painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
-            painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
-        painter.setPen(QPen(QColor(PAL['macro_line']), 2))
+            mp.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
+            mp.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
+        mp.setPen(QPen(QColor(PAL['macro_line']), 2))
         for i in (3, 6):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
             y = oy + i * (cell + self.GAP) - self.GAP / 2
-            painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
-            painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
-        # blue outline on the chunk the player must play in (Ultimate);
-        # drawn on top and slightly outside the chunk so cells don't cover it
+            mp.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
+            mp.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
+        # yellow targeting brackets on the chunk the player must play in
+        # (Ultimate); drawn on top and slightly outside the chunk so cells
+        # don't cover it
         if (self.game.active_macro is not None
                 and self.game.macro_open(self.game.active_macro)):
             rect = self._macro_rect(self.game.active_macro, cell, ox, oy)
-            painter.setPen(QPen(QColor(PAL['active_outline']), 3))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(-2.5, -2.5, 2.5, 2.5), 10, 10)
-        # won macro chunks: fill with the player's color and show a white
-        # mark; hovering reveals the underlying cells (blend 0 = filled,
-        # 1 = fully revealed)
+            self._draw_brackets(mp, rect.adjusted(-2.5, -2.5, 2.5, 2.5),
+                                QColor(PAL['active_outline']), 2.5,
+                                max(8.0, cell * 0.35))
+        mp.end()
+        painter.drawPixmap(0, 0, pm)
+        # macro-level winning line (the "connected" chunks) for the green tint
+        whole = micro_win_line(self.game.macro)
+        # won macro chunks: blur the underlying board region, then the
+        # translucent winner tint + mark (frosted-glass win label)
         for m in range(9):
             if self.game.macro[m] in (X, O):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
+                # frosted-glass win label; clicking fades into the real cells
                 blend = self._reveal_blend if m == self._revealed_macro else 0.0
-                fill = QColor(PAL['win_fill_x'] if winner == X else PAL['win_fill_o'])
-                fill.setAlpha(int(205 * (1.0 - blend)))  # semi-transparent mask
+                chunk = pm.copy(rect.toRect())
+                if blend < 1.0:
+                    frosted = _blur_pixmap(chunk, max(0.0, cell * 0.22))
+                    painter.save()
+                    painter.setClipRect(rect)
+                    painter.setOpacity(1.0 - blend)
+                    painter.drawPixmap(int(rect.left()), int(rect.top()), frosted)
+                    painter.restore()
+                connected = whole is not None and m in whole
+                if connected:
+                    fill = QColor(WIN_GREEN)
+                else:
+                    fill = QColor(PAL['win_fill_x'] if winner == X
+                                  else PAL['win_fill_o'])
+                fill.setAlpha(int(200 * (1.0 - blend)))  # frosted winner tint
                 if fill.alpha() > 0:
                     painter.setPen(Qt.NoPen)
                     painter.setBrush(fill)
-                    painter.drawRoundedRect(rect, 10, 10)
-                mark = QColor(PAL['win_mark'])
-                mark.setAlpha(int(255 * (1.0 - blend)))
-                if mark.alpha() > 0:
+                    painter.drawRect(rect)
+                # big win badge over the frosted label
+                badge_color = _mark_color(winner)
+                badge_color.setAlpha(int(255 * (1.0 - blend)))
+                if badge_color.alpha() > 0:
                     pad = rect.width() * 0.18
                     badge = QRectF(rect.left() + pad, rect.top() + pad,
                                    rect.width() - 2 * pad, rect.height() - 2 * pad)
-                    self._paint_mark(painter, badge, winner, mark)
+                    self._paint_mark(painter, badge, winner, badge_color)
+                # grey-highlight the connected winning X/O marks in the micro
+                # board — shown only after clicking (reveal), never on the
+                # default frosted label
                 line = micro_win_line(self.game.micro[m])
                 if line is not None and blend > 0:
-                    line_color = _mark_color(winner)
-                    line_color.setAlpha(int(255 * blend))
-                    self._paint_win_line(painter, line, micro_centers[m],
-                                         line_color, cell * 0.12, rect)
-        # overall macro win line
-        whole = micro_win_line(self.game.macro)
-        if whole:
-            winner = self.game.macro[whole[0]]
-            bounds = QRectF(ox, oy, 9 * cell + 8 * self.GAP, 9 * cell + 8 * self.GAP)
-            self._paint_win_line(painter, whole, macro_centers,
-                                 _mark_color(winner), cell * 0.16, bounds)
+                    conn = QColor(WIN_GREEN)
+                    conn.setAlpha(int(255 * blend))
+                    mr, mc = divmod(m, 3)
+                    for idx in line:
+                        cmark = self.game.micro[m][idx]
+                        row = mr * 3 + idx // 3
+                        col = mc * 3 + idx % 3
+                        crect = self._cell_rect(row, col, cell, ox, oy)
+                        self._paint_mark(painter, crect, cmark, conn)
+                # green outline marks the chunks that make the macro win line
+                if whole is not None and m in whole:
+                    painter.setPen(QPen(QColor(WIN_GREEN), max(2.0, cell * 0.06)))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
 
 # ---------------------------------------------------------------------------
 # Workers
@@ -648,17 +725,20 @@ class BoardWidget(QWidget):
 class AIWorker(QThread):
     move_ready = Signal(object)
     move_failed = Signal(str)
+    progress = Signal(dict)
 
-    def __init__(self, game, ai_type, budget, depth, parent=None):
+    def __init__(self, game, ai_type, budget, depth, parent=None, trace=None):
         super().__init__(parent)
         self.game = game
         self.ai_type = ai_type
         self.budget = budget
         self.depth = depth
+        self.trace = trace
 
     def run(self):
         try:
-            move = get_ai_move(self.game, self.ai_type, self.budget, self.depth)
+            move = get_ai_move(self.game, self.ai_type, self.budget, self.depth,
+                               on_progress=self.progress.emit, trace=self.trace)
             self.move_ready.emit(move)
         except Exception as e:  # noqa: BLE001 - report any engine failure to the UI
             self.move_failed.emit(str(e))
@@ -682,15 +762,122 @@ class AnalysisWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
+# Endfield backdrop: topographic survey imagery behind every page
+# ---------------------------------------------------------------------------
+
+class EndfieldPage(QWidget):
+    """Shared Endfield backdrop for the menu/game pages.
+
+    Subclasses point BACKDROP at a survey image under static/backgrounds/;
+    it is drawn aspect-fill, center-cropped, and cached per class. When the
+    image is missing the page falls back to procedural contour rings plus
+    the giant hollow title, so the theme still works on a bare checkout.
+    Children (cards, controls) draw on top.
+    """
+
+    BACKDROP = None      # e.g. 'static/backgrounds/topography-dark.jpg'
+    GIANT_TEXT = None    # only drawn in the procedural fallback
+    _backdrop_cache = {}
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pix = self._backdrop_pixmap()
+        if pix is not None:
+            self._paint_backdrop(painter, pix)
+        else:
+            self._paint_contours(painter)
+            if self.GIANT_TEXT:
+                self._paint_giant(painter)
+        painter.end()
+
+    def _backdrop_pixmap(self):
+        """Class-cached, DPI-scaled backdrop; None when the file is missing."""
+        if not self.BACKDROP:
+            return None
+        pix = EndfieldPage._backdrop_cache.get(self.BACKDROP)
+        if pix is None:
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                self.BACKDROP)
+            if not os.path.isfile(path):
+                return None
+            pix = QPixmap(path)
+            if pix.isNull():
+                return None
+            dpr = self.devicePixelRatioF()
+            if dpr > 1.0:  # keep the survey lines crisp on scaled displays
+                pix.setDevicePixelRatio(dpr)
+            EndfieldPage._backdrop_cache[self.BACKDROP] = pix
+        return pix
+
+    def _paint_backdrop(self, painter, pix):
+        """Aspect-fill, center-cropped: cover the page, never distort."""
+        iw, ih = pix.width(), pix.height()
+        if iw < 1 or ih < 1:
+            return
+        w, h = self.width(), self.height()
+        scale = max(w / iw, h / ih)
+        dw, dh = iw * scale, ih * scale
+        x, y = (w - dw) / 2.0, (h - dh) / 2.0
+        painter.drawPixmap(QRectF(x, y, dw, dh).toRect(), pix)
+
+    def _paint_contours(self, painter):
+        w, h = self.width(), self.height()
+        if w < 200 or h < 200:
+            return
+        two_pi = 2.0 * math.pi
+        n = 72
+        # two topographic clusters for a denser field backdrop
+        for cx, cy, scale in ((w * 0.72, h * 0.36, 1.0),
+                              (w * 0.20, h * 0.72, 0.65),
+                              (w * 0.86, h * 0.80, 0.45)):
+            for i in range(1, 17):
+                base = i * 26.0 * scale
+                amp = min(6.0, base * 0.07)
+                phase = i * 0.85
+                path = QPainterPath()
+                first = True
+                for k in range(n + 1):
+                    ang = two_pi * k / n
+                    r = base + amp * math.sin(3 * ang + phase) \
+                        + amp * 0.7 * math.sin(7 * ang + phase * 1.7)
+                    x, y = cx + r * math.cos(ang), cy + r * math.sin(ang)
+                    if first:
+                        path.moveTo(x, y)
+                        first = False
+                    else:
+                        path.lineTo(x, y)
+                color = (QColor(255, 250, 0, 16) if i % 5 == 0
+                         else QColor(255, 255, 255, 11))
+                painter.setPen(QPen(color, 1))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(path)
+
+    def _paint_giant(self, painter):
+        w, h = self.width(), self.height()
+        font = _deck_font()
+        font.setPixelSize(int(min(w, h) * 0.30))
+        font.setBold(True)
+        path = QPainterPath()
+        path.addText(QPointF(w * 0.05, h * 0.62), font, self.GIANT_TEXT)
+        painter.setPen(QPen(QColor(255, 255, 255, 22), 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(path)
+
+
+# ---------------------------------------------------------------------------
 # Menu page
 # ---------------------------------------------------------------------------
 
-class MenuPage(QWidget):
+class MenuPage(EndfieldPage):
     start_requested = Signal(object)
     web_toggled = Signal(bool)
+    GIANT_TEXT = 'UTTT'
+    BACKDROP = 'static/backgrounds/survey-dark.jpg'
 
     def __init__(self, web_port=8080):
         super().__init__()
+        self.setObjectName('pageMenu')
         self.web_port = web_port
         self._build_ui()
 
@@ -699,10 +886,10 @@ class MenuPage(QWidget):
         title = QLabel('Ultimate Tic Tac Toe — 終極井字棋')
         title.setObjectName('title')
         root.addWidget(title)
+        root.addWidget(deck_label('GRID.UTTT // FIELD CONSOLE'))
         root.addWidget(QLabel(t('Game Setup', '遊戲設定')))
         card = QFrame()
         card.setObjectName('card')
-        _glass_shadow(card)
         card_lay = QVBoxLayout(card)
         card_lay.setSpacing(8)
         root.addWidget(card)
@@ -768,6 +955,15 @@ class MenuPage(QWidget):
         self.assistant = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant.setChecked(True)
         card_lay.addWidget(self.assistant)
+
+        self.reduce_anim = QCheckBox(
+            t('Reduce Motion (no animations)', '減少動態（停用動畫）'))
+        settings = QSettings('SBA', 'SBA')
+        self.reduce_anim.setChecked(
+            settings.value('reduce_motion', False, type=bool))
+        self.reduce_anim.toggled.connect(
+            lambda c: QSettings('SBA', 'SBA').setValue('reduce_motion', c))
+        card_lay.addWidget(self.reduce_anim)
 
         card_lay.addSpacing(10)
         web_title = QLabel(t('NiceGUI Web UI (選用啟動)', 'NiceGUI Web 介面（選用）'))
@@ -836,11 +1032,13 @@ class MenuPage(QWidget):
 # Game page
 # ---------------------------------------------------------------------------
 
-class GamePage(QWidget):
+class GamePage(EndfieldPage):
     back_requested = Signal()
+    BACKDROP = 'static/backgrounds/topography-dark.jpg'
 
     def __init__(self):
         super().__init__()
+        self.setObjectName('pageGame')
         self.session = None
         self.game = None
         self.busy = False
@@ -859,7 +1057,12 @@ class GamePage(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        top = QHBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        header = QFrame()
+        header.setObjectName('header')
+        top = QHBoxLayout(header)
+        top.setContentsMargins(16, 8, 16, 8)
         top_title = QLabel('Ultimate Tic Tac Toe — 終極井字棋')
         top_title.setObjectName('title')
         top.addWidget(top_title)
@@ -873,8 +1076,10 @@ class GamePage(QWidget):
         top.addWidget(self.play_again_btn)
         back_btn = _si_button(t('Back to Menu', '返回選單'))
         back_btn.clicked.connect(self.back_requested.emit)
+        back_btn.setObjectName('ghost')
         top.addWidget(back_btn)
-        root.addLayout(top)
+        root.addWidget(header)
+        root.addWidget(make_stripe())
 
         # Top control bar: revert / pause / next step + step scrubber
         ctrl_bar = QFrame()
@@ -912,16 +1117,15 @@ class GamePage(QWidget):
         # full window height); single X-win-rate line with a 50% reference.
         self.hist_chart = QChart()
         self.hist_chart.setAnimationOptions(QChart.NoAnimation)
-        self.hist_chart.legend().setVisible(True)
-        self.hist_chart.legend().setAlignment(Qt.AlignLeft)
-        self.hist_chart.legend().setLabelColor(QColor('#E6E0E9'))
+        self.hist_chart.legend().setVisible(False)  # the deck label carries it
         self.hist_chart.setBackgroundVisible(False)
         self.hist_x_series = QLineSeries()
         self.hist_x_series.setName(t('X win rate', 'X 勝率'))
         self.hist_x_series.setColor(QColor(PAL['x']))
         self.hist_ref = QLineSeries()
-        ref_pen = QPen(QColor('#79747E'))
+        ref_pen = QPen(QColor('#585858'))
         ref_pen.setStyle(Qt.DashLine)
+        ref_pen.setWidthF(1.0)
         self.hist_ref.setPen(ref_pen)
         self.hist_ref.setName('50%')
         self.hist_chart.addSeries(self.hist_x_series)
@@ -935,17 +1139,20 @@ class GamePage(QWidget):
         self.hist_chart.addAxis(self.hist_axis, Qt.AlignBottom)
         self.hist_chart.addAxis(self.hist_axis_y, Qt.AlignLeft)
         for ax in (self.hist_axis, self.hist_axis_y):
-            ax.setLabelsColor(QColor('#CAC4D0'))
-            ax.setTitleBrush(QBrush(QColor('#CAC4D0')))
+            ax.setLabelsColor(QColor('#C6C9CE'))
+            ax.setTitleBrush(QBrush(QColor('#C6C9CE')))
+            ax.setLinePen(QPen(QColor('#35373C')))
+            ax.setGridLinePen(QPen(QColor(255, 255, 255, 12), 1, Qt.DashLine))
         self.hist_x_series.attachAxis(self.hist_axis)
         self.hist_x_series.attachAxis(self.hist_axis_y)
         self.hist_ref.attachAxis(self.hist_axis)
         self.hist_ref.attachAxis(self.hist_axis_y)
         self.hist_dot = QScatterSeries()
         self.hist_dot.setName(t('Current', '目前'))
-        self.hist_dot.setMarkerSize(10.0)
-        self.hist_dot.setColor(QColor('#B3261E'))
-        self.hist_dot.setBorderColor(QColor('#B3261E'))
+        self.hist_dot.setMarkerSize(8.0)
+        self.hist_dot.setMarkerShape(QScatterSeries.MarkerShapeRectangle)
+        self.hist_dot.setColor(QColor('#FFFA00'))
+        self.hist_dot.setBorderColor(QColor('#FFFA00'))
         self.hist_chart.addSeries(self.hist_dot)
         self.hist_dot.attachAxis(self.hist_axis)
         self.hist_dot.attachAxis(self.hist_axis_y)
@@ -956,6 +1163,7 @@ class GamePage(QWidget):
         self.hist_chart_view.setBackgroundBrush(Qt.NoBrush)
 
         body = QHBoxLayout()
+        body.setContentsMargins(12, 8, 12, 0)
         board_col = QVBoxLayout()
         status_row = QHBoxLayout()
         self.status_mark = QLabel('')
@@ -967,6 +1175,7 @@ class GamePage(QWidget):
         self.board = BoardWidget()
         self.board.cell_clicked.connect(self.on_cell_click)
         board_col.addWidget(self.board, 2)
+        board_col.addWidget(deck_label('WIN RATE // X ─ O', accent=True))
         board_col.addWidget(self.hist_chart_view, 1)
         body.addLayout(board_col, 1)
 
@@ -976,7 +1185,6 @@ class GamePage(QWidget):
         # Game info card
         info_card = QFrame()
         info_card.setObjectName('card')
-        _glass_shadow(info_card)
         info_lay = QVBoxLayout(info_card)
         info_title = QLabel(t('Game Info', '遊戲資訊'))
         info_title.setObjectName('cardTitle')
@@ -993,6 +1201,12 @@ class GamePage(QWidget):
         info_lay.addWidget(self.info_mode)
         info_lay.addWidget(self.info_x)
         info_lay.addWidget(self.info_o)
+        # AI thinking summary (D24): engine → pick + top candidates, filled
+        # after every AI move by _show_thinking_trace().
+        self.trace_lbl = QLabel('')
+        self.trace_lbl.setObjectName('muted')
+        self.trace_lbl.setWordWrap(True)
+        info_lay.addWidget(self.trace_lbl)
         self.assistant_switch = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant_switch.setChecked(True)
         self.assistant_switch.toggled.connect(self.on_assistant_toggled)
@@ -1002,31 +1216,46 @@ class GamePage(QWidget):
         # Assistant card
         az_card = QFrame()
         az_card.setObjectName('card')
-        _glass_shadow(az_card)
         az_lay = QVBoxLayout(az_card)
         az_title = QLabel(t('Best Moves', '最佳棋步'))
         az_title.setObjectName('cardTitle')
+        az_lay.addWidget(deck_num('02'))
         az_lay.addWidget(az_title)
         self.win_bar = QWidget()
         self.win_bar.setFixedHeight(14)
         self.win_bar_lay = QHBoxLayout(self.win_bar)
         self.win_bar_lay.setContentsMargins(0, 0, 0, 0)
-        self.win_bar_lay.setSpacing(0)
+        self.win_bar_lay.setSpacing(2)
         self.bar_x = QFrame()
-        self.bar_x.setStyleSheet('background: #6750A4; border-radius: 4px 0 0 4px;')
+        self.bar_x.setStyleSheet('background: #F7F7F7;')
         self.bar_d = QFrame()
-        self.bar_d.setStyleSheet('background: #938F99;')
+        self.bar_d.setStyleSheet('background: #35373C;')
         self.bar_o = QFrame()
-        self.bar_o.setStyleSheet('background: #B3261E; border-radius: 0 4px 4px 0;')
+        self.bar_o.setStyleSheet('background: #FFFA00;')
         for _b in (self.bar_x, self.bar_d, self.bar_o):
             _b.setMinimumWidth(0)
         self.win_bar_lay.addWidget(self.bar_x, 1)
         self.win_bar_lay.addWidget(self.bar_d, 1)
         self.win_bar_lay.addWidget(self.bar_o, 1)
+        self.bar_d.setVisible(False)
         az_lay.addWidget(self.win_bar)
         self.analysis_pct = QLabel('')
-        self.analysis_pct.setStyleSheet('font-size: 13px; color: #CAC4D0;')
+        self.analysis_pct.setObjectName('pctReadout')
         az_lay.addWidget(self.analysis_pct)
+        scan_row = QHBoxLayout()
+        scan_row.setContentsMargins(0, 0, 0, 0)
+        self.load_rail = QProgressBar()
+        self.load_rail.setObjectName('loadingRail')
+        self.load_rail.setRange(0, 0)  # indeterminate busy rail
+        self.load_rail.setTextVisible(False)
+        self.load_rail.setFixedHeight(6)
+        self.load_rail.setVisible(False)
+        self.scan_lbl = deck_label('SCANNING', size=11, accent=True)
+        self.scan_lbl.setVisible(False)
+        scan_row.addWidget(self.load_rail, 1)
+        scan_row.addSpacing(8)
+        scan_row.addWidget(self.scan_lbl)
+        az_lay.addLayout(scan_row)
         self.analysis_list = QListWidget()
         self.analysis_list.setMinimumHeight(160)
         self.analysis_list.itemClicked.connect(self.on_analysis_clicked)
@@ -1039,7 +1268,6 @@ class GamePage(QWidget):
         # CvC controls card
         self.cvc_card = QFrame()
         self.cvc_card.setObjectName('card')
-        _glass_shadow(self.cvc_card)
         cvc_lay = QVBoxLayout(self.cvc_card)
         cvc_title = QLabel(t('CvC Controls', '電腦對戰控制'))
         cvc_title.setObjectName('cardTitle')
@@ -1058,11 +1286,20 @@ class GamePage(QWidget):
 
         panel_widget = QWidget()
         panel_widget.setObjectName('sidePanel')
-        _glass_shadow(panel_widget)
+        panel_widget.setAttribute(Qt.WA_StyledBackground, True)
         panel_widget.setLayout(panel)
         panel_widget.setFixedWidth(340)
         body.addWidget(panel_widget)
         root.addLayout(body, 1)
+
+        self.footer = QFrame()
+        self.footer.setObjectName('footerTechnical')
+        footer_lay = QHBoxLayout(self.footer)
+        footer_lay.setContentsMargins(16, 4, 16, 4)
+        self.footer_lbl = deck_label('', size=11)
+        footer_lay.addWidget(self.footer_lbl)
+        footer_lay.addStretch(1)
+        root.addWidget(self.footer)
 
 
     # -- session flow ------------------------------------------------------
@@ -1087,6 +1324,7 @@ class GamePage(QWidget):
         self.analysis_busy = False
         self.analysis_pending = False
         self.cvc_timer.stop()
+        self.trace_lbl.setText('')
         self.speed_slider.setValue(int(s.get('cvc_speed', 0.4) * 10))
         self.cvc_timer.setInterval(max(50, int(s.get('cvc_speed', 0.4) * 1000)))
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
@@ -1198,6 +1436,10 @@ class GamePage(QWidget):
         self.info_game.setText(f'{game_text} · {mode_text}')
         self.info_x.setText(f'✕ {side_label(x_type)}')
         self.info_o.setText(f'○ {side_label(o_type)}')
+        self.footer_lbl.setText(
+            f'GRID.UTTT // MODE {mode_text} // X: {str(x_type).upper()} '
+            f'─ O: {str(o_type).upper()} // STEP {self.step_idx:02d} — '
+            f'{len(self.session.get("moves", []))}')
         self.board.update()
         self.update_cvc_controls()
 
@@ -1265,19 +1507,49 @@ class GamePage(QWidget):
         ai_type = x_type if self.game.current == X else o_type
         self.busy = True
         self.refresh()
+        trace = {}
+        self._last_trace = trace
         worker = AIWorker(self.game.clone(), ai_type,
-                          self.session['mcts'], self.session.get('minimax_depth', 3))
+                          self.session['mcts'], self.session.get('minimax_depth', 3),
+                          trace=trace)
         gen = self.gen
+        worker.progress.connect(self.on_ai_progress)
         worker.move_ready.connect(lambda move, g=gen: self.on_ai_done(move, g))
         worker.move_failed.connect(lambda msg, g=gen: self.on_ai_failed(msg, g))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
 
+    def on_ai_progress(self, info):
+        """Live thinking display (D24): search progress + current best child."""
+        if not self.busy or self.game is None:
+            return
+        player = self.game.current
+        mark = '✕' if player == X else '○'
+        line = (f'{mark} · {t("thinking...", "思考中")}'
+                f' · {info.get("it", 0)}/{info.get("iterations", 0)}')
+        best = info.get('best_text')
+        if best:
+            line += f' · {best} {info.get("wr", 0):.0%}'
+        self.status_text.setText(line)
+
+    def _show_thinking_trace(self):
+        """Post-move summary (D24): engine → pick, then top candidates."""
+        tr = getattr(self, '_last_trace', None)
+        if not tr:
+            return
+        tops = ' · '.join(f'{tx} {wr:.0%}' for tx, _s, wr in tr.get('top', []))
+        note = f" ({tr['note']})" if tr.get('note') else ''
+        line = f"{tr.get('engine', '')}{note} → {tr.get('picked_text', '')}"
+        if tops:
+            line += f' · {tops}'
+        self.trace_lbl.setText(t('AI last move:', 'AI 上一步：') + ' ' + line)
+
     def on_ai_done(self, move, gen=None):
         if gen is not None and gen != self.gen:
             return  # position changed while the engine was thinking: drop it
         self.busy = False
+        self._show_thinking_trace()
         self.apply_move(move)
 
     def on_ai_failed(self, message, gen=None):
@@ -1351,6 +1623,16 @@ class GamePage(QWidget):
             self.analysis_pct.setText('—')
             self.analysis_list.addItem(t('Assistant disabled', '助手已關閉'))
 
+    def _set_scanning(self, on, step=None):
+        """Persistent assistant status: indeterminate rail + SCANNING deck tag."""
+        self.load_rail.setVisible(on)
+        if on:
+            self.scan_lbl.setText(
+                f'SCANNING // MOVE {step:02d}' if step is not None else 'SCANNING')
+            self.scan_lbl.setVisible(True)
+        else:
+            self.scan_lbl.setVisible(False)
+
     def trigger_analysis(self):
         if not self.session.get('assistant_enabled', True):
             return
@@ -1360,6 +1642,7 @@ class GamePage(QWidget):
             self.analysis_pending = True
             return
         self.analysis_busy = True
+        self._set_scanning(True, self.step_idx)
         gen = self.gen
         step = self.step_idx
         gid = self.game_id
@@ -1374,6 +1657,7 @@ class GamePage(QWidget):
 
     def on_analysis_done(self, items, rates, gen, step, gid):
         self.analysis_busy = False
+        self._set_scanning(False)
         s = self.session or {}
         history = s.get('history', [])
         if gid == self.game_id and gen == self.gen and 0 <= step < len(history) \
@@ -1389,11 +1673,14 @@ class GamePage(QWidget):
     def render_analysis(self, items, rates):
         self.analysis_list.clear()
         x, d, o = rates
+        tot = x + o
+        if tot > 0:
+            x, o = x / tot, o / tot
         self.win_bar.setVisible(True)
         self.win_bar_lay.setStretchFactor(self.bar_x, int(x * 1000))
-        self.win_bar_lay.setStretchFactor(self.bar_d, int(d * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_d, 0)
         self.win_bar_lay.setStretchFactor(self.bar_o, int(o * 1000))
-        self.analysis_pct.setText(f'X {x:.0%} · 和 {d:.0%} · O {o:.0%}')
+        self.analysis_pct.setText(f'X {x:.0%} · O {o:.0%}')
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
             return
@@ -1451,10 +1738,26 @@ class MainWindow(QMainWindow):
 
     def start_game(self, session):
         self.game_page.start_session(session)
-        self.stack.setCurrentWidget(self.game_page)
+        self._switch_page(self.game_page)
 
     def show_menu(self):
-        self.stack.setCurrentWidget(self.menu_page)
+        self._switch_page(self.menu_page)
+
+    def _switch_page(self, page):
+        """Fade the page in (instant when Reduce Motion is enabled)."""
+        self.stack.setCurrentWidget(page)
+        if not anim_enabled():
+            return
+        effect = QGraphicsOpacityEffect(page)
+        page.setGraphicsEffect(effect)
+        anim = QPropertyAnimation(effect, b'opacity', self)
+        anim.setDuration(280)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.finished.connect(
+            lambda: page.setGraphicsEffect(None) if page.graphicsEffect() is effect else None)
+        self._page_anim = anim
+        anim.start(QAbstractAnimation.DeleteWhenStopped)
 
     def set_web_enabled(self, enabled):
         if enabled:

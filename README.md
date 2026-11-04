@@ -63,10 +63,8 @@ AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參�
 AlphaZero 訓練方法與效能分析見
 [`docs/AlphaZero_UTTT_Technical_Report.html`](docs/AlphaZero_UTTT_Technical_Report.html)。
 
-新手想快速讀懂專案，可依 [`docs/reading-guide.md`](docs/reading-guide.md)
-的閱讀路線進行。
-
-給新手的從零教學見
+新手想讀懂專案，依下方「Architecture map」的閱讀順序（1 → 5）進行；
+從零教學見
 [`docs/tutorial-zh.md`](docs/tutorial-zh.md)（簡體中文）／
 [`docs/tutorial-zh-Hant.md`](docs/tutorial-zh-Hant.md)（繁體中文）。
 
@@ -169,23 +167,88 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 
 ---
 
-## Source layout / 原始碼結構
+## Architecture map / 架構地圖
 
-| File / 檔案 | Purpose / 用途 |
-| --- | --- |
-| `SBA.py` | Entry point: CLI flags, session state, self-tests / 入口：指令參數、session 狀態、自測 |
-| `game.py` | Game rules: `NormalGame` / `UltimateGame`, move application, board helpers / 遊戲規則與棋盤輔助 |
-| `ai.py` | All AI engines + `get_ai_move` + assistant analysis / 所有 AI 引擎與分析功能 |
-| `webui.py` | NiceGUI web UI (menu, board, assistant panel, CvC controls) / 網頁介面 |
-| `qtui.py` | PySide6 desktop UI (menu, board, assistant panel, CvC controls, web switch) / 桌面版介面 |
-| `alphazero.py` | AlphaZero neural MCTS (training + evaluation) / AlphaZero 訓練與評估 |
-| `static/styles.css` | Material Design 3 stylesheet / 樣式表 |
-| `vendor/siui/` | Vendored PyQt-SiliconUI runtime (`silicon/` + `icons/`, GPLv3) / 隨附的 SiliconUI 執行時期（GPLv3） |
-| `run.bat` | Local Windows launcher (not tracked in git) / 本地 Windows 啟動檔（未納入 git） |
-| `requirements.txt` | Core + desktop dependencies (NiceGUI, PySide6) / 核心與桌面版依賴（NiceGUI、PySide6） |
-| `sba.toml` | Engine configuration (switches, constants, session defaults) / 引擎設定（開關、常數、session 預設） |
+Read order is baked into the map: **[1] → [5]**, top layers depend on bottom
+layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
+閱讀順序已編進圖裡：**[1] → [5]**；上層依賴下層、單向（D2）。先跑起來，再往下讀。
 
-Dependency direction is one-way: `game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`} / 依賴方向為單向：`game.py` -> `ai.py` -> `SBA.py` -> {`webui.py`, `qtui.py`}。
+```
+      UI LAYER (pick one — three front ends, one backend)
+  +-----------------+  +-----------------+  +-----------------+
+  | webui.py   [5a] |  | qtui.py    [5b] |  | tui.py     [5c] |
+  | NiceGUI web     |  | PySide6 desktop |  | rich terminal   |
+  | ~750 lines      |  | ~1500 lines     |  | ~1350 lines     |
+  +--------+--------+  +--------+--------+  +--------+--------+
+           |                    |                    |
+           +--------------------+--------------------+
+                                |
+      GLUE LAYER                v
+  +------------------------------------------------------+
+  | SBA.py  [4]                                           |
+  | CLI entry · session state · t() bilingual strings     |
+  | --self-test / --bench / --train-az                    |
+  | ~260 lines                                            |
+  +---------------------------+--------------------------+
+                              |
+      ENGINE LAYER            v
+  +------------------------------------------------------+
+  | ai.py  [2]                                            |
+  | all engines + assistant analysis (get_ai_move,        |
+  | analyze_position); one search -> best moves           |
+  | AND (X, draw, O) win rates (D15)                      |
+  | ~1530 lines                                           |
+  +---------+--------------------------------------------+
+            |
+            |  lazy import (loads torch only when selected)
+            v
+  +------------------------------------------------------+
+  | alphazero.py  [3]                                     |
+  | neural-guided MCTS: AZNet policy+value heads,         |
+  | self-play workers, replay buffer, LR/temp annealing   |
+  | Ultimate only (D4); ~900 lines                        |
+  +---------------------------+--------------------------+
+                              |
+      RULES LAYER             v
+  +------------------------------------------------------+
+  | game.py  [1]                                          |
+  | NormalGame / UltimateGame / BitUltimateGame           |
+  | the only ground truth: legal_moves() make_move()      |
+  | result() clone()                                      |
+  | ~345 lines                                            |
+  +------------------------------------------------------+
+
+  SIDE CAR (no layer — loads in from the side)
+    sba.toml ----------- > ai.py        every engine switch + session defaults (D11)
+    static/*.css|*.qss -- > webui/qtui  stylesheets only, no logic
+    tests/ --------------              headless pytest: rules, AI sanity, AZ smoke
+```
+
+Reading-route highlights, condensed from the retired
+`docs/reading-guide.md` / 閱讀要點（自已退役的 `docs/reading-guide.md` 濃縮）：
+
+- **[1] `game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
+- **[2] `ai.py`**：按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
+- **[3] `alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
+- **[4] `SBA.py`**：總覽地圖，最後讀。
+- **[5] UI**：三端共用 [1]–[4]；`qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
+
+驗收自問：終極棋盤的強制路由在哪實作？為什麼普通棋盤 Minimax 是完整解、終極只是估價？UCT 的探索/利用平衡在哪一行？助手勝率從哪來？— 答得出來就算讀懂了。
+
+---
+
+## History / 歷史
+
+123 commits, 2026-08-18 → 2026-08-22 / 123 個提交、五天。Full "why" per decision
+in [`docs/decisions.md`](docs/decisions.md) (D1–D23) / 每個決定的完整理由見決策日誌。
+
+| Date / 日期 | Milestone / 里程碑 |
+|---|---|
+| 08-18 | Born as a NiceGUI web app; AlphaZero wired in the **same day**; engine family (Solver / Minimax Pro / MCTS+RAVE) and the module split (`game` / `ai` / `SBA` / `webui`) / 誕生即全家桶：網頁版與 AlphaZero 同日進場；引擎家族與模組拆分 |
+| 08-19 | Qt desktop branch (PySide6 + SiliconUI dark glass); relicensed **GPLv3** (SiliconUI vendoring); MCTS+GRAVE + `--bench`; decision log opened / Qt 桌面版進場；因隨附 SiliconUI 重授權 GPLv3；GRAVE 與對戰測試；決策日誌開張 |
+| 08-20 | **Five-phase engine optimization in one day** (Phase 0–4): `sba.toml` config layer → opening book + micro tablebase → MCTS quality (heuristic rollout, tree reuse, dynamic UCT) → Minimax refinements → bitboard & parallelism / 五階段引擎優化一日衝完 |
+| 08-21 | Evidence day (D19–D21): Minimax Pro root-ordering fix (32.5% → 45%), MCTS-vs-Minimax budget crossover (~1200–1600 sims), MCTS family statistically tied; README benchmarks + bilingual tutorials / 實證日：引擎修正與交叉點證據、MCTS 家族統計持平；基準表與雙語教程 |
+| 08-22 | AlphaZero recipe overhaul (D22: two-stage self-play — a **600-game** model reaches 50% vs MCTS@800, where the old recipe needed 6000 games); `tui.py` terminal UI; **Qt desktop locked as the default entry**; Endfield UI theme experiment (side branch) / AlphaZero 配方改造（600 局打平基線 6000 局）；TUI 終端版；Qt 定為預設入口；Endfield 主題實驗（分支） |
 
 ---
 

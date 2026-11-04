@@ -385,17 +385,27 @@ def main_page():
         async def finish_ai_move(ai_type, budget, depth, g0=None):
             if g0 is None:
                 g0 = game
+            trace = {}
+            session['ai_progress'] = None
+
+            def _on_progress(info):
+                # worker thread → dict write is GIL-atomic; the poll timer reads it
+                session['ai_progress'] = dict(info)
+
             try:
                 move = await asyncio.to_thread(
-                    get_ai_move, g0, ai_type, budget, depth)
+                    get_ai_move, g0, ai_type, budget, depth, _on_progress, trace)
             except Exception as e:
                 log.error('AI move error (%s): %s', ai_type, e)
                 if session.get('ai_busy') == id(g0):
                     session['ai_busy'] = None
+                    session['ai_progress'] = None
                     refresh_status()
                 return
+            session['ai_progress'] = None
             if g0 is not session['game']:
                 return  # rewound/restarted while thinking: drop the stale move
+            session['ai_trace'] = trace
             if session.get('ai_busy') == id(g0):
                 session['ai_busy'] = None
             side = g0.current
@@ -638,6 +648,9 @@ def main_page():
                     status_spinner = ui.spinner(size='sm')
                     status_spinner.set_visibility(False)
                     status_text = ui.label('').classes('text-h6')
+                # live AI thinking line (D24): updated by the poll timer below
+                ai_progress_lbl = ui.label('').classes('text-caption text-grey')
+                ai_progress_lbl.set_visibility(False)
                 with ui.row().classes('w-full items-center gap-2'):
                     revert_btn = ui.button(
                         t('Revert', '回退'), icon='undo',
@@ -670,6 +683,8 @@ def main_page():
                         with ui.row().classes('items-center gap-2'):
                             ui.label('○').classes('mark-chip mark-o')
                             o_info = ui.label('').classes('text-body2')
+                        # last AI move summary (D24): engine → pick + top candidates
+                        ai_trace_lbl = ui.label('').classes('text-caption text-grey')
                         assistant_switch = ui.switch(
                             t('AI Assistant', 'AI 助手'), value=session['assistant_enabled'])
                         assistant_switch.on_value_change(
@@ -719,6 +734,28 @@ def main_page():
         update_cvc_controls()
         render_history()
         game_timer = ui.timer(max(0.05, session.get('cvc_speed', 0.4)), ai_loop)
+
+        def poll_ai_thinking():
+            """D24: mirror the AI worker's progress/trace dicts into labels."""
+            info = session.get('ai_progress')
+            if info:
+                line = f"{info.get('it', 0)}/{info.get('iterations', 0)}"
+                if info.get('best_text'):
+                    line += f" · {info['best_text']} {info.get('wr', 0):.0%}"
+                ai_progress_lbl.set_text(f"{t('thinking', '思考中')} · {line}")
+                ai_progress_lbl.set_visibility(True)
+            elif ai_progress_lbl.visible:
+                ai_progress_lbl.set_visibility(False)
+            tr = session.get('ai_trace')
+            if tr:
+                tops = ' · '.join(f"{tx} {wr:.0%}" for tx, _s, wr in tr.get('top', []))
+                note = f" ({tr['note']})" if tr.get('note') else ''
+                line = f"{tr.get('engine', '')}{note} → {tr.get('picked_text', '')}"
+                if tops:
+                    line += f' · {tops}'
+                ai_trace_lbl.set_text(f"{t('AI last move:', 'AI 上一步：')} {line}")
+
+        ui.timer(0.25, poll_ai_thinking)
 
     show_menu()
 

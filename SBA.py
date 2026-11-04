@@ -17,7 +17,7 @@ Run:
 Maintenance notes:
 - The desktop app is the default entry; the NiceGUI web server only starts
   with --web or the desktop's "Enable NiceGUI Web UI" switch (decision D1).
-- Session state lives here; the module is aliased as 'SBA' so qtui/webui
+- Session state lives here; the module is aliased as 'SBA' so tui/webui
   reuse it instead of importing a second copy.
 """
 
@@ -86,7 +86,7 @@ def is_ai_turn(s):
 
 
 # ============================================================
-# Shared UI helpers (imported by qtui.py and webui.py)
+# Shared UI helpers (imported by tui.py and webui.py)
 # ============================================================
 
 AI_OPTIONS = {
