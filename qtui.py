@@ -31,7 +31,7 @@ try:
                                 QSettings, QSize, Qt, QThread, QTimer,
                                 QVariantAnimation, QAbstractAnimation, Signal)
     from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetrics,
-                               QImage, QPainter, QPainterPath, QPen, QPixmap,
+                               QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap,
                                QPolygonF)
     from PySide6.QtCharts import QChart, QChartView, QLineSeries, QScatterSeries, QValueAxis
     from PySide6.QtWidgets import (
@@ -146,6 +146,37 @@ def make_stripe():
         lay.addWidget(seg)
     lay.addStretch(1)
     return stripe
+
+
+def _media_icon(kind, color='#F7F7F7', size=20):
+    """Self-drawn transport glyph (back/pause/play/next) — Qt's standard
+    icons ignore the QSS text color and render near-black on the dark
+    theme (user feedback: "black icon in black background")."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    w, h = size, size
+    if kind == 'pause':
+        bw = max(3, size // 5)
+        p.drawRect(int(w * 0.25), int(h * 0.2), bw, int(h * 0.6))
+        p.drawRect(int(w * 0.25) + bw + max(2, size // 10), int(h * 0.2),
+                   bw, int(h * 0.6))
+    elif kind == 'play':
+        p.drawPolygon([QPointF(w * 0.32, h * 0.2), QPointF(w * 0.82, h * 0.5),
+                       QPointF(w * 0.32, h * 0.8)])
+    elif kind == 'back':
+        p.drawPolygon([QPointF(w * 0.68, h * 0.2), QPointF(w * 0.18, h * 0.5),
+                       QPointF(w * 0.68, h * 0.8)])
+    elif kind == 'next':
+        for dx in (0.0, 0.28):
+            p.drawPolygon([QPointF(w * (0.22 + dx), h * 0.2),
+                           QPointF(w * (0.52 + dx), h * 0.5),
+                           QPointF(w * (0.22 + dx), h * 0.8)])
+    p.end()
+    return QIcon(pm)
 
 
 # Board palettes. BoardWidget paints from the active palette; the Endfield
@@ -1090,36 +1121,31 @@ class GamePage(EndfieldPage):
         root.addWidget(header)
         root.addWidget(make_stripe())
 
-        # Top control bar: revert / pause / next step + step scrubber
+        # Top control bar: revert / pause / next step (the timeline scrubber
+        # was removed — the History card took over step navigation)
         ctrl_bar = QFrame()
         ctrl_bar.setObjectName('card')
         ctrl_lay = QHBoxLayout(ctrl_bar)
         ctrl_lay.setContentsMargins(8, 6, 8, 6)
         self.revert_btn = QPushButton()
-        self.revert_btn.setIcon(self.style().standardIcon(QStyle.SP_ArrowBack))
+        self.revert_btn.setIcon(_media_icon('back'))
         self.revert_btn.setToolTip(t('Revert', '回退'))
         self.revert_btn.setFixedSize(40, 36)
         self.revert_btn.clicked.connect(self.on_revert_clicked)
         ctrl_lay.addWidget(self.revert_btn)
         self.pause_btn = QPushButton()
-        self.pause_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+        self.pause_btn.setIcon(_media_icon('pause'))
         self.pause_btn.setToolTip(t('Pause', '暫停'))
         self.pause_btn.setFixedSize(40, 36)
         self.pause_btn.clicked.connect(self.on_pause_clicked)
         ctrl_lay.addWidget(self.pause_btn)
         self.next_btn = QPushButton()
-        self.next_btn.setIcon(self.style().standardIcon(QStyle.SP_MediaSkipForward))
+        self.next_btn.setIcon(_media_icon('next'))
         self.next_btn.setToolTip(t('Next Step', '下一步'))
         self.next_btn.setFixedSize(40, 36)
         self.next_btn.clicked.connect(self.on_step_clicked)
         ctrl_lay.addWidget(self.next_btn)
-        self.hist_slider = QSlider(Qt.Horizontal)
-        self.hist_slider.setRange(0, 0)
-        self.hist_slider.valueChanged.connect(self.go_to_step)
-        ctrl_lay.addWidget(self.hist_slider, 1)
-        self.hist_label = QLabel('0 / 0')
-        self.hist_label.setObjectName('muted')
-        ctrl_lay.addWidget(self.hist_label)
+        ctrl_lay.addStretch(1)
         root.addWidget(ctrl_bar)
 
         # Win-rate chart (lives under the board, so the right panel spans the
@@ -1415,12 +1441,6 @@ class GamePage(EndfieldPage):
         s = self.session
         moves = s.get('moves', [])
         history = s.get('history', [])
-        n = len(moves)
-        self.hist_slider.blockSignals(True)
-        self.hist_slider.setRange(0, n)
-        self.hist_slider.setValue(self.step_idx)
-        self.hist_slider.blockSignals(False)
-        self.hist_label.setText(f'{self.step_idx} / {n}')
         self.hist_x_series.clear()
         self.hist_ref.clear()
         self.hist_dot.clear()
@@ -1658,8 +1678,7 @@ class GamePage(EndfieldPage):
 
     def _update_pause_icon(self):
         paused = self.session.get('cvc_paused', False)
-        self.pause_btn.setIcon(self.style().standardIcon(
-            QStyle.SP_MediaPlay if paused else QStyle.SP_MediaPause))
+        self.pause_btn.setIcon(_media_icon('play' if paused else 'pause'))
         self.pause_btn.setToolTip(
             t('Resume', '繼續') if paused else t('Pause', '暫停'))
 
