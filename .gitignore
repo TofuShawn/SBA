@@ -32,3 +32,7 @@ Thumbs.db
 
 # Training logs / 訓練 log
 logs/
+
+# Node（靜態文件建置，見 docs/static-build/）
+docs/static-build/node_modules/
+native/sba_rollout.dll

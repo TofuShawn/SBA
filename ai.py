@@ -17,6 +17,7 @@ Maintenance notes:
 - AlphaZero falls back to MCTS when no trained model exists (see models/).
 """
 
+import ctypes
 import logging
 import math
 import os
@@ -43,6 +44,7 @@ _CFG_DEFAULTS = {
         'progressive_widening': False, 'early_stop': False,
         'opening_book': True, 'micro_tablebase': True,
         'symmetry': False, 'object_pool': True, 'bitboard': True,
+        'c_rollout': True,
         'multithreaded': False, 'use_lmr': True, 'use_killers': True,
         'use_aspiration': True, 'use_eval_ordering': True,
         'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,
@@ -50,6 +52,97 @@ _CFG_DEFAULTS = {
     },
     'session': {'mcts_budget': 800, 'minimax_depth': 4},
 }
+
+
+# ---------------------------------------------------------------------------
+# Native rollout kernel (D25): one ctypes call per MCTS simulation replaces
+# the per-move Python rollout loop — the profiled hot spot (~80% of search
+# time). Falls back to the pure-Python path when the DLL is missing or the
+# switch is off.
+# ---------------------------------------------------------------------------
+_C_ROLL = None
+_C_ROLL_TRIED = False
+
+
+def _get_c_rollout():
+    """ctypes handle to native/sba_rollout.dll, loaded once on demand;
+    None when disabled or not built (the Python rollout keeps running)."""
+    global _C_ROLL, _C_ROLL_TRIED
+    if _C_ROLL_TRIED:
+        return _C_ROLL
+    _C_ROLL_TRIED = True
+    if not cfg_engine('c_rollout', True):
+        return None
+    dll = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       'native', 'sba_rollout.dll')
+    if not os.path.isfile(dll):
+        log.info('c_rollout: native/sba_rollout.dll not built; the Python '
+                 'rollout stays in use (build it with native/build.py)')
+        return None
+    try:
+        fn = ctypes.CDLL(dll).sba_rollout
+        fn.restype = ctypes.c_int32
+        fn.argtypes = [ctypes.POINTER(ctypes.c_int32),
+                       ctypes.POINTER(ctypes.c_int32),
+                       ctypes.c_int32, ctypes.c_int32, ctypes.c_uint64]
+        _C_ROLL = fn
+        log.info('c_rollout: native rollout kernel loaded')
+    except OSError as e:
+        log.warning('c_rollout: failed to load the native kernel: %s', e)
+    return _C_ROLL
+
+
+def _serialize_ultimate(state):
+    """Flatten an UltimateGame / BitUltimateGame position into the C ABI:
+    cells 81 (0 empty, 1 X, 2 O), macro 9 (0 open, 1 X, 2 O, 3 full-draw),
+    side to move (1/2) and the confined macro or -1."""
+    cells = [0] * 81
+    macro = [0] * 9
+    if isinstance(state, BitUltimateGame):
+        for idx in range(81):
+            b = 1 << idx
+            if state.x & b:
+                cells[idx] = 1
+            elif state.o & b:
+                cells[idx] = 2
+        for m in range(9):
+            if (state.mx >> m) & 1:
+                macro[m] = 1
+            elif (state.mo >> m) & 1:
+                macro[m] = 2
+            elif ((state.x | state.o) >> (m * 9)) & 0x1FF == 0x1FF:
+                macro[m] = 3
+    else:
+        for m in range(9):
+            row = state.micro[m]
+            base = m * 9
+            for i in range(9):
+                c = row[i]
+                if c == X:
+                    cells[base + i] = 1
+                elif c == O:
+                    cells[base + i] = 2
+            w = state.macro[m]
+            if w == X:
+                macro[m] = 1
+            elif w == O:
+                macro[m] = 2
+            elif w == 'D':
+                macro[m] = 3
+    active = -1 if state.active_macro is None else state.active_macro
+    player = 1 if state.current == X else 2
+    return cells, macro, player, active
+
+
+def _c_rollout_state(state):
+    """One native rollout to terminal; returns X / O / 'D'."""
+    if _C_ROLL is None:
+        _get_c_rollout()
+    cells, macro, player, active = _serialize_ultimate(state)
+    r = _C_ROLL((ctypes.c_int32 * 81)(*cells),
+                (ctypes.c_int32 * 9)(*macro),
+                player, active, random.getrandbits(64))
+    return {1: X, 2: O, 3: 'D'}[r]
 
 
 def _load_config():
@@ -70,7 +163,7 @@ CONFIG = _load_config()
 
 def set_engine_config(overrides=None):
     """Reset the engine config to code defaults, then apply overrides."""
-    global CONFIG
+    global CONFIG, _C_ROLL_TRIED, _C_ROLL
     base = {
         'engine': dict(_CFG_DEFAULTS['engine']),
         'session': dict(_CFG_DEFAULTS['session']),
@@ -79,6 +172,9 @@ def set_engine_config(overrides=None):
         base['engine'].update(overrides.get('engine', {}))
         base['session'].update(overrides.get('session', {}))
     CONFIG = base
+    # allow tests to flip c_rollout and re-resolve the DLL state
+    _C_ROLL_TRIED = False
+    _C_ROLL = None
 
 
 def cfg_engine(name, default=None):
@@ -359,6 +455,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
                 if pool is not None else MCTSNode(root_state, None, None, None))
     start_visits = root.visits
     root_sym = set()
+    c_roll = None if isinstance(game, NormalGame) else _get_c_rollout()
     report_at = max(1, iterations // 10) if on_progress else 0
     for it in range(iterations):
         node = root
@@ -380,13 +477,17 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
                 node.children.append(child)
                 node = child
         result = state.result()
-        while result is None:
-            moves = state.legal_moves()
-            if not moves:
-                break
-            m = _rollout_move(state, moves)
-            apply_move(state, m)
+        if c_roll is not None:
+            result = _c_rollout_state(state)
+        else:
             result = state.result()
+            while result is None:
+                moves = state.legal_moves()
+                if not moves:
+                    break
+                m = _rollout_move(state, moves)
+                apply_move(state, m)
+                result = state.result()
         while node is not None:
             node.visits += 1
             if result == node.mover:
