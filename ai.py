@@ -44,7 +44,7 @@ _CFG_DEFAULTS = {
         'progressive_widening': False, 'early_stop': False,
         'opening_book': True, 'micro_tablebase': True,
         'symmetry': False, 'object_pool': True, 'bitboard': True,
-        'c_rollout': True,
+        'c_rollout': True, 'c_rollout_pattern': False,
         'multithreaded': False, 'use_lmr': True, 'use_killers': True,
         'use_aspiration': True, 'use_eval_ordering': True,
         'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,
@@ -61,13 +61,15 @@ _CFG_DEFAULTS = {
 # switch is off.
 # ---------------------------------------------------------------------------
 _C_ROLL = None
+_C_ROLL_PAT = None
 _C_ROLL_TRIED = False
 
 
 def _get_c_rollout():
-    """ctypes handle to native/sba_rollout.dll, loaded once on demand;
-    None when disabled or not built (the Python rollout keeps running)."""
-    global _C_ROLL, _C_ROLL_TRIED
+    """ctypes handles to native/sba_rollout.dll, loaded once on demand;
+    _C_ROLL is the plain heuristic kernel, _C_ROLL_PAT the pattern (fork /
+    safe-routing) variant (D26). Either missing falls back gracefully."""
+    global _C_ROLL, _C_ROLL_PAT, _C_ROLL_TRIED
     if _C_ROLL_TRIED:
         return _C_ROLL
     _C_ROLL_TRIED = True
@@ -80,13 +82,22 @@ def _get_c_rollout():
                  'rollout stays in use (build it with native/build.py)')
         return None
     try:
-        fn = ctypes.CDLL(dll).sba_rollout
+        lib = ctypes.CDLL(dll)
+        fn = lib.sba_rollout
         fn.restype = ctypes.c_int32
         fn.argtypes = [ctypes.POINTER(ctypes.c_int32),
                        ctypes.POINTER(ctypes.c_int32),
                        ctypes.c_int32, ctypes.c_int32, ctypes.c_uint64]
         _C_ROLL = fn
-        log.info('c_rollout: native rollout kernel loaded')
+        try:
+            fp = lib.sba_rollout_pattern
+            fp.restype = ctypes.c_int32
+            fp.argtypes = fn.argtypes
+            _C_ROLL_PAT = fp
+        except AttributeError:
+            log.warning('c_rollout: pattern kernel missing from the DLL')
+        log.info('c_rollout: native rollout kernel loaded%s',
+                 ' (pattern variant available)' if _C_ROLL_PAT else '')
     except OSError as e:
         log.warning('c_rollout: failed to load the native kernel: %s', e)
     return _C_ROLL
@@ -135,13 +146,17 @@ def _serialize_ultimate(state):
 
 
 def _c_rollout_state(state):
-    """One native rollout to terminal; returns X / O / 'D'."""
+    """One native rollout to terminal; returns X / O / 'D'. Uses the pattern
+    kernel (fork / safe-routing policy) when c_rollout_pattern is on."""
     if _C_ROLL is None:
         _get_c_rollout()
+    fn = _C_ROLL
+    if (_C_ROLL_PAT is not None and cfg_engine('c_rollout_pattern', False)):
+        fn = _C_ROLL_PAT
     cells, macro, player, active = _serialize_ultimate(state)
-    r = _C_ROLL((ctypes.c_int32 * 81)(*cells),
-                (ctypes.c_int32 * 9)(*macro),
-                player, active, random.getrandbits(64))
+    r = fn((ctypes.c_int32 * 81)(*cells),
+           (ctypes.c_int32 * 9)(*macro),
+           player, active, random.getrandbits(64))
     return {1: X, 2: O, 3: 'D'}[r]
 
 
@@ -175,6 +190,7 @@ def set_engine_config(overrides=None):
     # allow tests to flip c_rollout and re-resolve the DLL state
     _C_ROLL_TRIED = False
     _C_ROLL = None
+    _C_ROLL_PAT = None
 
 
 def cfg_engine(name, default=None):

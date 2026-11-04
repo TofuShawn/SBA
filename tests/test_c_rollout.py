@@ -8,6 +8,8 @@ import time
 
 import pytest
 
+import ai
+
 from ai import (_c_rollout_state, _get_c_rollout, _rollout_move, _serialize_ultimate,
                 get_ai_move, mcts_search, set_engine_config)
 from game import (BitUltimateGame, NormalGame, O, UltimateGame, X, apply_move)
@@ -110,3 +112,19 @@ def test_normal_board_uses_python_path():
     g = NormalGame()
     mv = get_ai_move(g, 'MCTS', 200, 3)
     assert mv in g.legal_moves()
+
+
+def test_pattern_kernel_smoke():
+    """Pattern variant (D26, off by default): legal results, sane spread."""
+    set_engine_config({'engine': {'c_rollout': True, 'c_rollout_pattern': True}})
+    try:
+        assert ai._C_ROLL_PAT is not None
+        g = UltimateGame()
+        seen = set()
+        for _ in range(200):
+            r = _c_rollout_state(g)
+            assert r in (X, O, 'D')
+            seen.add(r)
+        assert seen != {'D'}
+    finally:
+        set_engine_config()

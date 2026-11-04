@@ -6,6 +6,7 @@
 # --- search switches / 搜尋開關 ---
 rollout_heuristic = true    # win/block biased MCTS rollouts (A1) / 啟發式 rollout
 c_rollout = true            # native C rollout kernel (D25; needs native/sba_rollout.dll, auto-falls back to Python) / 原生 C rollout 核心（需先以 native/build.py 編譯，缺失自動回退 Python）
+c_rollout_pattern = false   # fork/safe-routing rollout variant (D26) — benched 47.5% vs plain at 4.4x cost, kept off / Pattern 變體（fork+安全路由）——實測持平且貴 4.4 倍，預設關
 tree_reuse = true           # keep the MCTS tree between moves (A2) / 樹重用
 dynamic_uct = true          # exploration factor shrinks as the search matures (A3) / 動態 UCT
 progressive_widening = false # limit expansions per node (A4) / 漸進式加粗
