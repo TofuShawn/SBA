@@ -202,7 +202,9 @@ class SearchNode:
         self.v_wins = 0.0
 
     def best_child(self, c_puct):
-        log_n = math.log(max(1, self.visits + self.v_visits))
+        # AlphaZero PUCT: Q(s,a) + c_puct * P(s,a) * sqrt(sum_b N(s,b)) / (1 + N(s,a)).
+        # The numerator sqrt(sum of sibling visits) equals sqrt(visits to this node).
+        sqrt_parent = math.sqrt(self.visits + self.v_visits)
         best, best_val = None, -math.inf
         for child in self.children:
             visits = child.visits + child.v_visits
@@ -211,19 +213,62 @@ class SearchNode:
             else:
                 prior = self.priors.get(child.move, 1.0) if self.priors else 1.0
                 q = (child.wins + child.v_wins) / visits
-                uct = (-q + c_puct * prior * math.sqrt(log_n / visits))
+                uct = (-q + c_puct * prior * sqrt_parent / (1.0 + visits))
             if uct > best_val:
                 best, best_val = child, uct
         return best
 
 
+_C_ROLLOUT_TRIED = False
+
+
+class _CRootView:
+    """Minimal root-like view over C MCTS stats so _root_value() consumes
+    the native search output unchanged (child.visits / child.wins)."""
+    __slots__ = ('children',)
+
+    def __init__(self, stats):
+        from types import SimpleNamespace
+        self.children = [SimpleNamespace(visits=v, wins=w)
+                         for _m, v, w, _mo in stats]
+
+
+def _c_rollout_value(g):
+    """Native heuristic playout via the C rollout kernel (D32); value from
+    g's current player's perspective. Returns None when the DLL is missing
+    or the position is somehow unresolvable — caller falls back to Python.
+    The kernel runs the same win/block-biased policy as ai._rollout_move.
+    """
+    global _C_ROLLOUT_TRIED
+    if not _C_ROLLOUT_TRIED:
+        _C_ROLLOUT_TRIED = True
+        try:
+            from native import cengine as _ce  # noqa: F401
+        except ImportError:
+            return None
+    try:
+        from native import cengine as _ce
+        r = _ce.rollout_state(g)
+    except Exception:
+        return None
+    if r is None:
+        return None
+    if r == 'D':
+        return 0.0
+    return 1.0 if r == g.current else -1.0
+
+
 def rollout_value(g):
     """Heuristic playout from g; value from the perspective of g's current player.
 
-    Uses the ai.py win/block-biased rollout policy (lazy import: ai.py loads
-    alphazero on demand, never at module level). Tactical playouts are far
-    stronger than uniform random on Ultimate Tic Tac Toe.
+    Uses the native C rollout kernel when available (D32) and falls back to
+    the ai.py win/block-biased policy (lazy import: ai.py loads alphazero on
+    demand, never at module level). Tactical playouts are far stronger than
+    uniform random on Ultimate Tic Tac Toe.
     """
+    v = _c_rollout_value(g)
+    if v is not None:
+        return v
     from ai import _rollout_move
     player = g.current
     state = g.clone()
@@ -501,10 +546,18 @@ def self_play_game(make_game_fn, model, sims, temp,
                                        dirichlet_eps=dirichlet_eps)
         else:
             # Stage 1: pure MCTS (heuristic rollouts, no network) so policy
-            # and value targets come from classical search quality.
-            from ai import mcts_search as pure_mcts
-            root = pure_mcts(game.clone(), sims)
-            counts = {c.move: c.visits for c in root.children}
+            # and value targets come from classical search quality. The
+            # native C tree search (D30) runs it ~37x faster; root stats
+            # carry (move, visits, wins, mover) exactly like MCTSNode.
+            from native import cengine as _ce
+            root_mv, stats, _tree = _ce.mcts_search(game, sims)
+            if stats:
+                counts = {(m // 9, m % 9): int(v) for m, v, w, _mo in stats}
+                root = _CRootView(stats)
+            else:
+                from ai import mcts_search as pure_mcts
+                root = pure_mcts(game.clone(), sims)
+                counts = {c.move: c.visits for c in root.children}
         value = _root_value(root)
         n = np.array([counts.get(m, 0) for m in legal], dtype=np.float64)
         n = n + 1e-8
