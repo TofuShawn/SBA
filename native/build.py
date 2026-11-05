@@ -58,12 +58,20 @@ def main():
               '`pacman -S mingw-w64-gcc` inside WSL (Arch)')
         return 1
     objs = []
+    # Linux-hosted gcc (incl. CI) doesn't know __stdcall; Windows targets get
+    # a static link so the DLL carries its own libgcc/pthread runtime.
+    target_windows = (cc[0] == 'wsl') or sys.platform == 'win32'
+    extra = []
+    if not target_windows:
+        extra.append('-D__stdcall=')
+    elif cc[0] != 'wsl':
+        extra.append('-static')
     for src in SOURCES:
         obj = src.replace('.c', '.o')
         src_path, obj_path = os.path.join(HERE, src), os.path.join(HERE, obj)
         if cc[0] == 'wsl':
             src_path, obj_path = wsl_path(src_path), wsl_path(obj_path)
-        cmd = cc + ['-O2', '-c', '-o', obj_path, src_path]
+        cmd = cc + ['-O2', '-fPIC', '-c', '-o', obj_path, src_path] + extra
         print('compiling:', ' '.join(cmd))
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
@@ -73,9 +81,9 @@ def main():
     out = OUT
     if cc[0] == 'wsl':
         out = wsl_path(OUT)
-    cmd = cc + ['-O2', '-shared', '-o', out] + [
-        (wsl_path(os.path.join(HERE, o)) if cc[0] == 'wsl'
-         else os.path.join(HERE, o)) for o in objs]
+    obj_paths = [(wsl_path(os.path.join(HERE, o)) if cc[0] == 'wsl'
+                  else os.path.join(HERE, o)) for o in objs]
+    cmd = cc + ['-O2', '-shared', '-o', out] + extra + obj_paths
     print('linking:', ' '.join(cmd))
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:

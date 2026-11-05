@@ -14,6 +14,7 @@ back to the pure-Python engines.
 import ctypes
 import os
 import random
+import threading
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ENGINE_DLL = os.path.join(_ROOT, 'native', 'sba_engine.dll')
@@ -21,6 +22,7 @@ _LEGACY_DLL = os.path.join(_ROOT, 'native', 'sba_rollout.dll')
 
 _lib = None
 _has_engine = False
+_load_lock = threading.Lock()
 
 _XO = {1: 'X', 2: 'O', 3: 'D'}
 
@@ -33,10 +35,15 @@ def _bind(lib, name, restype, argtypes):
 
 
 def _load():
-    """Load sba_engine.dll (or the legacy rollout-only DLL); idempotent."""
+    """Load sba_engine.dll (or the legacy rollout-only DLL); idempotent and
+    thread-safe (the UI runs the assistant and the AI move search in two
+    threads that can reach here simultaneously)."""
     global _lib, _has_engine
     if _lib is not None:
         return _lib
+    with _load_lock:
+        if _lib is not None:
+            return _lib
     path = _ENGINE_DLL if os.path.isfile(_ENGINE_DLL) else (
         _LEGACY_DLL if os.path.isfile(_LEGACY_DLL) else None)
     if path is None:
@@ -162,24 +169,18 @@ def rollout_trace(state, rng_seed=None):
     return _XO[res], seq
 
 
-_arena_buf = None
-
-
-def _arena(iterations):
-    """Grow-on-demand node arena for the C MCTS (caller-owned memory: the
-    cross-built DLL has no CRT, so it must not malloc)."""
-    global _arena_buf
-    need = (iterations + 64) * 512   # sizeof(MctsNode) <= 512 bytes
-    if _arena_buf is None or len(_arena_buf) < need:
-        _arena_buf = (ctypes.c_uint8 * need)()
-    return _arena_buf
-
-
 def mcts_search(state, iterations, use_pattern=False, rng_seed=None):
     """Full native MCTS. Returns (best_move, stats) where stats is a list of
     (move, visits, wins, mover) for the root children — wins counted from
     the mover's perspective, matching ai.py's MCTSNode. Returns
-    (None, []) when the full engine DLL is unavailable."""
+    (None, []) when the full engine DLL is unavailable.
+
+    Concurrency: the node arena is allocated PER CALL — the UI runs the
+    assistant analysis (AnalysisWorker) and the AI move search (AIWorker)
+    concurrently, and a shared buffer made them stomp each other into an
+    infinite loop (the "stuck on move 3" bug). Allocation is ~1 MB and
+    cheap; the buffer is freed when this call returns.
+    """
     lib = _load()
     if lib is None or not _has_engine:
         return None, []
@@ -192,7 +193,8 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None):
     wins = (ctypes.c_double * 81)()
     mover = (ctypes.c_int32 * 81)()
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    buf = _arena(iterations)
+    # per-call arena: (iterations + 64) nodes, 512 B per node upper bound
+    buf = (ctypes.c_uint8 * ((iterations + 64) * 512))()
     lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
                         1 if use_pattern else 0,
                         ctypes.byref(best), ctypes.byref(count),
