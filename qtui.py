@@ -38,8 +38,7 @@ try:
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsBlurEffect, QGraphicsOpacityEffect, QGraphicsPixmapItem,
         QGraphicsScene, QListWidget, QListWidgetItem, QMainWindow, QProgressBar,
-        QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
-        QStackedWidget, QStyle, QVBoxLayout, QWidget,
+        QPushButton, QScrollArea, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -1850,6 +1849,29 @@ class SettingsPage(EndfieldPage):
         self.setObjectName('pageSettings')
         self._build_ui()
 
+    # Functional grouping: (deck title, one-line explanation, [switch keys]).
+    # Everything here lives in the [engine] section of config.toml.
+    GROUPS = [
+        ('C ENGINE BACKENDS', 'C 引擎後端',
+         '哪些演算法走原生 C 實作；關閉後自動回退純 Python（較慢）。',
+         ['c_mcts', 'c_minimax', 'c_rollout', 'c_rollout_pattern']),
+        ('MCTS SEARCH', 'MCTS 搜尋行為',
+         '影響 MCTS 搜尋策略與棋力（對 MCTS / MCTS+GRAVE / 助手分析生效）。',
+         ['rollout_heuristic', 'tree_reuse', 'dynamic_uct', 'early_stop',
+          'progressive_widening', 'multithreaded', 'object_pool']),
+        ('SEARCH AIDS', '搜尋輔助結構',
+         '開局書、殘局表與加速用的內部表示。',
+         ['opening_book', 'micro_tablebase', 'bitboard', 'symmetry']),
+        ('MINIMAX PRUNING', 'MINIMAX PRO 剪枝',
+         '僅影響 Minimax Pro 引擎的搜尋加速。',
+         ['use_lmr', 'use_killers', 'use_aspiration', 'use_eval_ordering']),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName('pageSettings')
+        self._build_ui()
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         top = QHBoxLayout()
@@ -1870,38 +1892,34 @@ class SettingsPage(EndfieldPage):
         panel = QWidget()
         panel_lay = QVBoxLayout(panel)
         panel_lay.setContentsMargins(4, 4, 12, 4)
-        panel_lay.setSpacing(6)
+        panel_lay.setSpacing(12)
 
         self._checks = {}
-        for key, val in AI_DEFAULTS['engine'].items():
-            if not isinstance(val, bool):
-                continue
-            en, zh = self.KEY_LABELS.get(key, (key, key))
-            cb = QCheckBox(f'{en} — {zh}  [{key}]')
-            cb.setChecked(bool(cfg_engine(key, val)))
-            panel_lay.addWidget(cb)
-            self._checks[key] = cb
-
-        num_row = QHBoxLayout()
-        num_row.addWidget(QLabel(t('AZ self-play workers', 'AZ 自對弈執行緒')
-                                 + '  [workers]'))
-        self.workers_spin = QSpinBox()
-        self.workers_spin.setRange(1, 32)
-        self.workers_spin.setValue(int(cfg_engine('workers', 8)))
-        num_row.addWidget(self.workers_spin)
-        num_row.addStretch(1)
-        panel_lay.addLayout(num_row)
-
-        budget_row = QHBoxLayout()
-        budget_row.addWidget(QLabel(t('Default MCTS budget', '預設 MCTS 迭代數')
-                                    + '  [mcts_budget]'))
-        self.budget_spin = QSpinBox()
-        self.budget_spin.setRange(200, 30000)
-        self.budget_spin.setSingleStep(100)
-        self.budget_spin.setValue(int(cfg_session('mcts_budget', 1600)))
-        budget_row.addWidget(self.budget_spin)
-        budget_row.addStretch(1)
-        panel_lay.addLayout(budget_row)
+        for deck, zh, hint, keys in self.GROUPS:
+            card = QFrame()
+            card.setObjectName('card')
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(6)
+            head = QHBoxLayout()
+            head.addWidget(deck_label(deck))
+            sub = QLabel(zh)
+            sub.setObjectName('muted')
+            head.addSpacing(8)
+            head.addWidget(sub)
+            head.addStretch(1)
+            lay.addLayout(head)
+            hint_lbl = QLabel(hint)
+            hint_lbl.setObjectName('muted')
+            hint_lbl.setWordWrap(True)
+            lay.addWidget(hint_lbl)
+            for key in keys:
+                en, zh_key = self.KEY_LABELS.get(key, (key, key))
+                cb = QCheckBox(f'{en} — {zh_key}  [{key}]')
+                cb.setChecked(bool(cfg_engine(key, False)))
+                lay.addWidget(cb)
+                self._checks[key] = cb
+            panel_lay.addWidget(card)
 
         note = QLabel(t('Applies immediately; saved to config.toml. Takes '
                         'full effect on the next game.',
@@ -1930,15 +1948,9 @@ class SettingsPage(EndfieldPage):
     def refresh_values(self):
         for key, cb in self._checks.items():
             cb.setChecked(bool(cfg_engine(key, False)))
-        self.workers_spin.setValue(int(cfg_engine('workers', 8)))
-        self.budget_spin.setValue(int(cfg_session('mcts_budget', 1600)))
 
     def _on_save(self):
-        overrides = {
-            'engine': dict(self._collect()),
-            'session': {'mcts_budget': self.budget_spin.value()},
-        }
-        save_engine_config(overrides)
+        save_engine_config({'engine': self._collect()})
         self.status_lbl.setText(t('Saved to config.toml', '已保存到 config.toml'))
 
     def _on_reset(self):
@@ -1947,9 +1959,7 @@ class SettingsPage(EndfieldPage):
         self.status_lbl.setText(t('Defaults restored', '已恢復預設'))
 
     def _collect(self):
-        eng = {key: cb.isChecked() for key, cb in self._checks.items()}
-        eng['workers'] = self.workers_spin.value()
-        return eng
+        return {key: cb.isChecked() for key, cb in self._checks.items()}
 
 
 # ---------------------------------------------------------------------------
