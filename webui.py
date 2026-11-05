@@ -178,7 +178,7 @@ def main_page():
 
                 mcts_label = ui.label(
                     t('MCTS Strength', 'MCTS 強度') + f': {session["mcts"]}')
-                mcts_slider = ui.slider(min=200, max=3000, step=100,
+                mcts_slider = ui.slider(min=200, max=30000, step=100,
                                         value=session['mcts']).props('label-always')
                 mcts_slider.on_value_change(lambda e: (
                     session.update(mcts=int(e.value)),

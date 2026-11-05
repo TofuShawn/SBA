@@ -655,7 +655,7 @@ class MenuScreen(Screen):
             with Vertical(classes='field'):
                 yield Static(t('MCTS Strength', 'MCTS 強度'), classes='muted')
                 with Horizontal():
-                    yield Slider(cfg_session('mcts_budget', 800), 200, 3000, 100,
+                    yield Slider(cfg_session('mcts_budget', 800), 200, 30000, 200,
                                  id='sl-mcts')
                     yield Static(str(cfg_session('mcts_budget', 800)), id='val-mcts',
                                  classes='muted')

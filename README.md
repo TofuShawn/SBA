@@ -24,7 +24,7 @@
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
 - **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
 - **Adjustable AI strength / 可調 AI 強度**：MCTS 迭代數（200-3000）與 Minimax 深度（2-6）
-- **Engine optimizations / 引擎優化**（`sba.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
+- **Engine optimizations / 引擎優化**（`config.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
 - **CvC controls / 電腦對戰控制**：速度（0.1-2.0s）、自動播放、手動「下一步」
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
 - **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
@@ -155,12 +155,12 @@ Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoi
 
 ## Configuration / 設定
 
-All engine switches and parameters live in **`sba.toml`**（repo root）: MCTS
+All engine switches and parameters live in **`config.toml`**（repo root）: MCTS
 rollout heuristic, tree reuse, dynamic UCT, opening book, micro tablebase,
 LMR/killer/aspiration, symmetry, object pool, bitboard, multithreaded MCTS,
 UCT/RAVE constants, and session defaults（`mcts_budget`, `minimax_depth`）.
 Missing keys fall back to code defaults; point `$SBA_CONFIG` at another file
-to override / 所有引擎開關與參數集中在 `sba.toml`（repo 根目錄）：啟發式 rollout、
+to override / 所有引擎開關與參數集中在 `config.toml`（repo 根目錄）：啟發式 rollout、
 樹重用、動態 UCT、開局書、micro 殘局表、LMR/killer/aspiration、對稱性、物件池、
 bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mcts_budget`、
 `minimax_depth`）。缺省鍵自動回退程式碼預設；可用環境變數 `SBA_CONFIG` 指向其他檔案。
@@ -219,7 +219,7 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
   +------------------------------------------------------+
 
   SIDE CAR (no layer — loads in from the side)
-    sba.toml ----------- > ai.py        every engine switch + session defaults (D11)
+    config.toml -------- > ai.py        every engine switch + session defaults (D11)
     static/*.css|*.qss -- > webui/qtui  stylesheets only, no logic
     tests/ --------------              headless pytest: rules, AI sanity, AZ smoke
 ```

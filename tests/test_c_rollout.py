@@ -118,7 +118,7 @@ def test_pattern_kernel_smoke():
     """Pattern variant (D26, off by default): legal results, sane spread."""
     set_engine_config({'engine': {'c_rollout': True, 'c_rollout_pattern': True}})
     try:
-        assert ai._C_ROLL_PAT is not None
+        assert ai._get_c_rollout_pattern() is not None
         g = UltimateGame()
         seen = set()
         for _ in range(200):

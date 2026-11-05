@@ -38,8 +38,8 @@ try:
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsBlurEffect, QGraphicsOpacityEffect, QGraphicsPixmapItem,
         QGraphicsScene, QListWidget, QListWidgetItem, QMainWindow, QProgressBar,
-        QPushButton, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout,
-        QWidget,
+        QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
+        QStackedWidget, QStyle, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -51,7 +51,8 @@ from game import (
     X, O,
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
-from ai import get_ai_move, analyze_position, position_win_rates, move_text
+from ai import (get_ai_move, analyze_position, position_win_rates, move_text,
+                cfg_engine, cfg_session, save_engine_config, _CFG_DEFAULTS as AI_DEFAULTS)
 from SBA import (
     AI_OPTIONS, REASON_TEXT, current_side_type, is_ai_turn, log,
     new_session, side_label, side_types, t,
@@ -912,6 +913,7 @@ class EndfieldPage(QWidget):
 class MenuPage(EndfieldPage):
     start_requested = Signal(object)
     web_toggled = Signal(bool)
+    settings_requested = Signal()
     GIANT_TEXT = 'UTTT'
     BACKDROP = 'static/backgrounds/survey-dark.jpg'
 
@@ -980,7 +982,7 @@ class MenuPage(EndfieldPage):
         card_lay.addWidget(self.ai_o_row)
 
         self.mcts = QSlider(Qt.Horizontal)
-        self.mcts.setRange(200, 3000)
+        self.mcts.setRange(200, 30000)  # the C engine makes big budgets affordable (D27)
         self.mcts.setSingleStep(100)
         self.mcts.setValue(800)
         card_lay.addWidget(field_row(t('MCTS Strength', 'MCTS 強度'),
@@ -1016,9 +1018,15 @@ class MenuPage(EndfieldPage):
         self.web_status.setObjectName('muted')
         card_lay.addWidget(self.web_status)
 
+        start_row = QHBoxLayout()
         start_btn = _si_button(t('Start Game', '開始遊戲'), primary=True)
         start_btn.clicked.connect(self._on_start)
-        card_lay.addWidget(start_btn)
+        start_row.addWidget(start_btn, 1)
+        settings_btn = _si_button(t('Settings', '設定'))
+        settings_btn.setObjectName('ghost')
+        settings_btn.clicked.connect(self.settings_requested.emit)
+        start_row.addWidget(settings_btn)
+        card_lay.addLayout(start_row)
 
         self._update_visibility()
 
@@ -1806,6 +1814,145 @@ class GamePage(EndfieldPage):
         self.new_btn.setVisible(False)
 
 # ---------------------------------------------------------------------------
+# Settings page (D28): flips engine switches from config.toml and persists
+# them back with save_engine_config (comments survive).
+# ---------------------------------------------------------------------------
+
+class SettingsPage(EndfieldPage):
+    back_requested = Signal()
+    BACKDROP = 'static/backgrounds/survey-dark.jpg'
+
+    KEY_LABELS = {
+        'c_mcts': ('MCTS tree search in C', 'C 完整 MCTS 樹搜尋'),
+        'c_minimax': ('Minimax backends in C', 'C Minimax 後端'),
+        'c_rollout': ('C rollout kernel', 'C rollout 核心'),
+        'c_rollout_pattern': ('Pattern rollout (research, slower)',
+                              'Pattern rollout（研究用，較慢）'),
+        'rollout_heuristic': ('Heuristic rollout (win/block)', '啟發式 rollout（贏/擋）'),
+        'tree_reuse': ('Reuse search tree between moves', '跨手重用搜尋樹'),
+        'dynamic_uct': ('Dynamic UCT exploration', '動態 UCT 探索'),
+        'bitboard': ('Bitboard acceleration', '位元棋盤加速'),
+        'opening_book': ('Opening book', '開局書'),
+        'micro_tablebase': ('Micro endgame tablebase', 'micro 殘局表'),
+        'multithreaded': ('Multithreaded MCTS (legacy)', '多執行緒 MCTS（舊路徑）'),
+        'early_stop': ('Stop dominant searches early', '提早終止優勢搜尋'),
+        'progressive_widening': ('Progressive widening', '漸進式加粗'),
+        'symmetry': ('Symmetry reduction', '對稱性歸約'),
+        'object_pool': ('Node object pool', '節點物件池'),
+        'use_lmr': ('Late move reductions', 'LMR 剪枝'),
+        'use_killers': ('Killer move heuristic', '殺手棋啟發'),
+        'use_aspiration': ('Aspiration windows', '期望視窗'),
+        'use_eval_ordering': ('Eval-based root ordering', '根節點評估排序'),
+    }
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName('pageSettings')
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        top = QHBoxLayout()
+        title = QLabel('Settings — 設定')
+        title.setObjectName('title')
+        top.addWidget(title)
+        top.addStretch(1)
+        back = _si_button(t('Back to Menu', '返回選單'))
+        back.setObjectName('ghost')
+        back.clicked.connect(self.back_requested.emit)
+        top.addWidget(back)
+        root.addLayout(top)
+        root.addWidget(deck_label('ENGINE SWITCHES // config.toml'))
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        panel = QWidget()
+        panel_lay = QVBoxLayout(panel)
+        panel_lay.setContentsMargins(4, 4, 12, 4)
+        panel_lay.setSpacing(6)
+
+        self._checks = {}
+        for key, val in AI_DEFAULTS['engine'].items():
+            if not isinstance(val, bool):
+                continue
+            en, zh = self.KEY_LABELS.get(key, (key, key))
+            cb = QCheckBox(f'{en} — {zh}  [{key}]')
+            cb.setChecked(bool(cfg_engine(key, val)))
+            panel_lay.addWidget(cb)
+            self._checks[key] = cb
+
+        num_row = QHBoxLayout()
+        num_row.addWidget(QLabel(t('AZ self-play workers', 'AZ 自對弈執行緒')
+                                 + '  [workers]'))
+        self.workers_spin = QSpinBox()
+        self.workers_spin.setRange(1, 32)
+        self.workers_spin.setValue(int(cfg_engine('workers', 8)))
+        num_row.addWidget(self.workers_spin)
+        num_row.addStretch(1)
+        panel_lay.addLayout(num_row)
+
+        budget_row = QHBoxLayout()
+        budget_row.addWidget(QLabel(t('Default MCTS budget', '預設 MCTS 迭代數')
+                                    + '  [mcts_budget]'))
+        self.budget_spin = QSpinBox()
+        self.budget_spin.setRange(200, 30000)
+        self.budget_spin.setSingleStep(100)
+        self.budget_spin.setValue(int(cfg_session('mcts_budget', 1600)))
+        budget_row.addWidget(self.budget_spin)
+        budget_row.addStretch(1)
+        panel_lay.addLayout(budget_row)
+
+        note = QLabel(t('Applies immediately; saved to config.toml. Takes '
+                        'full effect on the next game.',
+                        '立即生效並保存到 config.toml，下一局完全套用。'))
+        note.setObjectName('muted')
+        note.setWordWrap(True)
+        panel_lay.addWidget(note)
+        panel_lay.addStretch(1)
+        scroll.setWidget(panel)
+        root.addWidget(scroll, 1)
+
+        btn_row = QHBoxLayout()
+        save = _si_button(t('Save Settings', '保存設定'), primary=True)
+        save.clicked.connect(self._on_save)
+        btn_row.addWidget(save)
+        reset = _si_button(t('Restore Defaults', '恢復預設'))
+        reset.setObjectName('ghost')
+        reset.clicked.connect(self._on_reset)
+        btn_row.addWidget(reset)
+        btn_row.addStretch(1)
+        self.status_lbl = QLabel('')
+        self.status_lbl.setObjectName('muted')
+        btn_row.addWidget(self.status_lbl)
+        root.addLayout(btn_row)
+
+    def refresh_values(self):
+        for key, cb in self._checks.items():
+            cb.setChecked(bool(cfg_engine(key, False)))
+        self.workers_spin.setValue(int(cfg_engine('workers', 8)))
+        self.budget_spin.setValue(int(cfg_session('mcts_budget', 1600)))
+
+    def _on_save(self):
+        overrides = {
+            'engine': dict(self._collect()),
+            'session': {'mcts_budget': self.budget_spin.value()},
+        }
+        save_engine_config(overrides)
+        self.status_lbl.setText(t('Saved to config.toml', '已保存到 config.toml'))
+
+    def _on_reset(self):
+        save_engine_config()  # back to code defaults, persisted
+        self.refresh_values()
+        self.status_lbl.setText(t('Defaults restored', '已恢復預設'))
+
+    def _collect(self):
+        eng = {key: cb.isChecked() for key, cb in self._checks.items()}
+        eng['workers'] = self.workers_spin.value()
+        return eng
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -1819,11 +1966,15 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.menu_page = MenuPage(web_port=port)
         self.game_page = GamePage()
+        self.settings_page = SettingsPage()
         self.menu_page.start_requested.connect(self.start_game)
         self.menu_page.web_toggled.connect(self.set_web_enabled)
+        self.menu_page.settings_requested.connect(self.show_settings)
         self.game_page.back_requested.connect(self.show_menu)
+        self.settings_page.back_requested.connect(self.show_menu)
         self.stack.addWidget(self.menu_page)
         self.stack.addWidget(self.game_page)
+        self.stack.addWidget(self.settings_page)
         self.setCentralWidget(self.stack)
         self.resize(1024, 740)
         if web_enabled:
@@ -1835,6 +1986,10 @@ class MainWindow(QMainWindow):
 
     def show_menu(self):
         self._switch_page(self.menu_page)
+
+    def show_settings(self):
+        self.settings_page.refresh_values()
+        self._switch_page(self.settings_page)
 
     def _switch_page(self, page):
         """Fade the page in (instant when Reduce Motion is enabled)."""
