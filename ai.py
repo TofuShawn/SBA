@@ -1389,21 +1389,85 @@ def opening_book_move(game):
     return None
 
 
+_C_PREV = {}   # ai_type -> previous C search tree buffer (tree reuse, D30)
+
+
 def _c_mcts_move(game, budget, on_progress=None, trace=None):
-    """Full-tree MCTS in C (D27). Returns the move; fills the thinking trace
-    from the exported root stats (no live progress — the search is ~ms)."""
-    move_idx, stats = _ce.mcts_search(
-        game, budget, use_pattern=bool(cfg_engine('c_rollout_pattern', False)))
-    if move_idx is None:
+    """Full-tree MCTS in C (D27), with root parallelization + tree reuse
+    (D30).
+
+    - threads = min(workers, budget // 400): enough sims per thread for a
+      meaningful tree; each thread has its own arena so they scale across
+      cores (ctypes releases the GIL inside the C call).
+    - thread 0 carries the reused subtree from the previous search; the
+      other threads start fresh. Merging therefore never double-counts.
+    """
+    pattern = bool(cfg_engine('c_rollout_pattern', False))
+    threads = int(cfg_engine('workers', 8) or 1)
+    threads = max(1, min(threads, max(1, budget // 400)))
+    prev = _C_PREV.get('MCTS')
+
+    results = [None]
+    if threads <= 1:
+        results[0] = _ce.mcts_search(game, budget, use_pattern=pattern,
+                                     prev=prev)
+    else:
+        per = max(100, budget // threads)
+        results = [None] * threads
+
+        def _work(k):
+            results[k] = _ce.mcts_search(
+                game, per, use_pattern=pattern,
+                prev=prev if k == 0 else None)
+
+        workers = [threading.Thread(target=_work, args=(k,))
+                   for k in range(threads)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        results = [r for r in results if r]
+
+    # merge root children across threads (thread 0 may carry the warm tree)
+    merged = {}
+    tree = None
+    for mv_idx, stats, buf in results:
+        if buf is not None and tree is None:
+            tree = buf
+        for mi, v, w, mo in stats:
+            e = merged.get(mi)
+            if e is None:
+                merged[mi] = [v, w, mo]
+            else:
+                e[0] += v
+                e[1] += w
+    if tree is not None:
+        _C_PREV['MCTS'] = tree
+    if not merged:
         return None
+    stats = [(mi, v[0], v[1], v[2]) for mi, v in merged.items()]
+
+    # best move: highest win-rate among sufficiently visited children,
+    # preferring an immediate game win (parity with _best_mcts_move)
+    min_visits = max(5, budget // 100)
+    cands = [s for s in stats if s[1] >= min_visits] or stats
+    best = max(cands, key=lambda s: s[2] / s[1] if s[1] else 0.0)
+    move_idx = best[0]
+    for s in cands:
+        if s[2] / max(1, s[1]) != best[2] / max(1, best[1]):
+            continue
+        g = game.clone()
+        apply_move(g, (s[0] // 9, s[0] % 9))
+        if g.result() == game.current:
+            move_idx = s[0]
+            break
+
     if trace is not None:
         root_visits = sum(s[1] for s in stats) or 1
-        min_visits = max(5, budget // 100)
-        cands = sorted((s for s in stats if s[1] >= min_visits),
-                       key=lambda s: -s[1])[:3]
+        cands3 = sorted(stats, key=lambda s: -s[1])[:3]
         trace['top'] = [(move_text((s[0] // 9, s[0] % 9)),
                          s[1] / root_visits,
-                         s[2] / s[1] if s[1] else 0.0) for s in cands]
+                         s[2] / s[1] if s[1] else 0.0) for s in cands3]
     if on_progress is not None:
         picked = next((s for s in stats if s[0] == move_idx), None)
         on_progress({'it': budget, 'iterations': budget,
@@ -1701,11 +1765,14 @@ def _rates_from_stats(stats):
 def _c_ultt_analysis(game, mcts_budget):
     """One native MCTS search feeding both the top-moves list and the
     win-rate triplet (the C twin of the analyze_position Ultimate branch).
-    Returns None when the full engine DLL is unavailable."""
+    Reuses the AI move search's warm tree when available (read-only — it
+    never writes back to _C_PREV). Returns None when the full engine DLL is
+    unavailable."""
     if not (_ce.available(engine=True) and cfg_engine('c_mcts', True)):
         return None
-    move_idx, stats = _ce.mcts_search(
-        game, mcts_budget, use_pattern=bool(cfg_engine('c_rollout_pattern', False)))
+    _mv, stats, _tree = _ce.mcts_search(
+        game, mcts_budget, use_pattern=bool(cfg_engine('c_rollout_pattern', False)),
+        prev=_C_PREV.get('MCTS'))
     if stats is None:
         return None
     items = []

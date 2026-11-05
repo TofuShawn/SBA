@@ -4,6 +4,7 @@
 """Native C rollout kernel tests (D25). Skipped when the DLL is not built."""
 
 import os
+import threading
 import time
 
 import pytest
@@ -11,18 +12,30 @@ import pytest
 import ai
 
 from ai import (_c_rollout_state, _get_c_rollout, _rollout_move, _serialize_ultimate,
-                get_ai_move, mcts_search, set_engine_config)
+                get_ai_move, set_engine_config)
+from native import cengine as _ce
 from game import (BitUltimateGame, NormalGame, O, UltimateGame, X, apply_move)
 
 DLL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                   'native', 'sba_rollout.dll')
+                   'native', 'sba_engine.dll')
+LEGACY_DLL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          'native', 'sba_rollout.dll')
 
-pytestmark = pytest.mark.skipif(not os.path.isfile(DLL),
-                                reason='native/sba_rollout.dll not built')
+pytestmark = pytest.mark.skipif(
+    not (os.path.isfile(DLL) or os.path.isfile(LEGACY_DLL)),
+    reason='native engine DLL not built')
 
 
 def _empty_board():
     return UltimateGame()
+
+
+def _out_of_book_position():
+    """A position past the opening book so an MCTS search actually runs."""
+    g = UltimateGame()
+    apply_move(g, (0, 0))
+    apply_move(g, (0, 4))
+    return g
 
 
 def test_kernel_loads():
@@ -93,12 +106,12 @@ def test_kernel_search_faster_than_python(monkeypatch=None):
                                   'multithreaded': False}})
     try:
         t0 = time.perf_counter()
-        mcts_search(g.clone(), 400)
+        _ce.mcts_search(g.clone(), 400)
         t_c = time.perf_counter() - t0
         set_engine_config({'engine': {'c_rollout': False, 'opening_book': False,
                                       'multithreaded': False}})
         t0 = time.perf_counter()
-        mcts_search(g.clone(), 400)
+        _ce.mcts_search(g.clone(), 400)
         t_p = time.perf_counter() - t0
         assert t_c < t_p * 1.5
     finally:
@@ -126,5 +139,59 @@ def test_pattern_kernel_smoke():
             assert r in (X, O, 'D')
             seen.add(r)
         assert seen != {'D'}
+    finally:
+        set_engine_config()
+
+
+def test_tree_reuse_carries_visits():
+    """D30: passing the previous tree back accumulates visits and keeps the
+    best-move selection consistent."""
+    set_engine_config({'engine': {'c_rollout': True, 'c_mcts': True,
+                                  'opening_book': False,
+                                  'multithreaded': False}})
+    try:
+        g = _out_of_book_position()
+        mv1, s1, tree = _ce.mcts_search(g, 200)
+        assert tree is not None
+        v1 = sum(s[1] for s in s1)
+        mv2, s2, _ = _ce.mcts_search(g, 200, prev=tree)
+        v2 = sum(s[1] for s in s2)
+        # the warm tree carries the previous visits on top of the new sims
+        assert v2 >= v1 + 200 - 1
+        assert (mv1 // 9, mv1 % 9) in g.legal_moves()
+        assert (mv2 // 9, mv2 % 9) in g.legal_moves()
+
+        # after the AI's move + a reply, reuse still resolves (fresh or warm)
+        apply_move(g, (mv2 // 9, mv2 % 9))
+        replies = g.legal_moves()
+        apply_move(g, replies[0])
+        mv3, s3, _ = _ce.mcts_search(g, 200, prev=tree)
+        assert (mv3 // 9, mv3 % 9) in g.legal_moves()
+    finally:
+        set_engine_config()
+
+
+def test_concurrent_mcts_searches_are_safe():
+    """D29 regression: assistant + AI move searches run concurrently and must
+    not corrupt each other (per-call arenas)."""
+    set_engine_config({'engine': {'c_rollout': True, 'c_mcts': True,
+                                  'opening_book': False,
+                                  'multithreaded': False}})
+    try:
+        g = _out_of_book_position()
+        outs = [None, None]
+
+        def work(i):
+            outs[i] = _ce.mcts_search(g.clone(), 300)
+
+        ts = [threading.Thread(target=work, args=(i,)) for i in range(2)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(30)
+        assert not any(t.is_alive() for t in ts), 'search hung'
+        for r in outs:
+            assert r is not None and r[0] is not None
+            assert (r[0] // 9, r[0] % 9) in g.legal_moves()
     finally:
         set_engine_config()

@@ -39,6 +39,37 @@ static double uct_scale(int32_t c_times_100, double root_visits,
     return c * (0.6 + 0.4 * (1.0 - root_visits / (iterations > 0 ? iterations : 1)));
 }
 
+/* Recursively copy the subtree rooted at src into dst arena (remapping
+ * parent/child/next indices). Returns the new index, or -1 when the arena
+ * capacity is exceeded (caller then starts from a fresh root). */
+static int32_t copy_subtree(MctsNode *dst, int32_t *dn, int32_t cap,
+                            const MctsNode *src_arena, int32_t src,
+                            int32_t dst_parent) {
+    if (*dn >= cap) return -1;
+    int32_t d = (*dn)++;
+    MctsNode *n = &dst[d];
+    const MctsNode *s = &src_arena[src];
+    n->parent = dst_parent;
+    n->child = n->next = -1;
+    n->move = s->move;
+    n->mover = s->mover;
+    n->visits = s->visits;
+    n->wins = s->wins;
+    n->untried[0] = s->untried[0];
+    n->untried[1] = s->untried[1];
+    for (int32_t i = 0; i < 81; i++) n->cells[i] = s->cells[i];
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) n->macro[m] = s->macro[m];
+    n->player = s->player;
+    n->active = s->active;
+    for (int32_t ch = s->child; ch != -1; ch = src_arena[ch].next) {
+        int32_t c = copy_subtree(dst, dn, cap, src_arena, ch, d);
+        if (c < 0) return -1;
+        dst[c].next = n->child;
+        n->child = c;
+    }
+    return d;
+}
+
 int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   int32_t player, int32_t active,
                                   int32_t iterations, uint64_t seed,
@@ -46,7 +77,9 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   int32_t *out_count, int32_t *out_moves,
                                   double *out_visits, double *out_wins,
                                   int32_t *out_mover, uint8_t *buf,
-                                  int32_t buf_bytes) {
+                                  int32_t buf_bytes,
+                                  const uint8_t *prev_buf,
+                                  int32_t prev_bytes) {
     uint64_t rng = seed ? seed : 0x9E3779B97F4A7C15ULL;
     /* No CRT in this DLL (mingw cross builds lack a working one here): the
      * caller supplies the node arena. Capacity check -> -2 when too small. */
@@ -54,39 +87,76 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
     if (max_nodes < iterations + 64) return -2;
     MctsNode *arena = (MctsNode *)buf;
     int32_t n_nodes = 0;
+    MctsNode *root = NULL;
 
-    MctsNode *root = &arena[n_nodes++];
-    root->parent = root->child = root->next = -1;
-    root->move = -1;
-    root->mover = 0;   /* nobody moved into the root: Python parity (None) */
-    root->visits = 0;
-    root->wins = 0.0;
-    root->untried[0] = root->untried[1] = 0;
-    root->player = player;
-    root->active = active;
-    for (int32_t i = 0; i < 81; i++) root->cells[i] = cells[i];
-    for (int32_t m = 0; m < SBA_N_MACROS; m++) root->macro[m] = macro[m];
-    /* root untried mask = legal moves */
-    {
-        SbaState st;
-        for (int32_t i = 0; i < 81; i++) st.cells[i] = cells[i];
-        for (int32_t m = 0; m < SBA_N_MACROS; m++) st.macro[m] = macro[m];
-        st.player = player;
-        st.active = active;
-        uint64_t mask[2] = {0, 0};
-        for (int32_t m = 0; m < SBA_N_MACROS; m++) {
-            if (active >= 0 && m != active) continue;
-            if (macro[m] != 0) continue;
-            for (int32_t i = 0; i < 9; i++) {
-                if (cells[m * 9 + i] == 0) {
-                    int32_t idx = m * 9 + i;
-                    if (idx < 64) mask[0] |= (uint64_t)1 << idx;
-                    else mask[1] |= (uint64_t)1 << (idx - 64);
-                }
+    /* --- tree reuse (D30): walk the previous tree down to the current
+     * position (one differing cell per ply), then copy the matched subtree
+     * in as the new root. Falls back to a fresh root on any mismatch, and
+     * bails (-> -3) when the subtree does not fit the arena. --- */
+    if (prev_buf != NULL && prev_bytes >= (int32_t)sizeof(MctsNode)) {
+        const MctsNode *par = (const MctsNode *)prev_buf;
+        int32_t prev_cap = prev_bytes / (int32_t)sizeof(MctsNode);
+        int32_t cur = 0;
+        int32_t matched = 0;
+        for (int32_t guard = 0; guard < 128; guard++) {
+            int32_t diffs = 0, diff_idx = -1;
+            for (int32_t i = 0; i < 81; i++) {
+                if (par[cur].cells[i] != cells[i]) { diffs++; diff_idx = i; }
+            }
+            if (diffs == 0) { matched = 1; break; }
+            if (diffs != 1) break;
+            int32_t c = -1;
+            for (int32_t ch = par[cur].child; ch != -1; ch = par[ch].next) {
+                if (par[ch].move == diff_idx) { c = ch; break; }
+            }
+            if (c < 0) break;
+            cur = c;
+        }
+        if (matched && par[cur].player == player) {
+            int32_t dn = 0;
+            int32_t new_root = copy_subtree(arena, &dn, max_nodes, par, cur, -1);
+            if (new_root >= 0 && dn + iterations + 8 <= max_nodes) {
+                n_nodes = dn;
+                root = &arena[new_root];
+                root->parent = -1;
             }
         }
-        root->untried[0] = mask[0];
-        root->untried[1] = mask[1];
+    }
+
+    if (root == NULL) {
+        root = &arena[n_nodes++];
+        root->parent = root->child = root->next = -1;
+        root->move = -1;
+        root->mover = 0;   /* nobody moved into the root: Python parity (None) */
+        root->visits = 0;
+        root->wins = 0.0;
+        root->untried[0] = root->untried[1] = 0;
+        root->player = player;
+        root->active = active;
+        for (int32_t i = 0; i < 81; i++) root->cells[i] = cells[i];
+        for (int32_t m = 0; m < SBA_N_MACROS; m++) root->macro[m] = macro[m];
+        /* root untried mask = legal moves */
+        {
+            SbaState st;
+            for (int32_t i = 0; i < 81; i++) st.cells[i] = cells[i];
+            for (int32_t m = 0; m < SBA_N_MACROS; m++) st.macro[m] = macro[m];
+            st.player = player;
+            st.active = active;
+            uint64_t mask[2] = {0, 0};
+            for (int32_t m = 0; m < SBA_N_MACROS; m++) {
+                if (active >= 0 && m != active) continue;
+                if (macro[m] != 0) continue;
+                for (int32_t i = 0; i < 9; i++) {
+                    if (cells[m * 9 + i] == 0) {
+                        int32_t idx = m * 9 + i;
+                        if (idx < 64) mask[0] |= (uint64_t)1 << idx;
+                        else mask[1] |= (uint64_t)1 << (idx - 64);
+                    }
+                }
+            }
+            root->untried[0] = mask[0];
+            root->untried[1] = mask[1];
+        }
     }
 
     for (int32_t it = 0; it < iterations; it++) {

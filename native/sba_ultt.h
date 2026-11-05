@@ -54,7 +54,8 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   int32_t *out_count, int32_t *out_moves,
                                   double *out_visits, double *out_wins,
                                   int32_t *out_mover, uint8_t *arena_buf,
-                                  int32_t arena_bytes);
+                                  int32_t arena_bytes,
+                                  const uint8_t *prev_buf, int32_t prev_bytes);
 
 /* minimax family (sba_minimax.c) */
 int32_t __stdcall sba_minimax_normal(const int32_t *board9, int32_t player,

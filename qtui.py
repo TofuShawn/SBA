@@ -38,7 +38,8 @@ try:
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsBlurEffect, QGraphicsOpacityEffect, QGraphicsPixmapItem,
         QGraphicsScene, QListWidget, QListWidgetItem, QMainWindow, QProgressBar,
-        QPushButton, QScrollArea, QSizePolicy, QSlider, QStackedWidget, QStyle, QVBoxLayout, QWidget,
+        QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
+        QStackedWidget, QStyle, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -1919,6 +1920,16 @@ class SettingsPage(EndfieldPage):
                 cb.setChecked(bool(cfg_engine(key, False)))
                 lay.addWidget(cb)
                 self._checks[key] = cb
+            if keys[0] == 'c_mcts':
+                spin_row = QHBoxLayout()
+                lbl = QLabel(t('C search threads', 'C 搜尋執行緒數') + '  [workers]')
+                spin_row.addWidget(lbl)
+                self.workers_spin = QSpinBox()
+                self.workers_spin.setRange(1, 16)
+                self.workers_spin.setValue(int(cfg_engine('workers', 8)))
+                spin_row.addWidget(self.workers_spin)
+                spin_row.addStretch(1)
+                lay.addLayout(spin_row)
             panel_lay.addWidget(card)
 
         note = QLabel(t('Applies immediately; saved to config.toml. Takes '
@@ -1948,6 +1959,7 @@ class SettingsPage(EndfieldPage):
     def refresh_values(self):
         for key, cb in self._checks.items():
             cb.setChecked(bool(cfg_engine(key, False)))
+        self.workers_spin.setValue(int(cfg_engine('workers', 8)))
 
     def _on_save(self):
         save_engine_config({'engine': self._collect()})
@@ -1959,7 +1971,9 @@ class SettingsPage(EndfieldPage):
         self.status_lbl.setText(t('Defaults restored', '已恢復預設'))
 
     def _collect(self):
-        return {key: cb.isChecked() for key, cb in self._checks.items()}
+        eng = {key: cb.isChecked() for key, cb in self._checks.items()}
+        eng['workers'] = self.workers_spin.value()
+        return eng
 
 
 # ---------------------------------------------------------------------------

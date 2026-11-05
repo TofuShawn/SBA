@@ -69,6 +69,7 @@ def _load():
                                 ptr, ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_double),
                                 ctypes.POINTER(ctypes.c_int32),
+                                ctypes.c_void_p, ctypes.c_int32,
                                 ctypes.c_void_p, ctypes.c_int32])
             _bind(lib, 'sba_minimax_normal', ctypes.c_int32,
                   [ptr, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
@@ -169,21 +170,25 @@ def rollout_trace(state, rng_seed=None):
     return _XO[res], seq
 
 
-def mcts_search(state, iterations, use_pattern=False, rng_seed=None):
-    """Full native MCTS. Returns (best_move, stats) where stats is a list of
-    (move, visits, wins, mover) for the root children — wins counted from
-    the mover's perspective, matching ai.py's MCTSNode. Returns
-    (None, []) when the full engine DLL is unavailable.
+def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None):
+    """Full native MCTS. Returns (best_move, stats, tree) where stats is a
+    list of (move, visits, wins, mover) for the root children — wins counted
+    from the mover's perspective, matching ai.py's MCTSNode; tree is the
+    ctypes arena buffer holding the finished tree (pass it back as `prev` on
+    the next search to reuse it, D30). Returns (None, [], None) when the full
+    engine DLL is unavailable.
 
     Concurrency: the node arena is allocated PER CALL — the UI runs the
     assistant analysis (AnalysisWorker) and the AI move search (AIWorker)
     concurrently, and a shared buffer made them stomp each other into an
     infinite loop (the "stuck on move 3" bug). Allocation is ~1 MB and
-    cheap; the buffer is freed when this call returns.
+    cheap. With `prev`, the C side walks the previous tree down to the
+    current position and reuses the matching subtree (single-threaded
+    searches only: concurrent writers must not share the prev buffer).
     """
     lib = _load()
     if lib is None or not _has_engine:
-        return None, []
+        return None, [], None
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
     best = ctypes.c_int32(-1)
@@ -193,14 +198,32 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None):
     wins = (ctypes.c_double * 81)()
     mover = (ctypes.c_int32 * 81)()
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    # per-call arena: (iterations + 64) nodes, 512 B per node upper bound
-    buf = (ctypes.c_uint8 * ((iterations + 64) * 512))()
-    lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
-                        1 if use_pattern else 0,
-                        ctypes.byref(best), ctypes.byref(count),
-                        moves, visits, wins, mover, buf, len(buf))
+    # per-call arena, 512 B per node upper bound. With tree reuse the kept
+    # subtree (<= previous iterations) is copied in first, hence the 2x.
+    factor = 2 if prev is not None else 1
+    buf = (ctypes.c_uint8 * ((iterations * factor + 64) * 512))()
+    prev_buf = None
+    prev_bytes = 0
+    if prev is not None:
+        prev_buf, prev_bytes = prev
+    r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
+                            1 if use_pattern else 0,
+                            ctypes.byref(best), ctypes.byref(count),
+                            moves, visits, wins, mover, buf, len(buf),
+                            prev_buf, prev_bytes)
+    if r == -3 and prev is not None:
+        # reused subtree didn't fit: retry from a fresh root
+        r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
+                                1 if use_pattern else 0,
+                                ctypes.byref(best), ctypes.byref(count),
+                                moves, visits, wins, mover, buf, len(buf),
+                                None, 0)
+    if r < 0:
+        return None, [], None
     stats = [(moves[k], visits[k], wins[k], mover[k]) for k in range(count.value)]
-    return (best.value if best.value >= 0 else None), stats
+    mv = best.value if best.value >= 0 else None
+    tree = (buf, len(buf)) if mv is not None else None
+    return mv, stats, tree
 
 
 def minimax_normal(board9, player):
