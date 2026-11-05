@@ -429,12 +429,63 @@ class BoardWidget(QWidget):
         self._reveal_anim.setDuration(180)
         self._reveal_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._reveal_anim.valueChanged.connect(self._on_reveal_anim)
+        # D31: stone "stamp" press + progressive win-line draw
+        self._stamp_cell = None
+        self._stamp_t = 1.0
+        self._stamp_anim = QVariantAnimation(self)
+        self._stamp_anim.setDuration(170)
+        self._stamp_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._stamp_anim.setStartValue(0.0)
+        self._stamp_anim.setEndValue(1.0)
+        self._stamp_anim.valueChanged.connect(self._on_stamp_anim)
+        self._stamp_anim.finished.connect(self._on_stamp_done)
+        self._win_t = 1.0
+        self._win_anim = QVariantAnimation(self)
+        self._win_anim.setDuration(260)
+        self._win_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._win_anim.setStartValue(0.0)
+        self._win_anim.setEndValue(1.0)
+        self._win_anim.valueChanged.connect(self._on_win_anim)
         self.setMinimumSize(300, 300)
+
+    def _on_stamp_anim(self, v):
+        self._stamp_t = float(v)
+        self.update()
+
+    def _on_stamp_done(self):
+        self._stamp_cell = None
+        self._stamp_t = 1.0
+        self.update()
+
+    def animate_move(self, move):
+        """Stamp-press animation for a freshly placed stone (D31); skipped
+        entirely when Reduce Motion is on."""
+        if not anim_enabled():
+            return
+        self._stamp_anim.stop()
+        self._stamp_cell = move
+        self._stamp_t = 0.0
+        self._stamp_anim.start()
+
+    def animate_win_line(self):
+        """Progressive draw-in of the game-ending strike line (D31)."""
+        if not anim_enabled():
+            self._win_t = 1.0
+            self.update()
+            return
+        self._win_anim.stop()
+        self._win_t = 0.0
+        self._win_anim.start()
+
+    def _on_win_anim(self, v):
+        self._win_t = float(v)
+        self.update()
 
     def set_game(self, game):
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
+        self._stamp_cell = None   # a new position invalidates a running stamp
         self.update()
 
     def reset_reveal(self):
@@ -542,12 +593,27 @@ class BoardWidget(QWidget):
 
     # -- shared helpers -----------------------------------------------------
 
-    def _paint_cell(self, painter, rect, mark, is_flash):
+    def _paint_cell(self, painter, rect, mark, is_flash, cell_id=None):
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(PAL['cell_filled'] if mark else PAL['cell_empty']))
         painter.drawRect(rect)
         if mark in (X, O):
-            self._paint_mark(painter, rect, mark)
+            stamping = (cell_id is not None and cell_id == self._stamp_cell
+                        and self._stamp_t < 1.0)
+            if stamping:
+                # D31 stamp press: settle from 1.25x down onto the cell while
+                # fading in — mechanical, sharp, no bounce.
+                t = self._stamp_t
+                s = 1.25 - 0.25 * t
+                painter.save()
+                painter.setOpacity(min(1.0, 0.25 + 0.75 * t))
+                cx, cy = rect.center().x(), rect.center().y()
+                half = rect.width() / 2.0 * s
+                srect = QRectF(cx - half, cy - half, half * 2.0, half * 2.0)
+                self._paint_mark(painter, srect, mark)
+                painter.restore()
+            else:
+                self._paint_mark(painter, rect, mark)
         if is_flash:
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(QColor(PAL['flash']), 3))
@@ -595,10 +661,13 @@ class BoardWidget(QWidget):
         p2 = (bounds.right() - margin, y2 + (bounds.right() - margin - x2) * slope)
         return p1, p2
 
-    def _paint_win_line(self, painter, line, centers, color, width, bounds):
+    def _paint_win_line(self, painter, line, centers, color, width, bounds,
+                        progress=1.0):
         if line is None:
             return
         (x1, y1), (x2, y2) = self._win_segment(line, centers, bounds)
+        x2 = x1 + (x2 - x1) * progress
+        y2 = y1 + (y2 - y1) * progress
         pen = QPen(QColor(color), width)
         pen.setCapStyle(Qt.RoundCap)
         painter.setPen(pen)
@@ -630,7 +699,7 @@ class BoardWidget(QWidget):
             r, c = divmod(i, 3)
             rect = self._cell_rect(r, c, cell, ox, oy)
             self._paint_cell(painter, rect, self.game.board[i],
-                             self.flash_cell == i)
+                             self.flash_cell == i, cell_id=i)
             centers.append(rect.center())
         painter.setPen(QPen(QColor(PAL['grid_line']), 1.5))
         for i in range(1, 3):
@@ -643,7 +712,7 @@ class BoardWidget(QWidget):
             winner = self.game.board[line[0]]
             bounds = QRectF(ox, oy, 3 * cell + 2 * self.GAP, 3 * cell + 2 * self.GAP)
             self._paint_win_line(painter, line, centers, _mark_color(winner),
-                                 cell * 0.12, bounds)
+                                 cell * 0.12, bounds, progress=self._win_t)
 
     # -- Ultimate ----------------------------------------------------------
 
@@ -675,7 +744,7 @@ class BoardWidget(QWidget):
                 rect = self._cell_rect(row, col, cell, ox, oy)
                 micro_centers[m].append(rect.center())
                 self._paint_cell(painter, rect, self.game.micro[m][i],
-                                 self.flash_cell == (m, i))
+                                 self.flash_cell == (m, i), cell_id=(m, i))
         # grid lines
         painter.setPen(QPen(QColor(PAL['grid_line']), 1))
         for i in range(1, 9):
@@ -1098,6 +1167,11 @@ class GamePage(EndfieldPage):
         self.step_idx = 0
         self.cvc_timer = QTimer(self)
         self.cvc_timer.timeout.connect(self.cvc_tick)
+        self._bar_pos = (1.0, 0.0)   # last drawn X/O split (D31)
+        self._bar_anim = QVariantAnimation(self)
+        self._bar_anim.setDuration(250)
+        self._bar_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._bar_anim.valueChanged.connect(self._on_bar_anim)
         self.pvc_timer = QTimer(self)
         self.pvc_timer.setSingleShot(True)
         self.pvc_timer.timeout.connect(self.run_ai)
@@ -1568,6 +1642,7 @@ class GamePage(EndfieldPage):
         self.step_idx = len(moves)
         self.gen += 1
         self.board.set_game(self.game)
+        self.board.animate_move(move)
         self._render_history()
         self.refresh()
         self.trigger_analysis()
@@ -1771,6 +1846,18 @@ class GamePage(EndfieldPage):
             self.analysis_pending = False
             self.trigger_analysis()
 
+    def _on_bar_anim(self, t):
+        fx, fo = self._bar_from
+        tx, to = self._bar_to
+        cur = (fx + (tx - fx) * float(t), fo + (to - fo) * float(t))
+        self._bar_pos = cur
+        self._apply_bar(cur)
+
+    def _apply_bar(self, v):
+        self.win_bar_lay.setStretchFactor(self.bar_x, int(v[0] * 1000))
+        self.win_bar_lay.setStretchFactor(self.bar_d, 0)
+        self.win_bar_lay.setStretchFactor(self.bar_o, int(v[1] * 1000))
+
     def render_analysis(self, items, rates):
         self.analysis_list.clear()
         x, d, o = rates
@@ -1778,9 +1865,18 @@ class GamePage(EndfieldPage):
         if tot > 0:
             x, o = x / tot, o / tot
         self.win_bar.setVisible(True)
-        self.win_bar_lay.setStretchFactor(self.bar_x, int(x * 1000))
-        self.win_bar_lay.setStretchFactor(self.bar_d, 0)
-        self.win_bar_lay.setStretchFactor(self.bar_o, int(o * 1000))
+        # D31: slide the X/O bar to the new split instead of jumping
+        old_x, old_o = self._bar_pos
+        if anim_enabled() and (abs(old_x - x) > 0.005 or abs(old_o - o) > 0.005):
+            self._bar_anim.stop()
+            self._bar_from = (old_x, old_o)
+            self._bar_to = (x, o)
+            self._bar_anim.setStartValue(0.0)
+            self._bar_anim.setEndValue(1.0)
+            self._bar_anim.start()
+        else:
+            self._bar_pos = (x, o)
+            self._apply_bar((x, o))
         self.analysis_pct.setText(f'X {x:.0%} · O {o:.0%}')
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
@@ -1809,6 +1905,7 @@ class GamePage(EndfieldPage):
         result = self.game.result()
         log.info('Game over: %s [%s]', result,
                  'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
+        self.board.animate_win_line()   # D31: strike line draws in
         # No popup: a prominent "Play Again" button replaces New Game.
         self.play_again_btn.setVisible(True)
         self.new_btn.setVisible(False)
