@@ -486,7 +486,8 @@ class ChamferButton(QPushButton):
         p.setFont(f)
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
         if self.icon() is not None and not self.icon().isNull():
-            self.icon().paint(p, QRectF((w - 20) / 2, (h - 20) / 2, 20, 20))
+            # QIcon.paint rejects QRectF; only QRect or int x/y/w/h overloads exist
+            self.icon().paint(p, int((w - 20) / 2), int((h - 20) / 2), 20, 20)
         p.end()
 
 
