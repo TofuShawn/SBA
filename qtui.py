@@ -595,6 +595,11 @@ class BoardWidget(QWidget):
         self._reveal_anim.setDuration(180)
         self._reveal_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._reveal_anim.valueChanged.connect(self._on_reveal_anim)
+        # mask fade-in: a newly won chunk eases its mask in instead of
+        # popping (history jumps / new games set every blend to 1.0)
+        self._mask_blend = {}
+        self._mask_anims = {}
+        self._won_cache = set()
         # D31: stone "stamp" press + progressive win-line draw
         self._stamp_cell = None
         self._stamp_t = 1.0
@@ -648,11 +653,55 @@ class BoardWidget(QWidget):
         self.update()
 
     def set_game(self, game):
+        prev_won = self._won_cache
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
         self._stamp_cell = None   # a new position invalidates a running stamp
+        if isinstance(game, UltimateGame):
+            won = {m for m in range(9) if game.macro[m] in (X, O)}
+            fresh = won - prev_won
+            if len(fresh) == 1:
+                # natural progression: exactly one chunk flipped — fade it in
+                for m in won:
+                    self._finish_mask(m)
+                self._start_mask_fade(next(iter(fresh)))
+            else:
+                # history jump / new game: every mask appears instantly
+                for m in won:
+                    self._finish_mask(m)
+            self._won_cache = won
+        else:
+            self._won_cache = set()
         self.update()
+
+    def _start_mask_fade(self, m):
+        if not anim_enabled():
+            self._mask_blend[m] = 1.0
+            return
+        anim = self._mask_anims.get(m)
+        if anim is None:
+            anim = QVariantAnimation(self)
+            anim.setDuration(240)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.valueChanged.connect(
+                lambda v, mm=m: self._on_mask_anim(mm, v))
+            self._mask_anims[m] = anim
+        self._mask_blend[m] = 0.0
+        anim.stop()
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.start()
+
+    def _on_mask_anim(self, m, v):
+        self._mask_blend[m] = float(v)
+        self.update()
+
+    def _finish_mask(self, m):
+        anim = self._mask_anims.pop(m, None)
+        if anim is not None:
+            anim.stop()
+        self._mask_blend[m] = 1.0
 
     def reset_reveal(self):
         """Clear the won-chunk reveal (used on new game / history jumps)."""
@@ -951,11 +1000,12 @@ class BoardWidget(QWidget):
                 winner = self.game.macro[m]
                 rect = self._macro_rect(m, cell, ox, oy)
                 blend = self._reveal_blend if m == self._revealed_macro else 0.0
+                mb = self._mask_blend.get(m, 1.0)   # win-moment fade-in
                 if blend < 1.0:
                     # flat dark base so nothing bleeds through, then the tint
                     painter.setPen(Qt.NoPen)
                     base = QColor('#0D0E10')
-                    base.setAlpha(int(255 * (1.0 - blend)))
+                    base.setAlpha(int(255 * (1.0 - blend) * mb))
                     if base.alpha() > 0:
                         painter.setBrush(base)
                         painter.drawRect(rect)
@@ -965,14 +1015,14 @@ class BoardWidget(QWidget):
                     else:
                         fill = QColor(PAL['win_fill_x'] if winner == X
                                       else PAL['win_fill_o'])
-                    fill.setAlpha(int(215 * (1.0 - blend)))
+                    fill.setAlpha(int(215 * (1.0 - blend) * mb))
                     if fill.alpha() > 0:
                         painter.setBrush(fill)
                         painter.drawRect(rect)
                     badge_color = QColor(PAL['win_mark'])  # dark ink on the
                     # colored plate — a yellow badge on a yellow O plate
                     # vanished; ink on signal colors stays readable
-                    badge_color.setAlpha(int(255 * (1.0 - blend)))
+                    badge_color.setAlpha(int(255 * (1.0 - blend) * mb))
                     if badge_color.alpha() > 0:
                         pad = rect.width() * 0.18
                         badge = QRectF(rect.left() + pad, rect.top() + pad,
@@ -994,7 +1044,9 @@ class BoardWidget(QWidget):
                         self._paint_mark(painter, crect, cmark, conn)
                 # green outline marks the chunks that make the macro win line
                 if whole is not None and m in whole:
-                    painter.setPen(QPen(QColor(WIN_ACCENT), max(2.0, cell * 0.06)))
+                    edge = QColor(WIN_ACCENT)
+                    edge.setAlpha(int(255 * mb))
+                    painter.setPen(QPen(edge, max(2.0, cell * 0.06)))
                     painter.setBrush(Qt.NoBrush)
                     painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
 
@@ -1442,6 +1494,12 @@ class GamePage(EndfieldPage):
         self.hist_chart = QChart()
         self.hist_chart.setAnimationOptions(QChart.NoAnimation)
         self.hist_chart.legend().setVisible(False)  # the deck label carries it
+        # end-of-game full-curve fit state (animated axis rescale)
+        self._chart_fit = False
+        self._chart_anim = QVariantAnimation(self)
+        self._chart_anim.setDuration(700)
+        self._chart_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._chart_anim.valueChanged.connect(self._on_chart_fit)
         self.hist_chart.setBackgroundVisible(False)
         self.hist_x_series = QLineSeries()
         self.hist_x_series.setName(t('X win rate', 'X 勝率'))
@@ -1692,6 +1750,8 @@ class GamePage(EndfieldPage):
         s['moves'] = []
         s['history'] = [self._history_point()]
         s['cvc_paused'] = False
+        self._chart_fit = False         # back to the sliding window
+        self._chart_anim.stop()
         self.step_idx = 0
         self.gen += 1
         self.busy = False
@@ -1763,15 +1823,23 @@ class GamePage(EndfieldPage):
         self.hist_dot.clear()
         for k, point in enumerate(history):
             if point is None:
+                if k == 0:
+                    # opening: plot the 50% start while the analysis is still
+                    # in flight, so the curve begins at zero (user feedback)
+                    self.hist_x_series.append(0, 50.0)
                 continue  # Ultimate point still awaiting the assistant's search
             x, d, o = point
             self.hist_x_series.append(k, x * 100.0)
-        # Fixed x-scale with scrolling (user feedback): the window is always
-        # 30 steps wide; past that it slides so the latest step stays at the
-        # right edge.
+        # Fixed x-scale with scrolling: the window is 30 steps wide; past
+        # that it slides so the latest step stays at the right edge. Once a
+        # game is over the whole recorded curve compresses into view instead
+        # (animated — see _chart_fit_all).
         n_steps = max(1, len(history) - 1)
         window = 30
-        if n_steps <= window:
+        if (self.game is not None and self.game.is_over()
+                and getattr(self, '_chart_fit', False)):
+            ax_min, ax_max = 0, max(n_steps, 12)
+        elif n_steps <= window:
             ax_min, ax_max = 0, window
         else:
             ax_min, ax_max = n_steps - window, n_steps
@@ -1795,6 +1863,32 @@ class GamePage(EndfieldPage):
             self.hist_list.addItem(self._hist_item(k, mv))
         self.hist_list.setCurrentRow(self.step_idx)
         self.hist_list.blockSignals(False)
+
+    def _chart_fit_all(self):
+        """Game over: compress the whole recorded curve into view (the user's
+        'one complete chart'), animating the axis from the sliding window to
+        0..N so every step is visible at once."""
+        n_steps = max(1, len(self.session.get('history', [])) - 1)
+        target = float(max(n_steps, 12))
+        self._chart_fit = True
+        if not anim_enabled():
+            self.hist_axis.setRange(0, target)
+            return
+        anim = self._chart_anim
+        cur_min, cur_max = self.hist_axis.min(), self.hist_axis.max()
+        anim.stop()
+        self._chart_from = (float(cur_min), float(cur_max))
+        self._chart_to = (0.0, target)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.start()
+
+    def _on_chart_fit(self, t):
+        t = float(t)
+        fmin, fmax = self._chart_from
+        tmin, tmax = self._chart_to
+        self.hist_axis.setRange(fmin + (tmin - fmin) * t,
+                                fmax + (tmax - fmax) * t)
 
     def _hist_item(self, k, mv):
         """History card row: '07 · ✕ B2 (1,2)'; data carries the step index."""
@@ -2269,6 +2363,7 @@ class GamePage(EndfieldPage):
         log.info('Game over: %s [%s]', result,
                  'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
         self.board.animate_win_line()   # D31: strike line draws in
+        self._chart_fit_all()           # compress the whole curve into view
         # No popup: a prominent "Play Again" button replaces New Game.
         self.play_again_btn.setVisible(True)
         self.new_btn.setVisible(False)
