@@ -1,0 +1,54 @@
+name: CI
+
+# PRs carry the checks for feature branches; push runs only on the default
+# branch. Concurrency cancels superseded runs on the same ref (a rapid
+# push used to queue two full matrix runs for the same commit).
+on:
+  push:
+    branches: [Refactored]
+  pull_request:
+    branches: [Refactored]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install numpy
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install MinGW gcc (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          choco install mingw -y --no-progress
+          echo "C:\ProgramData\mingw64\mingw64\bin" >> "$GITHUB_PATH"
+
+      - name: Build native engine (sba_engine.dll)
+        run: python native/build.py
+
+      - name: Run tests
+        run: python -m pytest tests -q

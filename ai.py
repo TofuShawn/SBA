@@ -34,7 +34,7 @@ log = logging.getLogger('ai')
 
 
 # ============================================================
-# Engine configuration (sba.toml)
+# Engine configuration (config.toml)
 # ============================================================
 
 _CFG_DEFAULTS = {
@@ -43,20 +43,76 @@ _CFG_DEFAULTS = {
         'progressive_widening': False, 'early_stop': False,
         'opening_book': True, 'micro_tablebase': True,
         'symmetry': False, 'object_pool': True, 'bitboard': True,
+        'c_rollout': True, 'c_rollout_pattern': False,
+        'c_mcts': True, 'c_minimax': True,
         'multithreaded': False, 'use_lmr': True, 'use_killers': True,
         'use_aspiration': True, 'use_eval_ordering': True,
         'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,
         'workers': 8, 'reuse_cache': 32,
+        'assistant_sims': 2000,   # AI assistant (Best Moves) search budget
     },
     'session': {'mcts_budget': 800, 'minimax_depth': 4},
 }
 
 
+# ---------------------------------------------------------------------------
+# Native C backends (D25/D27): the full engine lives in native/sba_engine.dll
+# behind native/cengine.py — the single ctypes boundary. ai.py routes to the
+# C implementations when available and keeps pure-Python fallbacks for
+# everything (and always for RAVE/GRAVE, Minimax Pro and AlphaZero).
+# ---------------------------------------------------------------------------
+from native import cengine as _ce
+
+_C_ROLL = True    # legacy test hook: replaced by cengine.available()
+_C_ROLL_TRIED = False
+_C_ROLL_PAT = None
+
+
+def _get_c_rollout():
+    """Compat wrapper (tests): truthy when the native DLL is usable."""
+    return True if _ce.available() else None
+
+
+def _get_c_rollout_pattern():
+    """Compat wrapper (tests): the pattern-kernel symbol, or None."""
+    _ce._load()
+    if _ce._lib is not None and _ce._has_engine:
+        return getattr(_ce._lib, 'sba_rollout_pattern', None)
+    return None
+
+
+def _serialize_ultimate(state):
+    """Compat wrapper (tests): delegates to the cengine interop layer."""
+    return _ce.serialize_ultimate(state)
+
+
+def _c_rollout_state(state):
+    """One native rollout to terminal; returns X / O / 'D'. Uses the pattern
+    kernel when c_rollout_pattern is on; falls back to Python when the DLL
+    is missing."""
+    pattern = bool(cfg_engine('c_rollout_pattern', False))
+    r = _ce.rollout_state(state, pattern=pattern)
+    return r if r is not None else _py_rollout_state(state)
+
+
+def _py_rollout_state(state):
+    """Pure-Python heuristic rollout to terminal (the D25-era fallback)."""
+    result = state.result()
+    while result is None:
+        moves = state.legal_moves()
+        if not moves:
+            break
+        m = _rollout_move(state, moves)
+        apply_move(state, m)
+        result = state.result()
+    return result
+
+
 def _load_config():
-    """Load sba.toml (or $SBA_CONFIG) as a dict; missing/broken file -> {}."""
+    """Load config.toml (or $SBA_CONFIG) as a dict; missing/broken file -> {}."""
     path = os.environ.get('SBA_CONFIG')
     if not path:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sba.toml')
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
     try:
         import tomllib
         with open(path, 'rb') as fh:
@@ -70,7 +126,7 @@ CONFIG = _load_config()
 
 def set_engine_config(overrides=None):
     """Reset the engine config to code defaults, then apply overrides."""
-    global CONFIG
+    global CONFIG, _C_ROLL_TRIED, _C_ROLL
     base = {
         'engine': dict(_CFG_DEFAULTS['engine']),
         'session': dict(_CFG_DEFAULTS['session']),
@@ -79,6 +135,10 @@ def set_engine_config(overrides=None):
         base['engine'].update(overrides.get('engine', {}))
         base['session'].update(overrides.get('session', {}))
     CONFIG = base
+    # allow tests to flip c_rollout and re-resolve the DLL state
+    _C_ROLL_TRIED = False
+    _C_ROLL = None
+    _C_ROLL_PAT = None
 
 
 def cfg_engine(name, default=None):
@@ -87,6 +147,67 @@ def cfg_engine(name, default=None):
 
 def cfg_session(name, default=None):
     return CONFIG.get('session', {}).get(name, _CFG_DEFAULTS['session'].get(name, default))
+
+
+def save_engine_config(overrides=None):
+    """Apply overrides at runtime AND persist them back into config.toml
+    (D28). Comment lines survive: each key line is rewritten in place via
+    regex; keys missing from the file are appended to their section."""
+    set_engine_config(overrides)
+    import re
+    path = os.environ.get('SBA_CONFIG')
+    if not path:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
+    try:
+        with open(path, encoding='utf-8') as fh:
+            text = fh.read()
+    except OSError:
+        log.warning('save_engine_config: cannot read %s', path)
+        return
+    appended = []
+    for section in ('engine', 'session'):
+        for key, val in CONFIG.get(section, {}).items():
+            if isinstance(val, bool):
+                literal = 'true' if val else 'false'
+                pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*)(?:true|false)(\s*(?:#.*)?)$'
+                new_text, n = re.subn(pattern,
+                                      lambda m: m.group(1) + literal + m.group(2), text)
+                if n:
+                    text = new_text
+                else:
+                    appended.append((section, key, literal))
+            elif isinstance(val, int) and not isinstance(val, bool):
+                pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*)\d+(\s*(?:#.*)?)$'
+                new_text, n = re.subn(pattern,
+                                      lambda m: m.group(1) + str(val) + m.group(2), text)
+                if n:
+                    text = new_text
+                else:
+                    appended.append((section, key, str(val)))
+            # floats/strings are left untouched (managed by hand)
+    if appended:
+        text = text.rstrip('\n') + '\n'
+        cur_section = None
+        lines = text.split('\n')
+        out = []
+        for line in lines:
+            out.append(line)
+            m = re.match(r'^\[(\w+)\]', line.strip())
+            if m:
+                cur_section = m.group(1)
+                pending = [a for a in appended if a[0] == cur_section]
+                for _sec, key, literal in pending:
+                    out.append(f'{key} = {literal}')
+                appended = [a for a in appended if a[0] != cur_section]
+        text = '\n'.join(out)
+        for _sec, key, literal in appended:  # section header missing -> append
+            text += f'\n{key} = {literal}'
+    try:
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(text)
+        log.info('save_engine_config: written to %s', path)
+    except OSError as e:
+        log.warning('save_engine_config: cannot write %s: %s', path, e)
 
 
 # ============================================================
@@ -359,6 +480,8 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
                 if pool is not None else MCTSNode(root_state, None, None, None))
     start_visits = root.visits
     root_sym = set()
+    c_roll = (None if isinstance(game, NormalGame)
+              else (_ce if _ce.available() else None))
     report_at = max(1, iterations // 10) if on_progress else 0
     for it in range(iterations):
         node = root
@@ -380,13 +503,17 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
                 node.children.append(child)
                 node = child
         result = state.result()
-        while result is None:
-            moves = state.legal_moves()
-            if not moves:
-                break
-            m = _rollout_move(state, moves)
-            apply_move(state, m)
+        if c_roll is not None:
+            result = _ce.rollout_state(state) or _py_rollout_state(state)
+        else:
             result = state.result()
+            while result is None:
+                moves = state.legal_moves()
+                if not moves:
+                    break
+                m = _rollout_move(state, moves)
+                apply_move(state, m)
+                result = state.result()
         while node is not None:
             node.visits += 1
             if result == node.mover:
@@ -806,14 +933,23 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 node.children.append(child)
                 node = child
                 rollout_moves.append(m)
-        result = state.result()
-        while result is None:
-            moves = state.legal_moves()
-            if not moves:
-                break
-            m = _rollout_move(state, moves)
-            apply_move(state, m)
-            rollout_moves.append(m)
+        if _ce.available() and not isinstance(state, NormalGame):
+            result, seq = _ce.rollout_trace(state)
+            if result is None:
+                result = _py_rollout_state(state)
+            for m in seq:
+                apply_move(state, m)
+                rollout_moves.append(m)
+        else:
+            result = state.result()
+            while result is None:
+                moves = state.legal_moves()
+                if not moves:
+                    break
+                m = _rollout_move(state, moves)
+                apply_move(state, m)
+                result = state.result()
+                rollout_moves.append(m)
             result = state.result()
         while node is not None:
             node.visits += 1
@@ -927,14 +1063,23 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                 node.children.append(child)
                 node = child
                 rollout_moves.append(m)
-        result = state.result()
-        while result is None:
-            moves = state.legal_moves()
-            if not moves:
-                break
-            m = _rollout_move(state, moves)
-            apply_move(state, m)
-            rollout_moves.append(m)
+        if _ce.available() and not isinstance(state, NormalGame):
+            result, seq = _ce.rollout_trace(state)
+            if result is None:
+                result = _py_rollout_state(state)
+            for m in seq:
+                apply_move(state, m)
+                rollout_moves.append(m)
+        else:
+            result = state.result()
+            while result is None:
+                moves = state.legal_moves()
+                if not moves:
+                    break
+                m = _rollout_move(state, moves)
+                apply_move(state, m)
+                result = state.result()
+                rollout_moves.append(m)
             result = state.result()
         seen_refs = set()
         while node is not None:
@@ -1204,7 +1349,7 @@ ULTIMATE_BOOK = {
     (8, 4): [(4, 2), (4, 6)],
 }
 
-# Expose the Ultimate opening book through sba.toml ([engine.opening_book_ultimate],
+# Expose the Ultimate opening book through config.toml ([engine.opening_book_ultimate],
 # keys like "4,4"); the dict above remains the built-in default.
 _CFG_DEFAULTS['engine']['opening_book_ultimate'] = ULTIMATE_BOOK
 
@@ -1245,11 +1390,108 @@ def opening_book_move(game):
     return None
 
 
+_C_PREV = {}   # ai_type -> previous C search tree buffer (tree reuse, D30)
+
+
+def _c_mcts_move(game, budget, on_progress=None, trace=None):
+    """Full-tree MCTS in C (D27), with root parallelization + tree reuse
+    (D30).
+
+    - threads = min(workers, budget // 400): enough sims per thread for a
+      meaningful tree; each thread has its own arena so they scale across
+      cores (ctypes releases the GIL inside the C call).
+    - thread 0 carries the reused subtree from the previous search; the
+      other threads start fresh. Merging therefore never double-counts.
+    """
+    pattern = bool(cfg_engine('c_rollout_pattern', False))
+    threads = int(cfg_engine('workers', 8) or 1)
+    threads = max(1, min(threads, max(1, budget // 400)))
+    prev = _C_PREV.get('MCTS')
+
+    results = [None]
+    if threads <= 1:
+        results[0] = _ce.mcts_search(game, budget, use_pattern=pattern,
+                                     prev=prev)
+    else:
+        per = max(100, budget // threads)
+        results = [None] * threads
+
+        def _work(k):
+            results[k] = _ce.mcts_search(
+                game, per, use_pattern=pattern,
+                prev=prev if k == 0 else None)
+
+        workers = [threading.Thread(target=_work, args=(k,))
+                   for k in range(threads)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        results = [r for r in results if r]
+
+    # merge root children across threads (thread 0 may carry the warm tree)
+    merged = {}
+    tree = None
+    for mv_idx, stats, buf in results:
+        if buf is not None and tree is None:
+            tree = buf
+        for mi, v, w, mo in stats:
+            e = merged.get(mi)
+            if e is None:
+                merged[mi] = [v, w, mo]
+            else:
+                e[0] += v
+                e[1] += w
+    if tree is not None:
+        _C_PREV['MCTS'] = tree
+    if not merged:
+        return None
+    stats = [(mi, v[0], v[1], v[2]) for mi, v in merged.items()]
+
+    # best move: highest win-rate among sufficiently visited children,
+    # preferring an immediate game win (parity with _best_mcts_move)
+    min_visits = max(5, budget // 100)
+    cands = [s for s in stats if s[1] >= min_visits] or stats
+    best = max(cands, key=lambda s: s[2] / s[1] if s[1] else 0.0)
+    move_idx = best[0]
+    for s in cands:
+        if s[2] / max(1, s[1]) != best[2] / max(1, best[1]):
+            continue
+        g = game.clone()
+        apply_move(g, (s[0] // 9, s[0] % 9))
+        if g.result() == game.current:
+            move_idx = s[0]
+            break
+
+    if trace is not None:
+        root_visits = sum(s[1] for s in stats) or 1
+        cands3 = sorted(stats, key=lambda s: -s[1])[:3]
+        trace['top'] = [(move_text((s[0] // 9, s[0] % 9)),
+                         s[1] / root_visits,
+                         s[2] / s[1] if s[1] else 0.0) for s in cands3]
+    if on_progress is not None:
+        picked = next((s for s in stats if s[0] == move_idx), None)
+        on_progress({'it': budget, 'iterations': budget,
+                     'best_text': move_text((move_idx // 9, move_idx % 9)),
+                     'share': 1.0,
+                     'wr': (picked[2] / picked[1]) if picked and picked[1] else 0.0})
+    return (move_idx // 9, move_idx % 9)
+
+
 def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
-    if (ai_type == 'MCTS' and cfg_engine('multithreaded', False)):
-        return mcts_move_parallel(game, budget, cfg_engine('workers', 8),
-                                  on_progress, trace)
+    if ai_type == 'MCTS':
+        # D27: the whole tree search runs in C (order-of-magnitude faster);
+        # the C path has no tree reuse — its speed more than compensates.
+        # Normal 3x3 stays on the Python path (too shallow to matter).
+        if (cfg_engine('c_mcts', True) and isinstance(game, UltimateGame)
+                and _ce.available(engine=True)):
+            mv = _c_mcts_move(game, budget, on_progress, trace)
+            if mv is not None:
+                return mv
+        if cfg_engine('multithreaded', False):
+            return mcts_move_parallel(game, budget, cfg_engine('workers', 8),
+                                      on_progress, trace)
     reuse = cfg_engine('tree_reuse', True)
     if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
         search_game = BitUltimateGame.from_game(game)
@@ -1390,15 +1632,40 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
         return get_basic_move(game)
     if ai_type == 'Minimax':
         if isinstance(game, NormalGame):
+            if cfg_engine('c_minimax', True) and _ce.available(engine=True):
+                r = _ce.minimax_normal(game.board, game.current)
+                if r and r[0] is not None:
+                    return r[0]
             return minimax_move_normal(game)[0]
+        if cfg_engine('c_minimax', True) and _ce.available(engine=True):
+            mv = _ce.minimax_ultimate(game, minimax_depth)
+            if mv is not None:
+                return mv
         return minimax_move_ultimate(game, depth=minimax_depth)
     if ai_type == 'Minimax Pro':
         return minimax_pro_move(game, depth=minimax_depth)
     if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
         return _mcts_move(game, ai_type, mcts_budget, on_progress, trace)
     if ai_type == 'Flat MCTS':
+        if cfg_engine('c_mcts', True) and _ce.available(engine=True):
+            moves = game.legal_moves()
+            if moves:
+                mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)))
+                if mv is not None:
+                    return mv
         return flat_mcts_move(game, mcts_budget)
     if ai_type == 'Solver':
+        if isinstance(game, NormalGame):
+            if cfg_engine('c_minimax', True) and _ce.available(engine=True):
+                r = _ce.minimax_normal(game.board, game.current)
+                if r and r[0] is not None:
+                    return r[0]
+            return solver_move(game, mcts_budget)
+        # Ultimate: Solver is a plain MCTS fallback -> the C tree wins
+        if cfg_engine('c_mcts', True) and _ce.available(engine=True):
+            mv = _c_mcts_move(game, mcts_budget, on_progress, trace)
+            if mv is not None:
+                return mv
         return solver_move(game, mcts_budget)
     if ai_type == 'AlphaZero':
         return alphazero_move(game, mcts_budget)
@@ -1474,6 +1741,51 @@ def _rates_from_root(root, game):
     return (x, max(0.0, 1.0 - x - o), o)
 
 
+def _rates_from_stats(stats):
+    """(X win, draw, O win) from cengine root-child stats — the same math
+    as _rates_from_root over (move, visits, wins, mover) tuples."""
+    tot_x = tot_o = tot = 0.0
+    for _mv, visits, wins, mover in stats:
+        if visits <= 0:
+            continue
+        w = wins / visits
+        tot += visits
+        mover_x = mover == 1
+        if mover_x:
+            tot_x += visits * w
+            tot_o += visits * (1.0 - w)
+        else:
+            tot_o += visits * w
+            tot_x += visits * (1.0 - w)
+    if tot == 0:
+        return (0.5, 0.0, 0.5)
+    x, o = tot_x / tot, tot_o / tot
+    return (x, max(0.0, 1.0 - x - o), o)
+
+
+def _c_ultt_analysis(game, mcts_budget):
+    """One native MCTS search feeding both the top-moves list and the
+    win-rate triplet (the C twin of the analyze_position Ultimate branch).
+    Reuses the AI move search's warm tree when available (read-only — it
+    never writes back to _C_PREV). Returns None when the full engine DLL is
+    unavailable."""
+    if not (_ce.available(engine=True) and cfg_engine('c_mcts', True)):
+        return None
+    _mv, stats, _tree = _ce.mcts_search(
+        game, mcts_budget, use_pattern=bool(cfg_engine('c_rollout_pattern', False)),
+        prev=_C_PREV.get('MCTS'))
+    if stats is None:
+        return None
+    items = []
+    for mv, visits, wins, _mover in sorted(stats, key=lambda s: (-s[1], -s[2]))[:5]:
+        if visits <= 0:
+            continue
+        move = (mv // 9, mv % 9)
+        items.append({'move': move, 'pct': wins / visits,
+                      'reason': reason_for_move(game, move)})
+    return items, _rates_from_stats(stats)
+
+
 def analyze_position(game, mcts_budget):
     """(items, rates) for the current position from ONE analysis.
 
@@ -1515,6 +1827,9 @@ def analyze_position(game, mcts_budget):
                      ((0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0)))
         return items, rates
     else:
+        c_analysis = _c_ultt_analysis(game, mcts_budget)
+        if c_analysis is not None:
+            return c_analysis
         if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
             search_game = BitUltimateGame.from_game(game)
         else:
@@ -1562,6 +1877,9 @@ def position_win_rates(game, mcts_budget):
                 (0.0, 1.0, 0.0) if best == 0 else (0.0, 0.0, 1.0))
         return (0.0, 0.0, 1.0) if best > 0 else (
             (0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0))
+    c_analysis = _c_ultt_analysis(game, mcts_budget)
+    if c_analysis is not None:
+        return c_analysis[1]
     if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
         search_game = BitUltimateGame.from_game(game)
     else:

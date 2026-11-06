@@ -18,9 +18,10 @@ def _out_of_book_position():
 
 
 def test_mcts_progress_reports_steps():
-    from ai import cfg_engine
-    was = cfg_engine('multithreaded', False)
-    cfg_engine('multithreaded', False)  # serial path: ~10 smooth reports
+    from ai import set_engine_config
+    # live progress only exists on the Python MCTS path
+    set_engine_config({'engine': {'multithreaded': False, 'c_mcts': False,
+                                  'opening_book': False}})
     try:
         g = _out_of_book_position()
         events = []
@@ -32,7 +33,7 @@ def test_mcts_progress_reports_steps():
         assert first['best_text']  # serial search always has a best child
         assert 0.0 <= first['wr'] <= 1.0
     finally:
-        cfg_engine('multithreaded', was)
+        set_engine_config()
 
 
 def test_trace_has_top_candidates_and_pick():

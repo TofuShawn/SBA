@@ -5,6 +5,10 @@
 [engine]
 # --- search switches / 搜尋開關 ---
 rollout_heuristic = true    # win/block biased MCTS rollouts (A1) / 啟發式 rollout
+c_rollout = true            # native C rollout kernel (D25; needs native/sba_rollout.dll, auto-falls back to Python) / 原生 C rollout 核心（需先以 native/build.py 編譯，缺失自動回退 Python）
+c_mcts = true              # full tree search in C (D27; needs sba_engine.dll) / 完整 MCTS 樹下沉 C
+c_minimax = true           # Minimax/Normal-solve in C (D27) / Minimax 與普通求解下沉 C
+c_rollout_pattern = true   # fork/safe-routing rollout variant (D26) — benched 47.5% vs plain at 4.4x cost, kept off / Pattern 變體（fork+安全路由）——實測持平且貴 4.4 倍，預設關
 tree_reuse = true           # keep the MCTS tree between moves (A2) / 樹重用
 dynamic_uct = true          # exploration factor shrinks as the search matures (A3) / 動態 UCT
 progressive_widening = false # limit expansions per node (A4) / 漸進式加粗
@@ -21,10 +25,10 @@ use_aspiration = true       # aspiration window at the root (B3) / Aspiration Wi
 use_eval_ordering = true    # eval-based root move ordering in Minimax Pro (root only) / Minimax Pro 根節點用靜態評估排序
 
 # --- performance / 效能 ---
-symmetry = false            # D4 symmetry dedup at the MCTS root (C1) / 對稱性消除
+symmetry = true            # D4 symmetry dedup at the MCTS root (C1) / 對稱性消除
 object_pool = true          # reuse MCTSNode objects (C2; skipped while tree_reuse) / 物件池
-bitboard = true             # MCTS searches on bitboards (C3) / Bitboard（MCTS 搜尋用 bit 版）
-multithreaded = true        # parallel MCTS (C4) / 多執行緒 MCTS
+bitboard = false             # MCTS searches on bitboards (C3) / Bitboard（MCTS 搜尋用 bit 版）
+multithreaded = false        # parallel MCTS (C4) / 多執行緒 MCTS
 
 # --- parameters / 參數 ---
 uct_c = 1.4                 # UCT exploration constant (A3) / UCT 探索常數
@@ -32,6 +36,7 @@ rave_k = 150                # RAVE/GRAVE bias decay constant / RAVE k
 tt_max = 300000             # Minimax Pro transposition table cap / 置換表上限
 workers = 8                 # threads used by multithreaded MCTS (C4) / 執行緒數
 reuse_cache = 32            # tree-reuse cache entries (A2) / 樹重用快取上限
+assistant_sims = 2000       # AI assistant (Best Moves) search budget / AI 助手分析模擬數
 
 # Ultimate opening book: X's first move -> O's response cells in the routed
 # macro (keys like "4,4"). Omitted keys fall back to the built-in defaults.
@@ -51,5 +56,5 @@ reuse_cache = 32            # tree-reuse cache entries (A2) / 樹重用快取上
 "8,4" = [[4, 2], [4, 6]]
 
 [session]
-mcts_budget = 1600          # default MCTS iterations per move / 預設 MCTS 迭代數
+mcts_budget = 800          # default MCTS iterations per move / 預設 MCTS 迭代數
 minimax_depth = 4           # default Minimax depth (Ultimate) / 預設 Minimax 深度

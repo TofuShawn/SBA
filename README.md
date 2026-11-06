@@ -1,6 +1,6 @@
 # SBA - Basically Awful (Qt UI + Web) / 基本上很糟（Qt 介面 + 網頁）
 
-**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 [NiceGUI](https://nicegui.io) **網頁版**兩種介面，Material Design 3 風格。內建 **7 種 AI 對手**、AI 分析面板、三種對戰模式。
+**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）、[NiceGUI](https://nicegui.io) **網頁版**與 Textual **終端機版**三種介面，Arknights: Endfield 風格的工業 console 主題。內建 **7 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
 
 > The name is a joke. The game is actually (mostly) fine.
 > 名字是開玩笑的，遊戲其實（大致上）還不錯。
@@ -24,12 +24,13 @@
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
 - **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
 - **Adjustable AI strength / 可調 AI 強度**：MCTS 迭代數（200-3000）與 Minimax 深度（2-6）
-- **Engine optimizations / 引擎優化**（`sba.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
+- **Engine optimizations / 引擎優化**（`config.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
 - **CvC controls / 電腦對戰控制**：速度（0.1-2.0s）、自動播放、手動「下一步」
 - **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
-- **Material Design 3 style UI** with light/dark toggle / 深淺色主題切換
-- **SiliconUI desktop theme / 桌面版 SiliconUI 主題**：PySide6 桌面版使用 [PyQt-SiliconUI](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI)（PySide6 fork）的深色玻璃主題；該套件缺失時自動退回內建深色玻璃樣式
-- **Headless pytest suite / 無頭 pytest 測試**（57 tests）
+- **Arknights: Endfield field-console theme / 終末地工業 console 主題**：訊號黃 × 炭灰、deck 標籤、瞄準括號、落子蓋章與勝利線動畫（可「減少動態」）
+- **Settings page / 設定頁**：引擎開關全數圖形化，保存寫回 `config.toml`
+- **History card / 歷史卡**：點擊任一步直接回放該局面
+- **Headless pytest suite / 無頭 pytest 測試**（75 tests）
 
 ---
 
@@ -45,8 +46,9 @@ pip install -r requirements.txt
 ```
 
 PySide6（Qt for Python，桌面版用）已併入 `requirements.txt`，不需要另外安裝檔。
-PyQt-SiliconUI（PySide6 fork）已隨專案 vendoring 於 `vendor/siui/`（GPLv3），
-無需另外安裝；若刪除該目錄，桌面版會自動退回內建深色玻璃樣式。
+原生 C 引擎核心：`python native/build.py` 編譯 `native/sba_engine.dll`
+（Windows 本機 gcc 或 WSL mingw 交叉編譯；CI 自動構建）。DLL 缺失時引擎
+自動回退純 Python 實作，功能不受影響、僅速度下降。
 
 **Optional - AlphaZero / 選用 - AlphaZero**：神經網路引擎需要 `torch` 與 `numpy`（CPU 版 PyTorch 即可，模型很小）。只有要使用或訓練 AlphaZero 才需要安裝：
 
@@ -83,8 +85,8 @@ python SBA.py --qt
 python qtui.py
 ```
 
-桌面版預設使用 SiliconUI 深色玻璃主題（按鈕與下拉選單來自 PyQt-SiliconUI）。
-若 `vendor/siui/` 不存在，會退回內建深色玻璃 QSS 主題，功能不受影響。
+桌面版使用 Endfield 工業 console 主題（`static/endfield.qss` + 原生繪製棋盤），
+選單頁可進入 Settings 調整引擎開關。
 
 ### 2. NiceGUI web app (opt-in) / Web 版（選用）
 
@@ -155,12 +157,12 @@ Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoi
 
 ## Configuration / 設定
 
-All engine switches and parameters live in **`sba.toml`**（repo root）: MCTS
+All engine switches and parameters live in **`config.toml`**（repo root）: MCTS
 rollout heuristic, tree reuse, dynamic UCT, opening book, micro tablebase,
 LMR/killer/aspiration, symmetry, object pool, bitboard, multithreaded MCTS,
 UCT/RAVE constants, and session defaults（`mcts_budget`, `minimax_depth`）.
 Missing keys fall back to code defaults; point `$SBA_CONFIG` at another file
-to override / 所有引擎開關與參數集中在 `sba.toml`（repo 根目錄）：啟發式 rollout、
+to override / 所有引擎開關與參數集中在 `config.toml`（repo 根目錄）：啟發式 rollout、
 樹重用、動態 UCT、開局書、micro 殘局表、LMR/killer/aspiration、對稱性、物件池、
 bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mcts_budget`、
 `minimax_depth`）。缺省鍵自動回退程式碼預設；可用環境變數 `SBA_CONFIG` 指向其他檔案。
@@ -219,7 +221,10 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
   +------------------------------------------------------+
 
   SIDE CAR (no layer — loads in from the side)
-    sba.toml ----------- > ai.py        every engine switch + session defaults (D11)
+    config.toml -------- > ai.py        every engine switch + session defaults (D11)
+    native/*.c -> dll -- > all engines  C backends: full MCTS tree, rollouts,
+                                        minimax family (D27; ~37x, build via
+                                        native/build.py, auto-fallback to Python)
     static/*.css|*.qss -- > webui/qtui  stylesheets only, no logic
     tests/ --------------              headless pytest: rules, AI sanity, AZ smoke
 ```
@@ -262,12 +267,35 @@ in [`docs/decisions.md`](docs/decisions.md) (D1–D23) / 每個決定的完整�
 
 ---
 
+## Native C engine / 原生 C 引擎
+
+All engine hot paths run in C since D25–D30 (`python native/build.py` builds
+`native/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
+it automatically). Measured on this machine / 全部引擎熱路徑已下沉 C
+（`native/build.py` 編譯；缺失時自動回退 Python，僅速度下降）：
+
+| Metric / 指標 | Python | C (1 thread) | C (threads, D30) |
+|---|---|---|---|
+| MCTS rollout (per playout) | 0.51 ms | 0.029 ms (17.7x) | — |
+| MCTS 800 sims (full search) | ~530 ms | 14 ms (37x) | 3.4 ms @ 8T (3.6x wall) |
+| MCTS 3200 sims | — | 53 ms | 9.2 ms @ 8T (5.8x wall) |
+| Heuristic rollout (AZ leaf value) | 0.47 ms | 0.028 ms (16.9x) | — |
+| MCTS vs Basic (1600 sims, 16 games) | 87.5% | 96.9% (parallel + reuse) | — |
+
+Extras: tree reuse carries the warm subtree between moves (diff-walk, auto
+fresh on rewind); settings page toggles every switch (D28); pattern rollout
+variant kept off by default (D26 A/B: no gain at 4.4x cost).
+
+---
+
 ## Benchmarks / 實測基準
 
 Measured with `python SBA.py --bench` on this machine (AMD Ryzen 9 9950X,
 RX 7900 XTX); **score% = (wins + draws/2) / games**, 20–30 games per matchup,
 first player alternates. Reproduce any row with `--ai-a X --ai-b Y --games N`.
+Rows below predate the native C engine (D27 numbers in the section above).
 / 本機實測（`python SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20–30 局、輪換先手。
+以下數字測於原生 C 引擎之前（D27 數據見上一節）。
 
 ### All engines vs Basic (Ultimate) / 全部引擎 vs Basic（終極，20 局）
 
