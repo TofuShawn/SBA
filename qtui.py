@@ -1767,10 +1767,10 @@ class GamePage(EndfieldPage):
             x, d, o = point
             self.hist_x_series.append(k, x * 100.0)
         # Fixed x-scale with scrolling (user feedback): the window is always
-        # 12 steps wide; past that it slides so the latest step stays at the
+        # 30 steps wide; past that it slides so the latest step stays at the
         # right edge.
         n_steps = max(1, len(history) - 1)
-        window = 12
+        window = 30
         if n_steps <= window:
             ax_min, ax_max = 0, window
         else:
@@ -1782,7 +1782,7 @@ class GamePage(EndfieldPage):
         self.hist_ref.append(ax_max, 50.0)
         if history:
             self.hist_axis.setRange(ax_min, ax_max)
-            self.hist_axis.setTickCount(7)  # 0, 2, 4 … 12
+            self.hist_axis.setTickCount(11)  # 0, 3, 6 … 30
             self.hist_axis_y.setRange(0, 100)
             if history[self.step_idx] is not None:
                 self.hist_dot.append(self.step_idx,
@@ -2207,6 +2207,16 @@ class GamePage(EndfieldPage):
         self.az_hatch.setVisible(not items)
         self.analysis_list.setVisible(bool(items))
         x, d, o = rates
+        # Readout spans the FULL outcome distribution (a draw-expected
+        # position used to collapse to a meaningless "X 0% · O 0%" — the
+        # user-caught design bug). Saira's capital O is glyph-identical to
+        # zero, so the sides use the ✕/○ marks with their board colors
+        # instead of bare letters.
+        tot3 = x + d + o
+        if tot3 > 0:
+            rx, rd, ro = x / tot3, d / tot3, o / tot3
+        else:
+            rx = rd = ro = 0.0
         tot = x + o
         if tot > 0:
             x, o = x / tot, o / tot
@@ -2223,7 +2233,11 @@ class GamePage(EndfieldPage):
         else:
             self._bar_pos = (x, o)
             self._apply_bar((x, o))
-        self.analysis_pct.setText(f'X {x:.0%} · O {o:.0%}')
+        segs = [f'<span style="color:#EDEDED;">✕ {rx:.0%}</span>']
+        if rd >= 0.005:
+            segs.append(f'<span style="color:#A3A3A3;">= {rd:.0%}</span>')
+        segs.append(f'<span style="color:#FFFA00;">○ {ro:.0%}</span>')
+        self.analysis_pct.setText(' · '.join(segs))
         if not items:
             self.analysis_list.addItem(t('No moves to analyze', '沒有可分析的棋步'))
             return
