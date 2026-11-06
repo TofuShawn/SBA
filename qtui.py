@@ -653,9 +653,17 @@ class BoardWidget(QWidget):
     def _toggle_reveal(self, m):
         """Toggle a won chunk's reveal with one non-looping fade."""
         self._revealed_macro = None if self._revealed_macro == m else m
+        end = 1.0 if self._revealed_macro is not None else 0.0
         self._reveal_anim.stop()
+        if self._reveal_blend == end:
+            # Switching directly between two revealed chunks: the blend does
+            # not move, and QVariantAnimation emits nothing when start==end,
+            # so the repaint must happen here or the new chunk stays masked
+            # until the next toggle ("close the old mask first" bug).
+            self.update()
+            return
         self._reveal_anim.setStartValue(self._reveal_blend)
-        self._reveal_anim.setEndValue(1.0 if self._revealed_macro is not None else 0.0)
+        self._reveal_anim.setEndValue(end)
         self._reveal_anim.start()
 
     def _macro_at(self, px, py):
@@ -1824,8 +1832,7 @@ class GamePage(EndfieldPage):
         self.info_o.setText(f'○ {side_label(o_type)}')
         self.footer_lbl.setText(
             f'GRID.UTTT │ MODE {mode_text} │ X: {str(x_type).upper()} '
-            f'─ O: {str(o_type).upper()} │ STEP {self.step_idx:02d} — '
-            f'{len(self.session.get("moves", []))}')
+            f'─ O: {str(o_type).upper()}')
         self.board.update()
         self.update_cvc_controls()
 
