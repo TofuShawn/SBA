@@ -2153,7 +2153,10 @@ class GamePage(EndfieldPage):
         step = self.step_idx
         gid = self.game_id
         snapshot = self.game.clone()
-        worker = AnalysisWorker(snapshot, self.session['mcts'])
+        # assistant budget is its own config knob (not the game AI's menu
+        # slider) — re-read per trigger so settings-page changes apply live
+        worker = AnalysisWorker(snapshot,
+                                int(cfg_engine('assistant_sims', 2000)))
         worker.result_ready.connect(
             lambda items, rates, g=gen, st=step, gi=gid:
                 self.on_analysis_done(items, rates, g, st, gi))
@@ -2387,6 +2390,19 @@ class SettingsPage(EndfieldPage):
                 spin_row.addWidget(self.workers_spin)
                 spin_row.addStretch(1)
                 lay.addLayout(spin_row)
+                sims_row = QHBoxLayout()
+                sims_lbl = QLabel(t('AI Assistant sims (Best Moves analysis)',
+                                    'AI 助手模擬數（最佳著法分析）')
+                                  + '  [assistant_sims]')
+                sims_row.addWidget(sims_lbl)
+                self.assistant_sims_spin = QSpinBox()
+                self.assistant_sims_spin.setRange(200, 30000)
+                self.assistant_sims_spin.setSingleStep(100)
+                self.assistant_sims_spin.setValue(
+                    int(cfg_engine('assistant_sims', 2000)))
+                sims_row.addWidget(self.assistant_sims_spin)
+                sims_row.addStretch(1)
+                lay.addLayout(sims_row)
             panel_lay.addWidget(card)
 
         note = QLabel(t('Applies immediately; saved to config.toml. Takes '
@@ -2417,6 +2433,8 @@ class SettingsPage(EndfieldPage):
         for key, cb in self._checks.items():
             cb.setChecked(bool(cfg_engine(key, False)))
         self.workers_spin.setValue(int(cfg_engine('workers', 8)))
+        self.assistant_sims_spin.setValue(
+            int(cfg_engine('assistant_sims', 2000)))
 
     def _on_save(self):
         save_engine_config({'engine': self._collect()})
@@ -2430,6 +2448,7 @@ class SettingsPage(EndfieldPage):
     def _collect(self):
         eng = {key: cb.isChecked() for key, cb in self._checks.items()}
         eng['workers'] = self.workers_spin.value()
+        eng['assistant_sims'] = self.assistant_sims_spin.value()
         return eng
 
 

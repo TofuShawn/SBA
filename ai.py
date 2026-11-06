@@ -49,6 +49,7 @@ _CFG_DEFAULTS = {
         'use_aspiration': True, 'use_eval_ordering': True,
         'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,
         'workers': 8, 'reuse_cache': 32,
+        'assistant_sims': 2000,   # AI assistant (Best Moves) search budget
     },
     'session': {'mcts_budget': 800, 'minimax_depth': 4},
 }

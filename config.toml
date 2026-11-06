@@ -36,6 +36,7 @@ rave_k = 150                # RAVE/GRAVE bias decay constant / RAVE k
 tt_max = 300000             # Minimax Pro transposition table cap / 置換表上限
 workers = 8                 # threads used by multithreaded MCTS (C4) / 執行緒數
 reuse_cache = 32            # tree-reuse cache entries (A2) / 樹重用快取上限
+assistant_sims = 2000       # AI assistant (Best Moves) search budget / AI 助手分析模擬數
 
 # Ultimate opening book: X's first move -> O's response cells in the routed
 # macro (keys like "4,4"). Omitted keys fall back to the built-in defaults.
