@@ -3,22 +3,20 @@
 
 """Ultimate Tic Tac Toe — entry point, session state, and self-tests.
 
-Game rules live in game.py, the AI engines in ai.py, and the NiceGUI web UI
-in webui.py. This module wires them together, keeps the per-session UI state,
-runs the headless self-tests, and provides the CLI entry point.
+Game rules live in game.py and the AI engines in ai.py. This module wires
+them together, keeps the per-session UI state, runs the headless
+self-tests, and provides the CLI entry point.
 
 Run:
     python SBA.py              # start the PySide6 desktop app (default)
     python SBA.py --qt         # start the desktop app explicitly
-    python SBA.py --web        # start the NiceGUI web app at http://127.0.0.1:8080
     python SBA.py --self-test  # run headless checks
     python SBA.py --debug      # verbose backend logs
 
 Maintenance notes:
-- The desktop app is the default entry; the NiceGUI web server only starts
-  with --web or the desktop's "Enable NiceGUI Web UI" switch (decision D1).
-- Session state lives here; the module is aliased as 'SBA' so tui/webui
-  reuse it instead of importing a second copy.
+- The desktop app is the default entry (decision D1).
+- Session state lives here; the module is aliased as 'SBA' so tui.py
+  reuses it instead of importing a second copy.
 """
 
 import logging
@@ -38,7 +36,7 @@ log = logging.getLogger('SBA')
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s', datefmt='%H:%M:%S')
 
-# Session state helpers (shared with webui.py and self-tests)
+# Session state helpers (shared with the UI front ends and self-tests)
 SESSIONS = {}
 
 def new_session():
@@ -86,7 +84,7 @@ def is_ai_turn(s):
 
 
 # ============================================================
-# Shared UI helpers (imported by tui.py and webui.py)
+# Shared UI helpers (imported by tui.py)
 # ============================================================
 
 AI_OPTIONS = {
@@ -241,16 +239,10 @@ def main():
             depth=_flag_value('--depth', 4),
         ))
     # When SBA.py is the entry script it is '__main__'; register it under the
-    # canonical name so qtui.py / webui.py reuse this module instead of
+    # canonical name so qtui.py / tui.py reuse this module instead of
     # importing a second copy.
     sys.modules.setdefault('SBA', sys.modules['__main__'])
-    if '--web' in sys.argv:
-        import webui
-        webui.run()
-        return
-    # Default entry (also explicit via --qt): PySide6 desktop app. The
-    # NiceGUI web UI is opt-in only (see the --web flag or the desktop
-    # app's "Enable NiceGUI Web UI" switch).
+    # Default entry (also explicit via --qt): PySide6 desktop app.
     import qtui
     qtui.main()
 

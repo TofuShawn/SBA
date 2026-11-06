@@ -4,8 +4,7 @@
 """Textual terminal UI (TUI) for SBA (Basically Awful).
 
 Shares the game rules (game.py), the AI engines (ai.py) and the per-session
-state / bilingual helpers (SBA.py) with the NiceGUI web UI. The web UI stays
-opt-in: start it with `python SBA.py --web`.
+state / bilingual helpers (SBA.py) with the desktop UI.
 
 Run:
     python SBA.py            # terminal app (default)
@@ -14,7 +13,7 @@ Maintenance notes:
 - All AI moves and assistant analyses run in Textual Worker threads so the
   terminal never blocks; stale results are dropped via a generation counter
   (session['analysis_gen']) plus per-run tokens captured when each worker
-  starts (same scheme as webui.py).
+  starts).
 - Textual ships no Slider widget, so a tiny keyboard+mouse Slider lives here
   rather than pulling in an extra dependency.
 - The board renders Unicode box-drawing and works in Windows Terminal / Git
@@ -54,7 +53,6 @@ try:
 except ImportError:
     print('Textual is not installed for this Python interpreter.')
     print('Install the UI with:  python -m pip install -r requirements.txt')
-    print('Or start the web UI instead with:  python SBA.py --web')
     raise SystemExit(1)
 
 

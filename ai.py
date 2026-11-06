@@ -6,7 +6,7 @@
 Implements every computer opponent (Random, Basic, Minimax, Minimax Pro,
 MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero) plus the
 best-move analysis used by the AI assistant panel. Pure logic on top of
-game.py — no NiceGUI dependency.
+game.py — no UI-framework dependency.
 
 Maintenance notes:
 - MCTS+RAVE is hidden from the menus but kept for tests and --bench

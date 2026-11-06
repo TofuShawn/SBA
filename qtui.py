@@ -3,17 +3,12 @@
 
 """PySide6 desktop UI for SBA (Basically Awful).
 
-Shares the game rules (game.py) and AI engines (ai.py) with the NiceGUI web
-UI. The NiceGUI web server is opt-in: enable it from the menu switch or with
-`python qtui.py --web`.
+Shares the game rules (game.py) and the AI engines (ai.py) with the TUI.
 
 Run:
-    python qtui.py            # desktop app (default)
-    python qtui.py --web      # desktop app + start the NiceGUI web server
+    python qtui.py            # desktop app
 
 Maintenance notes:
-- Uses the vendored PyQt-SiliconUI (GPLv3) under vendor/siui/; falls back to
-  the native dark-glass QSS when the vendor directory is missing (decision D5).
 - Fonts prefer Noto Sans TC; 微软雅黑 is not installed on every system (D7).
 - Won chunks fill with the winner's color; hovering reveals the cells (D6).
 """
@@ -22,7 +17,6 @@ import argparse
 import logging
 import math
 import os
-import subprocess
 import sys
 import time
 
@@ -44,7 +38,6 @@ try:
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
     print('Install the desktop UI with:  python -m pip install -r requirements.txt')
-    print('Or start the web UI instead with:  python SBA.py --web')
     raise SystemExit(1)
 
 from game import (
@@ -257,111 +250,10 @@ PAL = PALETTE[ACTIVE_THEME]
 
 
 # ---------------------------------------------------------------------------
-# PyQt-SiliconUI integration (optional; vendored under vendor/siui, GPLv3)
+# Combo factory (plain QComboBox; the theme does the rest via QSS)
 # ---------------------------------------------------------------------------
-USE_SIUI = False  # the Endfield QSS theme replaces the vendored skin (D23)
-SIUI = None
 
-
-def _load_siui():
-    """Load the vendored PyQt-SiliconUI (PySide6 fork) when present."""
-    global SIUI
-    if not USE_SIUI:
-        return None
-    siui_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor', 'siui')
-    if not os.path.isdir(os.path.join(siui_root, 'silicon')):
-        return None
-    if siui_root not in sys.path:
-        sys.path.insert(0, siui_root)
-    try:
-        import silicon
-        from silicon import SiGlobal
-        import icons as si_icons
-        SiGlobal.icons = si_icons.ICON_DICT(
-            os.path.join(siui_root, 'icons', 'icons.dat'), SiGlobal.colorset.SVG_HEX)
-        SIUI = silicon
-        log.info('PyQt-SiliconUI loaded (%s)', siui_root)
-    except Exception as e:  # noqa: BLE001
-        log.warning('PyQt-SiliconUI unavailable, using the Endfield QSS theme: %s', e)
-        SIUI = None
-    return SIUI
-
-
-def _init_siui_runtime():
-    """Create the SiliconUI floating tooltip window (needs a QApplication)."""
-    if SIUI is None:
-        return
-    try:
-        from silicon import SiGlobal
-        from silicon.SiHint import FloatingWindow
-        SiGlobal.floating_window = FloatingWindow()
-        # A tooltip must never steal mouse events from the board beneath it
-        # (it stays on top and follows the cursor).
-        SiGlobal.floating_window.setAttribute(Qt.WA_TransparentForMouseEvents)
-        SiGlobal.floating_window.setWindowOpacity(0)
-        SiGlobal.floating_window.show()
-    except Exception as e:  # noqa: BLE001
-        log.warning('SiliconUI runtime init failed: %s', e)
-
-
-_load_siui()
-
-if SIUI is not None:
-    from silicon.SiComboBox import SiComboBox as _SiComboBoxBase
-
-    class _SiCombo(_SiComboBoxBase):
-        """Adapter exposing the QComboBox-style API used by the menus."""
-        currentIndexChanged = Signal(int)
-
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setMinimumSize(260, 40)
-            self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            self._labels = []
-            self._data = []
-            self._current = 0
-            self._max_w = 0
-            self.valueChanged.connect(self._on_value)
-
-        def _text_w(self, text):
-            try:
-                from silicon import SiFont
-                fm = QFontMetrics(SiFont.font_L1)
-            except Exception:  # noqa: BLE001
-                fm = self.fontMetrics()
-            return fm.horizontalAdvance(text)
-
-        def sizeHint(self):
-            return QSize(max(260, self._max_w + 78), 40)
-
-        def _on_value(self, value):
-            try:
-                self._current = self._data.index(value)
-            except ValueError:
-                pass
-            self.currentIndexChanged.emit(self._current)
-
-        def addItem(self, label, data):
-            self._labels.append(label)
-            self._data.append(data)
-            self.addOption(label, data)
-            self._max_w = max(self._max_w, self._text_w(label))
-            if len(self._data) == 1:
-                self.setOption(label)
-
-        def currentData(self):
-            return self._data[self._current] if self._data else None
-
-        def currentIndex(self):
-            return self._current
-
-
-def _si_combo(parent=None):
-    if SIUI is not None:
-        try:
-            return _SiCombo(parent)
-        except Exception:  # noqa: BLE001
-            pass
+def _deck_combo(parent=None):
     return QComboBox(parent)
 
 
@@ -504,7 +396,7 @@ class ChamferButton(QPushButton):
         p.end()
 
 
-def _si_button(text, parent=None, primary=False, slant=None):
+def _deck_button(text, parent=None, primary=False, slant=None):
     btn = ChamferButton(text, parent, kind='primary' if primary else 'default',
                         slant=slant)
     fm = QFontMetrics(btn.font())
@@ -513,31 +405,8 @@ def _si_button(text, parent=None, primary=False, slant=None):
     return btn
 
 
-def _si_set_enabled(btn, enabled):
-    """Enable/disable a button (SiButton needs its inner layer toggled too)."""
-    btn.setEnabled(enabled)
-    if SIUI is not None:
-        try:
-            btn.layer_front.setEnabled(enabled)
-        except AttributeError:
-            pass
 
 
-if SIUI is not None:
-    try:
-        from silicon import SiGlobal as _SiG
-        cs = _SiG.colorset
-        PAL.update({
-            'cell_empty': cs.BG_GRAD_HEX[1],
-            'cell_filled': cs.BG_GRAD_HEX[3],
-            'grid_line': cs.BG_GRAD_HEX[4],
-            'macro_line': cs.BG_GRAD_HEX[4],
-            'macro_active': 'rgba(82, 56, 154, 0.14)',
-            'macro_won_x': 'rgba(82, 56, 154, 0.20)',
-            'macro_won_o': 'rgba(218, 52, 98, 0.16)',
-        })
-    except Exception:  # noqa: BLE001
-        pass
 
 # ---------------------------------------------------------------------------
 # Endfield field-engineering theme (D23). The full styling lives in
@@ -868,7 +737,7 @@ class BoardWidget(QWidget):
             painter.drawPolygon(poly)
 
     def _win_segment(self, line, centers, bounds):
-        """Extend a win line across `bounds`, mirroring the web UI's win_segment."""
+        """Extend a win line across `bounds`."""
         pts = [centers[i] for i in line]
         xs = [p.x() for p in pts]
         x1, x2 = min(xs), max(xs)
@@ -1192,15 +1061,13 @@ class EndfieldPage(QWidget):
 
 class MenuPage(EndfieldPage):
     start_requested = Signal(object)
-    web_toggled = Signal(bool)
     settings_requested = Signal()
     GIANT_TEXT = 'UTTT'
     BACKDROP = 'static/backgrounds/survey-dark.jpg'
 
-    def __init__(self, web_port=8080):
+    def __init__(self):
         super().__init__()
         self.setObjectName('pageMenu')
-        self.web_port = web_port
         self._build_ui()
 
     def _build_ui(self):
@@ -1235,32 +1102,32 @@ class MenuPage(EndfieldPage):
             row.addWidget(widget, 1)
             return row_widget, lab
 
-        self.game_type = _si_combo()
+        self.game_type = _deck_combo()
         self.game_type.addItem('Normal Tic Tac Toe (普通井字棋)', 'normal')
         self.game_type.addItem('Ultimate Tic Tac Toe (終極井字棋)', 'ultimate')
         card_lay.addWidget(field_row(t('Game Type', '遊戲類型'), self.game_type)[0])
 
-        self.mode = _si_combo()
+        self.mode = _deck_combo()
         self.mode.addItem('PvP (玩家對玩家)', 'pvp')
         self.mode.addItem('Player vs Computer (玩家對電腦)', 'pvc')
         self.mode.addItem('Computer vs Computer (電腦對電腦)', 'cvc')
         self.mode.currentIndexChanged.connect(lambda _: self._update_visibility())
         card_lay.addWidget(field_row(t('Mode', '模式'), self.mode)[0])
 
-        self.first = _si_combo()
+        self.first = _deck_combo()
         self.first.addItem(t('You move first — X', '你先手 — X'), 'human')
         self.first.addItem(t('Computer moves first — O', '電腦先手 — O'), 'computer')
         self.first.currentIndexChanged.connect(lambda _: self._update_visibility())
         self.first_row, _ = field_row(t('First Player', '先手'), self.first)
         card_lay.addWidget(self.first_row)
 
-        self.ai_x = _si_combo()
+        self.ai_x = _deck_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_x.addItem(label, key)
         self.ai_x_row, _ = field_row(t('Player X — AI Level', '玩家 X — AI 等級'), self.ai_x)
         card_lay.addWidget(self.ai_x_row)
 
-        self.ai_o = _si_combo()
+        self.ai_o = _deck_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_o.addItem(label, key)
         self.ai_o_row, self.ai_o_label = field_row(t('Player O — AI Level', '玩家 O — AI 等級'), self.ai_o)
@@ -1280,7 +1147,7 @@ class MenuPage(EndfieldPage):
                                      self._slider_row(self.mm_depth))[0])
 
         # D33: Go-style clock — main time, then byo-yomi periods (N × T s)
-        self.clock_preset = _si_combo()
+        self.clock_preset = _deck_combo()
         self.clock_preset.addItem(t('No clock', '不計時'), 'off')
         self.clock_preset.addItem(t('Blitz: 3 min + 3×10s', '快棋：3 分 + 3×10 秒'), 'blitz')
         self.clock_preset.addItem(t('Rapid: 5 min + 3×20s', '快速：5 分 + 3×20 秒'), 'rapid')
@@ -1302,23 +1169,14 @@ class MenuPage(EndfieldPage):
         card_lay.addWidget(self.reduce_anim)
 
         card_lay.addSpacing(10)
-        web_title = QLabel(t('NiceGUI Web UI (選用啟動)', 'NiceGUI Web 介面（選用）'))
-        web_title.setObjectName('cardTitle')
-        card_lay.addWidget(web_title)
-        self.web_switch = QCheckBox(t('Enable NiceGUI Web UI', '啟動 Web 介面'))
-        self.web_switch.toggled.connect(self._on_web_toggled)
-        card_lay.addWidget(self.web_switch)
-        self.web_status = QLabel(t('Web UI stopped', 'Web 介面已停止'))
-        self.web_status.setObjectName('muted')
-        card_lay.addWidget(self.web_status)
 
         start_row = QHBoxLayout()
         start_row.setSpacing(0)   # the pair interlocks across a shared seam
-        start_btn = _si_button(t('Start Game', '開始遊戲'), primary=True,
+        start_btn = _deck_button(t('Start Game', '開始遊戲'), primary=True,
                                slant='r')
         start_btn.clicked.connect(self._on_start)
         start_row.addWidget(start_btn, 1)
-        settings_btn = _si_button(t('Settings', '設定'), slant='l')
+        settings_btn = _deck_button(t('Settings', '設定'), slant='l')
         settings_btn.setObjectName('ghost')
         settings_btn.clicked.connect(self.settings_requested.emit)
         start_row.addWidget(settings_btn)
@@ -1349,16 +1207,6 @@ class MenuPage(EndfieldPage):
         else:
             label = t('Player O — AI Level', '玩家 O — AI 等級')
         self.ai_o_label.setText(label)
-
-    def _on_web_toggled(self, checked):
-        self.web_toggled.emit(checked)
-        if checked:
-            self.web_status.setText(f'http://127.0.0.1:{self.web_port} ({t("starting...", "啟動中")})')
-        else:
-            self.web_status.setText(t('Web UI stopped', 'Web 介面已停止'))
-
-    def set_web_checked(self, checked):
-        self.web_switch.setChecked(checked)
 
     def _on_start(self):
         s = new_session()
@@ -2447,7 +2295,7 @@ class SettingsPage(EndfieldPage):
         title.setObjectName('title')
         top.addWidget(title)
         top.addStretch(1)
-        back = _si_button(t('Back to Menu', '返回選單'))
+        back = _deck_button(t('Back to Menu', '返回選單'))
         back.setObjectName('ghost')
         back.clicked.connect(self.back_requested.emit)
         top.addWidget(back)
@@ -2523,10 +2371,10 @@ class SettingsPage(EndfieldPage):
         root.addWidget(scroll, 1)
 
         btn_row = QHBoxLayout()
-        save = _si_button(t('Save Settings', '保存設定'), primary=True)
+        save = _deck_button(t('Save Settings', '保存設定'), primary=True)
         save.clicked.connect(self._on_save)
         btn_row.addWidget(save)
-        reset = _si_button(t('Restore Defaults', '恢復預設'))
+        reset = _deck_button(t('Restore Defaults', '恢復預設'))
         reset.setObjectName('ghost')
         reset.clicked.connect(self._on_reset)
         btn_row.addWidget(reset)
@@ -2564,19 +2412,16 @@ class SettingsPage(EndfieldPage):
 # ---------------------------------------------------------------------------
 
 class MainWindow(QMainWindow):
-    def __init__(self, web_enabled=False, port=8080):
+    def __init__(self):
         super().__init__()
-        self.web_proc = None
-        self.web_port = port
         self.setWindowTitle('Ultimate Tic Tac Toe — 終極井字棋')
         load_app_font()
         self.setStyleSheet(QSS)
         self.stack = QStackedWidget()
-        self.menu_page = MenuPage(web_port=port)
+        self.menu_page = MenuPage()
         self.game_page = GamePage()
         self.settings_page = SettingsPage()
         self.menu_page.start_requested.connect(self.start_game)
-        self.menu_page.web_toggled.connect(self.set_web_enabled)
         self.menu_page.settings_requested.connect(self.show_settings)
         self.game_page.back_requested.connect(self.show_menu)
         self.settings_page.back_requested.connect(self.show_menu)
@@ -2585,8 +2430,6 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.settings_page)
         self.setCentralWidget(self.stack)
         self.resize(1024, 740)
-        if web_enabled:
-            self.menu_page.set_web_checked(True)
 
     def start_game(self, session):
         self.game_page.start_session(session)
@@ -2615,47 +2458,9 @@ class MainWindow(QMainWindow):
         self._page_anim = anim
         anim.start(QAbstractAnimation.DeleteWhenStopped)
 
-    def set_web_enabled(self, enabled):
-        if enabled:
-            self.start_web()
-        else:
-            self.stop_web()
-
-    def start_web(self):
-        if self.web_proc is not None and self.web_proc.poll() is None:
-            return
-        flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
-        cwd = os.path.dirname(os.path.abspath(__file__))
-        self.web_proc = subprocess.Popen(
-            [sys.executable, 'SBA.py', '--web', '--host', '0.0.0.0',
-             '--port', str(self.menu_page.web_port)],
-            cwd=cwd,
-            creationflags=flags,
-        )
-        log.info('NiceGUI web server started on port %d', self.menu_page.web_port)
-        self.menu_page.web_status.setText(
-            f'http://127.0.0.1:{self.menu_page.web_port} ({t("running", "執行中")})')
-
-    def stop_web(self):
-        if self.web_proc is not None and self.web_proc.poll() is None:
-            self.web_proc.terminate()
-            try:
-                self.web_proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.web_proc.kill()
-        self.web_proc = None
-
-    def closeEvent(self, event):
-        self.stop_web()
-        super().closeEvent(event)
-
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='SBA desktop app (PySide6)')
-    parser.add_argument('--web', action='store_true',
-                        help='start the NiceGUI web server at launch')
-    parser.add_argument('--port', type=int, default=8080,
-                        help='port for the NiceGUI web server (default: 8080)')
     parser.add_argument('--debug', action='store_true',
                         help='verbose backend logs')
     args = parser.parse_args(argv)
@@ -2665,8 +2470,7 @@ def main(argv=None):
     app = QApplication(sys.argv[:1])
     app.setApplicationName('SBA')
     app.setFont(QFont(FONT_FAMILIES, 10))
-    _init_siui_runtime()
-    window = MainWindow(web_enabled=args.web, port=args.port)
+    window = MainWindow()
     window.show()
     return app.exec()
 

@@ -5,7 +5,7 @@
 
 Defines the Normal (3x3) and Ultimate (9x9) game rules, move application, and
 the board geometry / win-badge helpers used by the AI engines, analysis,
-self-tests, and the web UI. Pure logic with no NiceGUI dependency.
+self-tests, and the UIs. Pure logic with no UI-framework dependency.
 
 Maintenance notes:
 - Keep this file free of UI/engine imports (decision D2) — everything else

@@ -1,6 +1,6 @@
-# SBA - Basically Awful (Qt UI + Web) / 基本上很糟（Qt 介面 + 網頁）
+# SBA - Basically Awful (Qt + TUI) / 基本上很糟（Qt + 終端機）
 
-**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）、[NiceGUI](https://nicegui.io) **網頁版**與 Textual **終端機版**三種介面，Arknights: Endfield 風格的工業 console 主題。內建 **7 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
+**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 Textual **終端機版**兩種介面，Arknights: Endfield 風格的工業 console 主題。內建 **7 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
 
 > The name is a joke. The game is actually (mostly) fine.
 > 名字是開玩笑的，遊戲其實（大致上）還不錯。
@@ -37,7 +37,7 @@
 ## Requirements / 環境需求
 
 - Python **3.12+**（於 3.13 開發）
-- 核心依賴：`nicegui>=3.16`
+- 核心依賴：`pyside6>=6.6`（桌面版）、`textual>=3.0`（終端機版）
 
 Install core dependencies / 安裝核心依賴：
 
@@ -88,24 +88,11 @@ python qtui.py
 桌面版使用 Endfield 工業 console 主題（`static/endfield.qss` + 原生繪製棋盤），
 選單頁可進入 Settings 調整引擎開關。
 
-### 2. NiceGUI web app (opt-in) / Web 版（選用）
-
-The web server only starts when explicitly enabled / Web 伺服器只在明確啟用時啟動：
-
-```bash
-python SBA.py --web
-```
-
-Open http://127.0.0.1:8080 in your browser / 瀏覽器開啟 http://127.0.0.1:8080。也可以在桌面版的選單勾選「Enable NiceGUI Web UI（啟動 Web 介面）」來開啟 Web。
-
 CLI flags / 指令參數：
 
 | Flag / 參數 | Description / 說明 |
 | --- | --- |
-| `--web` | Start the NiceGUI web server (no desktop app) / 啟動 NiceGUI Web 伺服器（不開桌面版） |
 | `--qt` | Start the PySide6 desktop app (default) / 啟動 PySide6 桌面版（預設） |
-| `--host HOST` | Web bind address / Web 綁定位址（預設 `0.0.0.0`） |
-| `--port PORT` | Web port / Web 連接埠（預設 `8080`） |
 | `--debug` | Verbose backend logging / 後端詳細日誌 |
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
 | `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
@@ -176,15 +163,15 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
 閱讀順序已編進圖裡：**[1] → [5]**；上層依賴下層、單向（D2）。先跑起來，再往下讀。
 
 ```
-      UI LAYER (pick one — three front ends, one backend)
-  +-----------------+  +-----------------+  +-----------------+
-  | webui.py   [5a] |  | qtui.py    [5b] |  | tui.py     [5c] |
-  | NiceGUI web     |  | PySide6 desktop |  | rich terminal   |
-  | ~750 lines      |  | ~1500 lines     |  | ~1350 lines     |
-  +--------+--------+  +--------+--------+  +--------+--------+
-           |                    |                    |
-           +--------------------+--------------------+
-                                |
+      UI LAYER (pick one — two front ends, one backend)
+  +----------------------+  +----------------------+
+  | qtui.py         [5a] |  | tui.py          [5b] |
+  | PySide6 desktop      |  | rich terminal        |
+  | ~2500 lines          |  | ~1350 lines          |
+  +----------+-----------+  +----------+-----------+
+             |                         |
+             +------------+------------+
+                          |
       GLUE LAYER                v
   +------------------------------------------------------+
   | SBA.py  [4]                                           |
@@ -225,7 +212,7 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
     native/*.c -> dll -- > all engines  C backends: full MCTS tree, rollouts,
                                         minimax family (D27; ~37x, build via
                                         native/build.py, auto-fallback to Python)
-    static/*.css|*.qss -- > webui/qtui  stylesheets only, no logic
+    static/*.qss ------- > qtui          stylesheets only, no logic
     tests/ --------------              headless pytest: rules, AI sanity, AZ smoke
 ```
 
@@ -236,7 +223,7 @@ Reading-route highlights, condensed from the retired
 - **[2] `ai.py`**：按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
 - **[3] `alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
 - **[4] `SBA.py`**：總覽地圖，最後讀。
-- **[5] UI**：三端共用 [1]–[4]；`qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
+- **[5] UI**：兩端共用 [1]–[4]；`qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
 
 驗收自問：終極棋盤的強制路由在哪實作？為什麼普通棋盤 Minimax 是完整解、終極只是估價？UCT 的探索/利用平衡在哪一行？助手勝率從哪來？— 答得出來就算讀懂了。
 
@@ -362,11 +349,8 @@ RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立�
 
 ## Credits / 致謝
 
-- [NiceGUI](https://nicegui.io) - reactive web UI framework (bundles Quasar / Tailwind) / 響應式網頁框架
 - [PyTorch](https://pytorch.org) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
 - [NumPy](https://numpy.org) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
-- [PyQt-SiliconUI](https://github.com/ChinaIceF/PyQt-SiliconUI) by [ChinaIceF](https://github.com/ChinaIceF) - the original PyQt5 UI library this desktop theme is based on / 桌面主題所基於的原版 PyQt5 UI 函式庫（GPLv3）
-- [PyQt-SiliconUI (PySide6 fork)](https://github.com/MayBeLaterOrNot/PyQt-SiliconUI) by [MayBeLaterOrNot](https://github.com/MayBeLaterOrNot) - PySide6 port used by the desktop app (branch `PySide6`, commit `6445d42`), vendored under `vendor/siui/` / 桌面版使用的 PySide6 移植版（GPLv3，隨附於 `vendor/siui/`）
 
 ---
 
@@ -374,4 +358,4 @@ RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立�
 
 This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
 
-The desktop app bundles PyQt-SiliconUI（GPLv3）under `vendor/siui/`, so the combined work is distributed under GPLv3 / 桌面版隨附 PyQt-SiliconUI（GPLv3，見 `vendor/siui/LICENSE`），合併作品因此以 GPLv3 發行。
+The project was relicensed to GPLv3 when PyQt-SiliconUI was vendored (D5); the vendor directory has since been removed (D35) and the license is retained / 專案因曾隨附 PyQt-SiliconUI 而改授權 GPLv3（D5）；vendor 目錄現已移除（D35），授權維持不變。
