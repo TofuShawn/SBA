@@ -366,9 +366,14 @@ def _si_combo(parent=None):
 
 
 class ChamferButton(QPushButton):
-    """Endfield button (D34): a cut-top-right-corner block — the chamfer IS
-    the affordance. Hover/press wipes signal yellow in from the left (mech
-    curve), disabled fills with 45° hatch. Fully self-painted (no QSS).
+    """Endfield button (D34/D35): self-painted block. Hover/press wipes
+    signal yellow in from the left (mech curve), disabled fills with 45°
+    hatch. Fully self-painted (no QSS).
+
+    The trapezoid slant is NOT a per-button decoration — it is reserved for
+    two adjacent buttons interlocking as a pair with a parallel slanted
+    seam: the left piece slants its right edge (slant='r'), the right piece
+    its left edge (slant='l'). Everything else is a plain rectangle.
 
     kind: 'default' graphite block · 'primary' signal border + signal text ·
           'ghost' quiet variant for secondary navigation.
@@ -376,9 +381,10 @@ class ChamferButton(QPushButton):
 
     _MECH = None  # lazily built bezier (0.7, 0, 0.2, 1)
 
-    def __init__(self, text='', parent=None, kind='default'):
+    def __init__(self, text='', parent=None, kind='default', slant=None):
         super().__init__(text, parent)
         self.kind = kind
+        self.slant = slant
         self._wipe = 0.0
         self._wipe_anim = QVariantAnimation(self)
         self._wipe_anim.setDuration(150)
@@ -428,14 +434,21 @@ class ChamferButton(QPushButton):
     def paintEvent(self, e):
         p = QPainter(self)
         w, h = self.width(), self.height()
-        ch = min(9, h // 4)
+        ch = min(14, h // 3)
         wipe = 1.0 if self.isDown() else self._wipe
         path = QPainterPath()
-        path.moveTo(0, 0)
-        path.lineTo(w - ch, 0)
-        path.lineTo(w, ch)
-        path.lineTo(w, h)
-        path.lineTo(0, h)
+        if self.slant == 'r':       # pair left piece: right edge leans '/'
+            path.moveTo(0, 0)
+            path.lineTo(w, 0)
+            path.lineTo(w - ch, h)
+            path.lineTo(0, h)
+        elif self.slant == 'l':     # pair right piece: left edge leans '/'
+            path.moveTo(ch, 0)
+            path.lineTo(w, 0)
+            path.lineTo(w, h)
+            path.lineTo(0, h)
+        else:
+            path.addRect(QRectF(0, 0, w, h))
         path.closeSubpath()
         p.setRenderHint(QPainter.Antialiasing, True)
 
@@ -491,10 +504,12 @@ class ChamferButton(QPushButton):
         p.end()
 
 
-def _si_button(text, parent=None, primary=False):
-    btn = ChamferButton(text, parent, kind='primary' if primary else 'default')
+def _si_button(text, parent=None, primary=False, slant=None):
+    btn = ChamferButton(text, parent, kind='primary' if primary else 'default',
+                        slant=slant)
     fm = QFontMetrics(btn.font())
-    btn.setMinimumSize(max(140, fm.horizontalAdvance(text) + 48), 40)
+    pad = 48 + (14 if slant else 0)   # slanted pair pieces need seam clearance
+    btn.setMinimumSize(max(140, fm.horizontalAdvance(text) + pad), 40)
     return btn
 
 
@@ -1246,10 +1261,12 @@ class MenuPage(EndfieldPage):
         card_lay.addWidget(self.web_status)
 
         start_row = QHBoxLayout()
-        start_btn = _si_button(t('Start Game', '開始遊戲'), primary=True)
+        start_row.setSpacing(0)   # the pair interlocks across a shared seam
+        start_btn = _si_button(t('Start Game', '開始遊戲'), primary=True,
+                               slant='r')
         start_btn.clicked.connect(self._on_start)
         start_row.addWidget(start_btn, 1)
-        settings_btn = _si_button(t('Settings', '設定'))
+        settings_btn = _si_button(t('Settings', '設定'), slant='l')
         settings_btn.setObjectName('ghost')
         settings_btn.clicked.connect(self.settings_requested.emit)
         start_row.addWidget(settings_btn)
