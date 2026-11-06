@@ -1,0 +1,183 @@
+/* ============================================================================
+ * SBA — Endfield field-engineering theme (decision D23)
+ *
+ * Hypergryph-inspired / Arknights: Endfield language per the shared design
+ * brief: canvas black + graphite panels + signal-yellow accent, 1px hard
+ * rules, hand "clipped" geometry (small radii, no glass blur), mechanical
+ * Latin display faces layered over a CJK-capable body stack.
+ *
+ * Deck labels get their letter-spacing/upper-casing in code (QSS has no
+ * letter-spacing); this file only carries color/size for them.
+ * ========================================================================== */
+
+QWidget {
+    background: #09090b;
+    color: #ffffff;
+    font-family: "Noto Sans TC", "Noto Sans SC", "Source Han Sans CN",
+                 "Microsoft YaHei", "Segoe UI";
+    font-size: 16px;
+    selection-background-color: #fffa00;
+    selection-color: #09090b;
+}
+
+QMainWindow { background: #000000; }
+QStackedWidget { background: transparent; }
+QWidget#pageMenu, QWidget#pageGame { background: transparent; }
+
+QFrame#card {
+    background: #141517;
+    border: 1px solid #35373c;
+    border-top: 1px solid #46494f;
+    border-radius: 2px;
+}
+
+QWidget#sidePanel {
+    background: #0b0b0d;
+    border-left: 1px solid #35373c;
+}
+
+QFrame#header { background: #060608; border-bottom: 1px solid #35373c; }
+QFrame#footerTechnical { background: #0f0f11; border-top: 1px solid #2a2d31; }
+
+/* --- labels ------------------------------------------------------------- */
+
+QLabel { background: transparent; color: #ffffff; }
+QLabel#title { font-size: 24px; font-weight: 700; color: #ffffff; }
+QLabel#cardTitle { font-size: 18px; font-weight: 700; color: #ffffff; }
+QLabel#muted { color: #c6c9ce; font-size: 14px; }
+QLabel#deck { color: #c6c9ce; font-size: 13px; }
+QLabel#deckAccent { color: #fffa00; font-size: 13px; }
+QLabel#deckNum { color: #383b41; font-size: 36px; font-weight: 800; }
+QLabel#pctReadout { color: #ffffff; font-size: 15px; font-weight: 700; }
+QLabel#tag {
+    background: #fffa00; color: #09090b;
+    border: 1px solid #fffa00; padding: 2px 10px;
+    font-size: 14px; font-weight: 700;
+}
+QLabel#tagDark {
+    background: #191919; color: #c6c9ce;
+    border: 1px solid #35373c; padding: 2px 10px; font-size: 14px;
+}
+
+/* --- buttons ------------------------------------------------------------ */
+
+QPushButton {
+    background: #191919; color: #ffffff;
+    border: 1px solid #fffa00; border-radius: 2px;
+    padding: 8px 18px; font-weight: 600;
+}
+QPushButton:hover { background: #242424; }
+QPushButton:pressed { background: #35373c; }
+QPushButton:focus { border-color: #ffffff; background: #242424; }
+QPushButton:disabled { background: #101013; color: #585858; border-color: #2a2d31; }
+
+QPushButton#primary {
+    background: #fffa00; color: #09090b;
+    border: 1px solid #fffa00; font-weight: 700;
+}
+QPushButton#primary:hover { background: #fffd4d; }
+QPushButton#primary:pressed { background: #d4d000; }
+QPushButton#primary:focus { background: #fffd4d; border-color: #09090b; }
+QPushButton#primary:disabled { background: #35373c; color: #585858; border-color: #35373c; }
+
+QPushButton#ghost {
+    background: transparent; color: #c6c9ce;
+    border: 1px solid #35373c; font-weight: 500;
+}
+QPushButton#ghost:hover { color: #ffffff; border-color: #585858; background: #101013; }
+
+/* --- combo -------------------------------------------------------------- */
+
+QComboBox {
+    background: #191919; color: #ffffff;
+    border: 1px solid #35373c; border-radius: 2px;
+    padding: 6px 10px; min-height: 24px; font-weight: 500;
+}
+QComboBox:hover { border-color: #585858; }
+QComboBox:focus { border-color: #fffa00; }
+QComboBox:disabled { color: #585858; border-color: #242424; }
+QComboBox::drop-down { border: none; width: 26px; }
+QComboBox QAbstractItemView {
+    background: #101013; color: #ffffff;
+    border: 1px solid #35373c;
+    selection-background-color: #fffa00; selection-color: #09090b;
+    outline: none; padding: 4px;
+}
+
+/* --- sliders ------------------------------------------------------------ */
+
+QSlider::groove:horizontal { height: 2px; background: #35373c; border: none; }
+QSlider::sub-page:horizontal { background: #fffa00; }
+QSlider::handle:horizontal {
+    background: #ffffff; width: 12px; height: 12px; margin: -6px 0;
+    border: 1px solid #35373c;
+}
+QSlider::handle:horizontal:hover { background: #fffa00; }
+QSlider::handle:horizontal:disabled { background: #585858; }
+
+/* --- check / radio ------------------------------------------------------ */
+
+QCheckBox, QRadioButton { background: transparent; color: #ffffff; spacing: 8px; }
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 14px; height: 14px;
+    border: 1px solid #585858; background: #101013;
+}
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #fffa00; }
+QCheckBox::indicator:focus, QRadioButton::indicator:focus { border-color: #fffa00; }
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background: #fffa00; border-color: #fffa00;
+}
+QCheckBox:disabled, QRadioButton:disabled { color: #585858; }
+
+/* --- list --------------------------------------------------------------- */
+
+QListWidget {
+    background: #0b0b0d; border: 1px solid #35373c; padding: 2px;
+    color: #ffffff;
+}
+QListWidget::item { padding: 7px 8px; }
+QListWidget::item:hover { background: #242424; }
+QListWidget::item:selected {
+    background: #35373c; color: #fffa00; border: 1px solid #fffa00;
+}
+
+/* --- tooltip / scrollbar ------------------------------------------------ */
+
+QToolTip {
+    background: #191919; color: #c6c9ce;
+    border: 1px solid #35373c; padding: 6px 10px;
+}
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #35373c; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #585858; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
+QScrollBar::handle:horizontal { background: #35373c; min-width: 30px; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: none; }
+
+/* --- Endfield-specific components --------------------------------------- */
+
+QFrame#stripeM { background: #ff1aac; }
+QFrame#stripeG { background: #00ffa2; }
+QFrame#stripeY { background: #fffa00; }
+
+QProgressBar#loadingRail {
+    background: #0b0b0d; border: 1px solid #242424;
+    color: #c6c9ce; font-size: 12px;
+}
+QProgressBar#loadingRail::chunk { background: #fffa00; }
+
+QChartView { background: transparent; border: none; }
+
+QMessageBox { background: #101013; }
+QMessageBox QPushButton { min-width: 90px; }
+
+/* --- clock chips (D33: Go-style main time + byo-yomi) ------------------- */
+
+QLabel#clockChip {
+    background: #191919;
+    border: 1px solid #35373c;
+    padding: 6px 10px;
+    font-weight: 600;
+    font-size: 15px;
+}

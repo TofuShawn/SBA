@@ -180,6 +180,16 @@ def _media_icon(kind, color='#F7F7F7', size=20):
     return QIcon(pm)
 
 
+# D33: Go-style clock presets — main seconds, byo-yomi seconds per move,
+# and the number of byo-yomi periods before a timeout loses the game.
+CLOCK_PRESETS = {
+    'off': None,
+    'blitz': {'main': 180.0, 'byo_time': 10.0, 'periods': 3},
+    'rapid': {'main': 300.0, 'byo_time': 20.0, 'periods': 3},
+    'classical': {'main': 600.0, 'byo_time': 30.0, 'periods': 5},
+}
+
+
 # Board palettes. BoardWidget paints from the active palette; the Endfield
 # theme (D23) is light-on-dark charcoal with signal yellow for the O side.
 PALETTE = {
@@ -1063,6 +1073,15 @@ class MenuPage(EndfieldPage):
         card_lay.addWidget(field_row(t('Minimax Depth (Ultimate)', 'Minimax 深度（終極模式）'),
                                      self._slider_row(self.mm_depth))[0])
 
+        # D33: Go-style clock — main time, then byo-yomi periods (N × T s)
+        self.clock_preset = _si_combo()
+        self.clock_preset.addItem(t('No clock', '不計時'), 'off')
+        self.clock_preset.addItem(t('Blitz: 3 min + 3×10s', '快棋：3 分 + 3×10 秒'), 'blitz')
+        self.clock_preset.addItem(t('Rapid: 5 min + 3×20s', '快速：5 分 + 3×20 秒'), 'rapid')
+        self.clock_preset.addItem(t('Classical: 10 min + 5×30s', '古典：10 分 + 5×30 秒'), 'classical')
+        card_lay.addWidget(field_row(t('Clock (main + byo-yomi)', '計時（主時限 + 讀秒）'),
+                                     self.clock_preset)[0])
+
         self.assistant = QCheckBox(t('AI Assistant', 'AI 助手'))
         self.assistant.setChecked(True)
         card_lay.addWidget(self.assistant)
@@ -1143,6 +1162,7 @@ class MenuPage(EndfieldPage):
         s['mcts'] = self.mcts.value()
         s['minimax_depth'] = self.mm_depth.value()
         s['assistant_enabled'] = self.assistant.isChecked()
+        s['clock'] = CLOCK_PRESETS.get(self.clock_preset.currentData(), None)
         self.start_requested.emit(s)
 
 # ---------------------------------------------------------------------------
@@ -1172,6 +1192,12 @@ class GamePage(EndfieldPage):
         self._bar_anim.setDuration(250)
         self._bar_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._bar_anim.valueChanged.connect(self._on_bar_anim)
+        # D33: Go-style clocks (main time + byo-yomi periods), per side
+        self.clock = None            # {'X': {...}, 'O': {...}} when enabled
+        self._time_loss = None       # side that lost on time
+        self._clock_tick_t = None    # monotonic reference for the last tick
+        self._clock_timer = QTimer(self)
+        self._clock_timer.timeout.connect(self._clock_tick)
         self.pvc_timer = QTimer(self)
         self.pvc_timer.setSingleShot(True)
         self.pvc_timer.timeout.connect(self.run_ai)
@@ -1296,6 +1322,20 @@ class GamePage(EndfieldPage):
         self.status_text = QLabel('')
         status_row.addWidget(self.status_text)
         status_row.addStretch(1)
+        # D33: per-side clock chips (hidden when no clock preset)
+        self.clock_x = QLabel('✕ --:--')
+        self.clock_o = QLabel('○ --:--')
+        for lbl in (self.clock_x, self.clock_o):
+            lbl.setObjectName('clockChip')
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setFixedHeight(34)
+        clock_row = QHBoxLayout()
+        clock_row.addWidget(self.clock_x, 1)
+        clock_row.addSpacing(6)
+        clock_row.addWidget(self.clock_o, 1)
+        board_col.addLayout(clock_row)
+        self.clock_x.hide()
+        self.clock_o.hide()
         board_col.addLayout(status_row)
         self.board = BoardWidget()
         self.board.cell_clicked.connect(self.on_cell_click)
@@ -1456,6 +1496,23 @@ class GamePage(EndfieldPage):
         s['game'] = self.game
         self.play_again_btn.setVisible(False)
         self.new_btn.setVisible(True)
+        # D33: init Go-style clocks (X moves first — X's clock starts now)
+        preset = s.get('clock')
+        if preset:
+            self.clock = {'X': dict(preset, in_byo=False, byo=preset['byo_time']),
+                          'O': dict(preset, in_byo=False, byo=preset['byo_time'])}
+            self._time_loss = None
+            self._clock_tick_t = time.monotonic()
+            self._clock_timer.start(100)
+            self.clock_x.show()
+            self.clock_o.show()
+        else:
+            self.clock = None
+            self._time_loss = None
+            self._clock_timer.stop()
+            self.clock_x.hide()
+            self.clock_o.hide()
+        self._update_clock_chips()
         s['moves'] = []
         s['history'] = [self._history_point()]
         s['cvc_paused'] = False
@@ -1508,6 +1565,8 @@ class GamePage(EndfieldPage):
         self.gen += 1
         self.board.set_game(self.game)
         self.board.reset_reveal()
+        if self.clock is not None:
+            self._clock_tick_t = time.monotonic()
         self._render_history()
         self.refresh()
         self.trigger_analysis()
@@ -1620,6 +1679,8 @@ class GamePage(EndfieldPage):
     # -- moves -------------------------------------------------------------
 
     def on_cell_click(self, move):
+        if self._time_loss:   # D33: lost on time — the game is over
+            return
         game = self.game
         if game.is_over() or self.busy or is_ai_turn(self.session):
             return
@@ -1642,6 +1703,14 @@ class GamePage(EndfieldPage):
         self.step_idx = len(moves)
         self.gen += 1
         self.board.set_game(self.game)
+        if self.clock is not None:
+            # the mover made it in time: their byo-yomi counter resets and the
+            # switch gap is not charged to the next player
+            sc = self.clock[side]
+            if sc['in_byo']:
+                sc['byo'] = sc['byo_time']
+            self._clock_tick_t = time.monotonic()
+            self._update_clock_chips()
         self.board.animate_move(move)
         self._render_history()
         self.refresh()
@@ -1664,7 +1733,75 @@ class GamePage(EndfieldPage):
         else:
             self.update_cvc_controls()
 
+    # -- clock (D33: Go-style main time + byo-yomi periods) ----------------
+
+    @staticmethod
+    def _fmt_main(seconds):
+        m, sec = divmod(max(0, int(seconds)), 60)
+        return f'{m}:{sec:02d}'
+
+    def _clock_tick(self):
+        if self.clock is None or self._time_loss or self.game is None:
+            return
+        now = time.monotonic()
+        dt = now - (self._clock_tick_t or now)
+        self._clock_tick_t = now
+        if self.session.get('cvc_paused', False):
+            return                      # CvC paused: clocks hold
+        side = self.game.current
+        c = self.clock[side]
+        if not c['in_byo']:
+            c['main'] -= dt
+            if c['main'] <= 0.0:
+                c['main'] = 0.0
+                c['in_byo'] = True      # main exhausted -> byo-yomi starts
+                c['byo'] = c['byo_time']
+        else:
+            c['byo'] -= dt
+            if c['byo'] <= 0.0:
+                c['periods'] -= 1       # a byo period burned on this move
+                if c['periods'] <= 0:
+                    self._flag_timeout(side)
+                    return
+                c['byo'] = c['byo_time']
+        self._update_clock_chips()
+
+    def _flag_timeout(self, side):
+        """Timeout with no byo-yomi periods left: opponent wins on time."""
+        winner = 'O' if side == 'X' else 'X'
+        self._time_loss = side
+        self._clock_timer.stop()
+        self.status_mark.setText('⏱')
+        self.status_mark.setStyleSheet(
+            'color: #FFFA00; font-size: 20px; font-weight: 700;')
+        self.status_text.setText(
+            t(f'{side} lost on time — {winner} wins!',
+              f'{side} 超時判負 — {winner} 獲勝！'))
+        self.play_again_btn.setVisible(True)
+        self.new_btn.setVisible(False)
+        log.info('Time out: %s loses on time', side)
+
+    def _update_clock_chips(self):
+        if self.clock is None:
+            return
+        for lbl, side in ((self.clock_x, 'X'), (self.clock_o, 'O')):
+            c = self.clock[side]
+            if c['in_byo']:
+                text = f'{side} 讀秒 {c["periods"]} · {c["byo"]:0.1f}s'
+                accent = 'border-color: #ff1aac; color: #ff1aac;'
+            else:
+                text = f'{side} {self._fmt_main(c["main"])}'
+                accent = ''
+            active = (self.game is not None and self.game.current == side
+                      and not self._time_loss)
+            if active:
+                accent = 'border-color: #fffa00; color: #fffa00;'
+            lbl.setText(text)
+            lbl.setStyleSheet(accent)
+
     def cvc_tick(self):
+        if self._time_loss:
+            return
         if self.session['mode'] != 'cvc':
             self.cvc_timer.stop()
             return
@@ -1676,6 +1813,8 @@ class GamePage(EndfieldPage):
         self.run_ai()
 
     def run_ai(self):
+        if self._time_loss:
+            return
         if self.game is None or self.game.is_over() or self.busy or not is_ai_turn(self.session):
             return
         x_type, o_type = side_types(self.session)
