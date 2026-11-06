@@ -1,10 +1,17 @@
 name: CI
 
+# PRs carry the checks for feature branches; push runs only on the default
+# branch. Concurrency cancels superseded runs on the same ref (a rapid
+# push used to queue two full matrix runs for the same commit).
 on:
   push:
-    branches: ['**']
+    branches: [Refactored]
   pull_request:
-    branches: ['**']
+    branches: [Refactored]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
