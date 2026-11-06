@@ -2170,6 +2170,18 @@ class GamePage(EndfieldPage):
         self.cvc_timer.setInterval(value * 100)
 
     def on_revert_clicked(self):
+        if self.session['mode'] == 'pvc':
+            # PvC: rewind to the previous HUMAN decision point. Stepping a
+            # single ply would hand the turn back to the AI, which just
+            # re-moves and nothing changes (user-reported bug).
+            human_is_x = self.session.get('first_player', 'human') == 'human'
+            k = self.step_idx - 1
+            # X to move at even step counts; the human sits on X iff they
+            # moved first, so walk back to the nearest human-to-move step
+            while k > 0 and ((k % 2 == 0) != human_is_x):
+                k -= 1
+            self.go_to_step(k)
+            return
         self.go_to_step(self.step_idx - 1)
 
     def on_pause_clicked(self):
