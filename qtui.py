@@ -85,19 +85,45 @@ def _blur_pixmap(pm, radius):
     rp.end()
     return QPixmap.fromImage(out)
 
-# Mechanical Latin faces ('Bender' etc.) are usually absent on a stock system;
-# _deck_font() picks the first installed face, so this stays zero-asset (D23).
-DECK_FONT_FAMILIES = ['Bender', 'NovecentoSansWide', 'Oswald', 'Gilroy',
-                      'Space Grotesk', 'Segoe UI']
+# Mechanical Latin faces: Saira ships with the app (SIL OFL, see
+# static/fonts/) — wide geometric caps are half the Endfield look (D34).
+# 'Bender' etc. remain as fallbacks for a bare checkout without the font.
+DECK_FONT_FAMILIES = ['Saira', 'Bender', 'NovecentoSansWide', 'Oswald',
+                      'Gilroy', 'Space Grotesk', 'Segoe UI']
+
+_FONT_LOADED = False
 
 
-def _deck_font():
-    """First installed mechanical Latin face, else the platform default."""
+def load_app_font():
+    """Register the bundled Saira variable font once (needs a QApplication)."""
+    global _FONT_LOADED
+    if _FONT_LOADED:
+        return
+    _FONT_LOADED = True
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'static', 'fonts', 'Saira.ttf')
+    if os.path.isfile(path):
+        fid = QFontDatabase.addApplicationFont(path)
+        if fid < 0:
+            log.warning('Saira font failed to load from %s', path)
+
+
+def _deck_font(stretch=112):
+    """Wide geometric Latin face (Saira bundled, D34), else fallbacks.
+    Saira is a variable font — the wdth axis is set directly when the
+    runtime supports it (Qt >= 6.7), setStretch as the fallback."""
     available = set(QFontDatabase.families())
+    f = None
     for fam in DECK_FONT_FAMILIES:
         if fam in available:
-            return QFont(fam)
-    return QFont()
+            f = QFont(fam)
+            break
+    if f is None:
+        f = QFont()
+    # NB: QFont.setVariableAxis segfaults on this PySide6 build when the
+    # font is rendered — setStretch alone is the stable widening path.
+    f.setStretch(stretch)
+    return f
 
 
 def anim_enabled():
@@ -105,15 +131,15 @@ def anim_enabled():
     return not QSettings('SBA', 'SBA').value('reduce_motion', False, type=bool)
 
 
-def deck_label(text, size=13, accent=False):
-    """Endfield field-console label: mechanical Latin + wide tracking + caps."""
+def deck_label(text, size=13, accent=False, stretch=112):
+    """Endfield field-console label: wide caps + 0.14em tracking (D34)."""
     lab = QLabel(text.upper() if text.isascii() else text)
-    font = _deck_font()
+    font = _deck_font(stretch)
     font.setPixelSize(size)
     font.setBold(True)
-    # AbsoluteSpacing keeps 0.06em tracking without the percentage-spacing
-    # helper's 100=normal semantics (PercentageSpacing 6 would collapse glyphs).
-    font.setLetterSpacing(QFont.AbsoluteSpacing, max(0.5, round(size * 0.06, 2)))
+    # endfield-ui token: eyebrow letterSpacing 0.14em (AbsoluteSpacing —
+    # PercentageSpacing 6 would collapse glyphs).
+    font.setLetterSpacing(QFont.AbsoluteSpacing, max(0.5, round(size * 0.14, 2)))
     lab.setFont(font)
     lab.setObjectName('deckAccent' if accent else 'deck')
     # Inline sheet: keeps the per-call size above the app-wide 16px rule.
@@ -124,7 +150,7 @@ def deck_label(text, size=13, accent=False):
 def deck_num(text):
     """Oversized engineering section numeral (background watermark)."""
     lab = QLabel(text)
-    font = _deck_font()
+    font = _deck_font(125)
     font.setPixelSize(36)
     font.setBold(True)
     lab.setFont(font)
@@ -339,21 +365,135 @@ def _si_combo(parent=None):
     return QComboBox(parent)
 
 
+class ChamferButton(QPushButton):
+    """Endfield button (D34): a cut-top-right-corner block — the chamfer IS
+    the affordance. Hover/press wipes signal yellow in from the left (mech
+    curve), disabled fills with 45° hatch. Fully self-painted (no QSS).
+
+    kind: 'default' graphite block · 'primary' signal border + signal text ·
+          'ghost' quiet variant for secondary navigation.
+    """
+
+    _MECH = None  # lazily built bezier (0.7, 0, 0.2, 1)
+
+    def __init__(self, text='', parent=None, kind='default'):
+        super().__init__(text, parent)
+        self.kind = kind
+        self._wipe = 0.0
+        self._wipe_anim = QVariantAnimation(self)
+        self._wipe_anim.setDuration(150)
+        self._wipe_anim.setStartValue(0.0)
+        self._wipe_anim.setEndValue(1.0)
+        if ChamferButton._MECH is None:
+            ec = QEasingCurve(QEasingCurve.BezierSpline)
+            ec.addCubicBezierSegment(QPointF(0.7, 0.0), QPointF(0.2, 1.0),
+                                     QPointF(1.0, 1.0))
+            ChamferButton._MECH = ec
+        self._wipe_anim.setEasingCurve(ChamferButton._MECH)
+        self._wipe_anim.valueChanged.connect(self._on_wipe)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def _on_wipe(self, v):
+        self._wipe = float(v)
+        self.update()
+
+    def enterEvent(self, e):
+        if self.isEnabled() and self.kind != 'ghost':
+            self._wipe_anim.stop()
+            self._wipe_anim.setStartValue(self._wipe)
+            self._wipe_anim.setEndValue(1.0)
+            self._wipe_anim.start()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        if self.isEnabled() and self.kind != 'ghost':
+            self._wipe_anim.stop()
+            self._wipe_anim.setStartValue(self._wipe)
+            self._wipe_anim.setEndValue(0.0)
+            self._wipe_anim.start()
+        super().leaveEvent(e)
+
+    def _hatch(self, p, rect):
+        """45-degree ink hatch — the disabled fill (endfield-ui token)."""
+        p.save()
+        p.setClipRect(rect)
+        p.setPen(QPen(QColor('#3a3a3a'), 1))
+        x = rect.left() - rect.height()
+        while x < rect.right():
+            p.drawLine(int(x), int(rect.bottom()), int(x + rect.height()),
+                       int(rect.top()))
+            x += 6
+        p.restore()
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        w, h = self.width(), self.height()
+        ch = min(9, h // 4)
+        wipe = 1.0 if self.isDown() else self._wipe
+        path = QPainterPath()
+        path.moveTo(0, 0)
+        path.lineTo(w - ch, 0)
+        path.lineTo(w, ch)
+        path.lineTo(w, h)
+        path.lineTo(0, h)
+        path.closeSubpath()
+        p.setRenderHint(QPainter.Antialiasing, True)
+
+        if not self.isEnabled():
+            p.setPen(QPen(QColor('#2a2a2a'), 1))
+            p.setBrush(QColor('#1c1c1c'))
+            p.drawPath(path)
+            self._hatch(p, path.boundingRect())
+            p.setPen(QColor('#6a6a6a'))
+            p.setFont(self.font())
+            p.drawText(self.rect(), Qt.AlignCenter, self.text())
+            p.end()
+            return
+
+        bg = QColor('#161616') if self.kind == 'ghost' else QColor('#222222')
+        p.setPen(QPen(QColor('#353535'), 1))
+        p.setBrush(bg)
+        p.drawPath(path)
+
+        if self.kind == 'primary':
+            p.setPen(QPen(QColor('#FFFA00'), 1))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(path)
+
+        if wipe > 0.0:
+            p.save()
+            p.setClipRect(QRectF(0, 0, w * wipe, h))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor('#FFFA00'))
+            p.drawPath(path)
+            p.restore()
+
+        text_color = '#161616' if wipe > 0.55 else (
+            '#FFFA00' if self.kind == 'primary' else '#EDEDED')
+        if self.kind == 'ghost':
+            text_color = '#EDEDED'
+        if self.hasFocus():
+            # QPainterPath has no adjusted(); a 2px signal pen IS the focus ring
+            p.setPen(QPen(QColor('#FFFA00'), 2))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(path)
+
+        p.setPen(QColor(text_color))
+        f = QFont()
+        f.setFamilies(['Saira'] + FONT_FAMILIES)
+        f.setPixelSize(15)
+        f.setBold(True)
+        p.setFont(f)
+        p.drawText(self.rect(), Qt.AlignCenter, self.text())
+        if self.icon() is not None and not self.icon().isNull():
+            self.icon().paint(p, QRectF((w - 20) / 2, (h - 20) / 2, 20, 20))
+        p.end()
+
+
 def _si_button(text, parent=None, primary=False):
-    if SIUI is not None:
-        from silicon import SiFont
-        from silicon.SiButton import SiButton
-        btn = SiButton(parent)
-        btn.setText(text)
-        if primary:
-            btn.setStrong(True)
-        fm = QFontMetrics(SiFont.font_L1_bold)
-    else:
-        btn = QPushButton(text, parent)
-        if primary:
-            btn.setObjectName('primary')
-        fm = QFontMetrics(QFont(FONT_FAMILIES, 10, QFont.Bold))
-    btn.setMinimumSize(max(140, fm.horizontalAdvance(text) + 48), 44)
+    btn = ChamferButton(text, parent, kind='primary' if primary else 'default')
+    fm = QFontMetrics(btn.font())
+    btn.setMinimumSize(max(140, fm.horizontalAdvance(text) + 48), 40)
     return btn
 
 
@@ -942,36 +1082,21 @@ class EndfieldPage(QWidget):
         painter.fillRect(self.rect(), QColor(9, 9, 11, 168))
 
     def _paint_contours(self, painter):
+        """endfield contour (D34): small open arcs in two corners only,
+        ink at 9% — never closed rings across the page."""
         w, h = self.width(), self.height()
         if w < 200 or h < 200:
             return
-        two_pi = 2.0 * math.pi
-        n = 72
-        # two topographic clusters for a denser field backdrop
-        for cx, cy, scale in ((w * 0.72, h * 0.36, 1.0),
-                              (w * 0.20, h * 0.72, 0.65),
-                              (w * 0.86, h * 0.80, 0.45)):
-            for i in range(1, 17):
-                base = i * 26.0 * scale
-                amp = min(6.0, base * 0.07)
-                phase = i * 0.85
-                path = QPainterPath()
-                first = True
-                for k in range(n + 1):
-                    ang = two_pi * k / n
-                    r = base + amp * math.sin(3 * ang + phase) \
-                        + amp * 0.7 * math.sin(7 * ang + phase * 1.7)
-                    x, y = cx + r * math.cos(ang), cy + r * math.sin(ang)
-                    if first:
-                        path.moveTo(x, y)
-                        first = False
-                    else:
-                        path.lineTo(x, y)
-                color = (QColor(255, 250, 0, 16) if i % 5 == 0
-                         else QColor(255, 255, 255, 11))
-                painter.setPen(QPen(color, 1))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawPath(path)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setBrush(Qt.NoBrush)
+        ink = QColor('#EDEDED')
+        ink.setAlpha(23)
+        painter.setPen(QPen(ink, 1))
+        for cx, cy, start in ((0, 0, 0), (w, h, 1800)):
+            for i in range(4):
+                r = 70 + i * 34
+                rect = QRectF(cx - r, cy - r, r * 2, r * 2)
+                painter.drawArc(rect, start, 95 * 16)   # open, never closed
 
     def _paint_giant(self, painter):
         w, h = self.width(), self.height()
@@ -1004,11 +1129,16 @@ class MenuPage(EndfieldPage):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        title = QLabel('Ultimate Tic Tac Toe — 終極井字棋')
+        # D34: endfield pairing — wide-cap eyebrow on top, bold CN title below
+        root.addWidget(deck_label('// ULTIMATE TIC TAC TOE', size=11))
+        title = QLabel('終極井字棋')
         title.setObjectName('title')
         root.addWidget(title)
-        root.addWidget(deck_label('GRID.UTTT // FIELD CONSOLE'))
-        root.addWidget(QLabel(t('Game Setup', '遊戲設定')))
+        # real numbers only (endfield-ui rule): engines from AI_OPTIONS
+        root.addWidget(deck_label(
+            f'{len(AI_OPTIONS)} ENGINES │ NATIVE C ENGINE │ 75 TESTS', size=12))
+        root.addSpacing(2)
+        root.addWidget(deck_label('// GAME SETUP — 遊戲設定', size=11, accent=True))
         card = QFrame()
         card.setObjectName('card')
         card_lay = QVBoxLayout(card)
@@ -1207,54 +1337,79 @@ class GamePage(EndfieldPage):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        header = QFrame()
-        header.setObjectName('header')
-        top = QHBoxLayout(header)
-        top.setContentsMargins(16, 8, 16, 8)
-        top_title = QLabel('Ultimate Tic Tac Toe — 終極井字棋')
-        top_title.setObjectName('title')
-        top.addWidget(top_title)
+        root.addWidget(make_stripe())   # tri-colour strip: top edge of the page
+
+        # D34: single dark command bar (constant #161616) — brand block,
+        # transport, step field, dual clock, actions. Replaces the old header
+        # row + control bar + clock chip row (reference: audio-terminal nav).
+        bar = QFrame()
+        bar.setObjectName('commandBar')
+        bar.setFixedHeight(64)
+        top = QHBoxLayout(bar)
+        top.setContentsMargins(14, 8, 14, 8)
+        top.setSpacing(10)
+        brand = QVBoxLayout()
+        brand.setSpacing(1)
+        wm = QLabel('UTTT')
+        f = _deck_font(125)
+        f.setPixelSize(19)
+        f.setBold(True)
+        wm.setFont(f)
+        wm.setStyleSheet('color: #EDEDED;')
+        brand.addWidget(wm)
+        brand.addWidget(deck_label('終極井字棋 // ULTIMATE', size=10))
+        top.addLayout(brand)
+        top.addSpacing(14)
+
+        self.revert_btn = ChamferButton()
+        self.revert_btn.setIcon(_media_icon('back'))
+        self.revert_btn.setToolTip(t('Revert', '回退'))
+        self.revert_btn.setFixedSize(40, 34)
+        self.revert_btn.clicked.connect(self.on_revert_clicked)
+        top.addWidget(self.revert_btn)
+        self.pause_btn = ChamferButton()
+        self.pause_btn.setIcon(_media_icon('pause'))
+        self.pause_btn.setToolTip(t('Pause', '暫停'))
+        self.pause_btn.setFixedSize(40, 34)
+        self.pause_btn.clicked.connect(self.on_pause_clicked)
+        top.addWidget(self.pause_btn)
+        self.next_btn = ChamferButton()
+        self.next_btn.setIcon(_media_icon('next'))
+        self.next_btn.setToolTip(t('Next Step', '下一步'))
+        self.next_btn.setFixedSize(40, 34)
+        self.next_btn.clicked.connect(self.on_step_clicked)
+        top.addWidget(self.next_btn)
         top.addStretch(1)
-        self.new_btn = _si_button(t('New Game', '新遊戲'))
+
+        self.step_lbl = deck_label('STEP 00/00', size=12)
+        top.addWidget(self.step_lbl)
+        top.addSpacing(8)
+        self.clock_lbl = QLabel('')
+        cf = _deck_font(112)
+        cf.setPixelSize(15)
+        cf.setBold(True)
+        self.clock_lbl.setFont(cf)
+        self.clock_lbl.hide()
+        top.addWidget(self.clock_lbl)
+        self.byo_tag = QLabel('')
+        self.byo_tag.setStyleSheet(
+            'background: #FFFA00; color: #161616; padding: 3px 8px;'
+            'font-weight: 700;')
+        self.byo_tag.hide()
+        top.addWidget(self.byo_tag)
+        top.addSpacing(8)
+
+        self.new_btn = ChamferButton(t('新遊戲', '新遊戲'))
         self.new_btn.clicked.connect(self.new_game)
         top.addWidget(self.new_btn)
-        self.play_again_btn = _si_button(t('Play Again', '再玩一次'), primary=True)
+        self.play_again_btn = ChamferButton(t('再玩一次', '再玩一次'), kind='primary')
         self.play_again_btn.clicked.connect(self.new_game)
         self.play_again_btn.setVisible(False)
         top.addWidget(self.play_again_btn)
-        back_btn = _si_button(t('Back to Menu', '返回選單'))
+        back_btn = ChamferButton(t('選單', '選單'), kind='ghost')
         back_btn.clicked.connect(self.back_requested.emit)
-        back_btn.setObjectName('ghost')
         top.addWidget(back_btn)
-        root.addWidget(header)
-        root.addWidget(make_stripe())
-
-        # Top control bar: revert / pause / next step (the timeline scrubber
-        # was removed — the History card took over step navigation)
-        ctrl_bar = QFrame()
-        ctrl_bar.setObjectName('card')
-        ctrl_lay = QHBoxLayout(ctrl_bar)
-        ctrl_lay.setContentsMargins(8, 6, 8, 6)
-        self.revert_btn = QPushButton()
-        self.revert_btn.setIcon(_media_icon('back'))
-        self.revert_btn.setToolTip(t('Revert', '回退'))
-        self.revert_btn.setFixedSize(40, 36)
-        self.revert_btn.clicked.connect(self.on_revert_clicked)
-        ctrl_lay.addWidget(self.revert_btn)
-        self.pause_btn = QPushButton()
-        self.pause_btn.setIcon(_media_icon('pause'))
-        self.pause_btn.setToolTip(t('Pause', '暫停'))
-        self.pause_btn.setFixedSize(40, 36)
-        self.pause_btn.clicked.connect(self.on_pause_clicked)
-        ctrl_lay.addWidget(self.pause_btn)
-        self.next_btn = QPushButton()
-        self.next_btn.setIcon(_media_icon('next'))
-        self.next_btn.setToolTip(t('Next Step', '下一步'))
-        self.next_btn.setFixedSize(40, 36)
-        self.next_btn.clicked.connect(self.on_step_clicked)
-        ctrl_lay.addWidget(self.next_btn)
-        ctrl_lay.addStretch(1)
-        root.addWidget(ctrl_bar)
+        root.addWidget(bar)
 
         # Win-rate chart (lives under the board, so the right panel spans the
         # full window height); single X-win-rate line with a 50% reference.
@@ -1322,20 +1477,6 @@ class GamePage(EndfieldPage):
         self.status_text = QLabel('')
         status_row.addWidget(self.status_text)
         status_row.addStretch(1)
-        # D33: per-side clock chips (hidden when no clock preset)
-        self.clock_x = QLabel('✕ --:--')
-        self.clock_o = QLabel('○ --:--')
-        for lbl in (self.clock_x, self.clock_o):
-            lbl.setObjectName('clockChip')
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setFixedHeight(34)
-        clock_row = QHBoxLayout()
-        clock_row.addWidget(self.clock_x, 1)
-        clock_row.addSpacing(6)
-        clock_row.addWidget(self.clock_o, 1)
-        board_col.addLayout(clock_row)
-        self.clock_x.hide()
-        self.clock_o.hide()
         board_col.addLayout(status_row)
         self.board = BoardWidget()
         self.board.cell_clicked.connect(self.on_cell_click)
@@ -1441,6 +1582,16 @@ class GamePage(EndfieldPage):
         self.analysis_list.setMinimumHeight(160)
         self.analysis_list.itemClicked.connect(self.on_analysis_clicked)
         az_lay.addWidget(self.analysis_list)
+        # empty state (endfield): 45-degree hatch band + one full sentence
+        self.az_hatch = QLabel(t(
+            'Analysis results appear here after each move.',
+            '每手棋之後，分析結果會出現在這裡。'))
+        self.az_hatch.setFixedHeight(64)
+        self.az_hatch.setAlignment(Qt.AlignCenter)
+        self.az_hatch.setWordWrap(True)
+        self.az_hatch.paintEvent = lambda e, lbl=self.az_hatch, fn=self._paint_hatch:             fn(lbl, e)
+        self.az_hatch.show()
+        az_lay.addWidget(self.az_hatch)
         hint = QLabel(t('Click a move to highlight it', '點擊棋步可在棋盤上標示'))
         hint.setObjectName('muted')
         az_lay.addWidget(hint)
@@ -1504,14 +1655,13 @@ class GamePage(EndfieldPage):
             self._time_loss = None
             self._clock_tick_t = time.monotonic()
             self._clock_timer.start(100)
-            self.clock_x.show()
-            self.clock_o.show()
+            self.clock_lbl.show()
         else:
             self.clock = None
             self._time_loss = None
             self._clock_timer.stop()
-            self.clock_x.hide()
-            self.clock_o.hide()
+            self.clock_lbl.hide()
+            self.byo_tag.hide()
         self._update_clock_chips()
         s['moves'] = []
         s['history'] = [self._history_point()]
@@ -1639,6 +1789,8 @@ class GamePage(EndfieldPage):
     def refresh(self):
         if self.game is None:
             return
+        n_moves = len(self.session.get('moves', []))
+        self.step_lbl.setText(f'STEP {self.step_idx:02d}/{n_moves:02d}')
         result = self.game.result()
         if result in (X, O):
             self.status_mark.setText('✕' if result == X else '○')
@@ -1670,8 +1822,8 @@ class GamePage(EndfieldPage):
         self.info_x.setText(f'✕ {side_label(x_type)}')
         self.info_o.setText(f'○ {side_label(o_type)}')
         self.footer_lbl.setText(
-            f'GRID.UTTT // MODE {mode_text} // X: {str(x_type).upper()} '
-            f'─ O: {str(o_type).upper()} // STEP {self.step_idx:02d} — '
+            f'GRID.UTTT │ MODE {mode_text} │ X: {str(x_type).upper()} '
+            f'─ O: {str(o_type).upper()} │ STEP {self.step_idx:02d} — '
             f'{len(self.session.get("moves", []))}')
         self.board.update()
         self.update_cvc_controls()
@@ -1782,22 +1934,36 @@ class GamePage(EndfieldPage):
         log.info('Time out: %s loses on time', side)
 
     def _update_clock_chips(self):
+        """D34: one Saira readout in the command bar — `X 3:00 │ O 2:41`,
+        the side to move in signal yellow; a byo-yomi side becomes a
+        yellow-filled tag (the endfield 'look at this' block)."""
         if self.clock is None:
             return
-        for lbl, side in ((self.clock_x, 'X'), (self.clock_o, 'O')):
+        segs = []
+        byo_side = None
+        for side in ('X', 'O'):
             c = self.clock[side]
             if c['in_byo']:
-                text = f'{side} 讀秒 {c["periods"]} · {c["byo"]:0.1f}s'
-                accent = 'border-color: #ff1aac; color: #ff1aac;'
+                segs.append(f'{side} 讀秒{max(0, c["periods"])} {max(0.0, c["byo"]):0.1f}s')
+                byo_side = side
             else:
-                text = f'{side} {self._fmt_main(c["main"])}'
-                accent = ''
-            active = (self.game is not None and self.game.current == side
-                      and not self._time_loss)
-            if active:
-                accent = 'border-color: #fffa00; color: #fffa00;'
-            lbl.setText(text)
-            lbl.setStyleSheet(accent)
+                segs.append(f'{side} {self._fmt_main(c["main"])}')
+        active = (self.game.current if self.game is not None
+                  and not self._time_loss else None)
+        parts = []
+        for side, seg in zip(('X', 'O'), segs):
+            if side == active:
+                parts.append(f'<font color="#FFFA00"><b>{seg}</b></font>')
+            else:
+                parts.append(f'<font color="#A3A3A3">{seg}</font>')
+        self.clock_lbl.setText(' │ '.join(parts))
+        if byo_side is not None and not self._time_loss:
+            c = self.clock[byo_side]
+            self.byo_tag.setText(
+                f'{byo_side} 讀秒 {max(0, c["periods"])} · {max(0.0, c["byo"]):0.1f}s')
+            self.byo_tag.show()
+        else:
+            self.byo_tag.hide()
 
     def cvc_tick(self):
         if self._time_loss:
@@ -1992,6 +2158,20 @@ class GamePage(EndfieldPage):
         self._bar_pos = cur
         self._apply_bar(cur)
 
+    def _paint_hatch(self, lbl, e):
+        p = QPainter(lbl)
+        r = lbl.rect()
+        p.fillRect(r, QColor('#1d1d1d'))
+        p.setPen(QPen(QColor('#3a3a3a'), 1))
+        x = r.left() - r.height()
+        while x < r.right():
+            p.drawLine(x, r.bottom(), x + r.height(), r.top())
+            x += 7
+        p.setPen(QColor('#A3A3A3'))
+        p.setFont(lbl.font())
+        p.drawText(r, Qt.AlignCenter, lbl.text())
+        p.end()
+
     def _apply_bar(self, v):
         self.win_bar_lay.setStretchFactor(self.bar_x, int(v[0] * 1000))
         self.win_bar_lay.setStretchFactor(self.bar_d, 0)
@@ -1999,6 +2179,8 @@ class GamePage(EndfieldPage):
 
     def render_analysis(self, items, rates):
         self.analysis_list.clear()
+        self.az_hatch.setVisible(not items)
+        self.analysis_list.setVisible(bool(items))
         x, d, o = rates
         tot = x + o
         if tot > 0:
@@ -2222,6 +2404,7 @@ class MainWindow(QMainWindow):
         self.web_proc = None
         self.web_port = port
         self.setWindowTitle('Ultimate Tic Tac Toe — 終極井字棋')
+        load_app_font()
         self.setStyleSheet(QSS)
         self.stack = QStackedWidget()
         self.menu_page = MenuPage(web_port=port)
