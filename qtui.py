@@ -1861,7 +1861,8 @@ class GamePage(EndfieldPage):
         return f'{m}:{sec:02d}'
 
     def _clock_tick(self):
-        if self.clock is None or self._time_loss or self.game is None:
+        if (self.clock is None or self._time_loss or self.game is None
+                or self.game.is_over()):
             return
         now = time.monotonic()
         dt = now - (self._clock_tick_t or now)
@@ -2230,6 +2231,8 @@ class GamePage(EndfieldPage):
         result = self.game.result()
         log.info('Game over: %s [%s]', result,
                  'Normal' if isinstance(self.game, NormalGame) else 'Ultimate')
+        self._clock_timer.stop()        # game over: clocks freeze (D35 review)
+        self._update_clock_chips()
         self.board.animate_win_line()   # D31: strike line draws in
         self._chart_fit_all()           # compress the whole curve into view
         # No popup: a prominent "Play Again" button replaces New Game.
