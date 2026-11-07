@@ -12,7 +12,8 @@
 QWidget {
     background: #191919;
     color: #EDEDED;
-    font-family: "Saira", "Noto Sans TC", "Noto Sans SC", "Source Han Sans CN",
+    font-family: "Inter", "HarmonyOS Sans TC", "HarmonyOS Sans SC",
+                 "Noto Sans TC", "Noto Sans SC", "Source Han Sans CN",
                  "Microsoft YaHei", "Segoe UI";
     font-size: 16px;
     selection-background-color: #FFFA00;

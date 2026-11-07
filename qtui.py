@@ -79,11 +79,14 @@ def _blur_pixmap(pm, radius):
     rp.end()
     return QPixmap.fromImage(out)
 
-# Mechanical Latin faces: Space Grotesk ships with the app (SIL OFL, see
-# static/fonts/) — flat terminals and sharp joins are the industrial look;
-# Saira read too rounded on dark grounds (D35 review). 'Bender' etc. remain
-# as fallbacks for a bare checkout without the font.
-DECK_FONT_FAMILIES = ['Space Grotesk', 'Saira', 'Bender', 'Oswald', 'Segoe UI']
+# Role-based typography (D35 review, mirrors the archive reference):
+#   DISPLAY — Inter Black/ExtraBold, tight -0.03em tracking, uppercase:
+#             brand blocks, giant watermark numerals. The mass carries it.
+#   MONO    — JetBrains Mono 500, +0.05em, 12px uppercase: every field
+#             label, clock readout, button. The machine voice.
+#   BODY    — FONT_FAMILIES (HarmonyOS/Noto/雅黑) for CJK and prose.
+DISPLAY_FAMILIES = ['Inter', 'Segoe UI']
+MONO_FAMILIES = ['JetBrains Mono', 'Cascadia Mono', 'Consolas', 'Courier New']
 
 _FONT_LOADED = False
 
@@ -96,29 +99,39 @@ def load_app_font():
     _FONT_LOADED = True
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         'static', 'fonts')
-    for name in ('SpaceGrotesk-Medium.ttf', 'SpaceGrotesk-Bold.ttf',
-                 'Saira.ttf'):
+    for name in ('Inter-Regular.ttf', 'Inter-Bold.ttf', 'Inter-ExtraBold.ttf',
+                 'Inter-Black.ttf', 'JetBrainsMono-Medium.ttf',
+                 'JetBrainsMono-Bold.ttf'):
         path = os.path.join(base, name)
         if os.path.isfile(path):
             if QFontDatabase.addApplicationFont(path) < 0:
                 log.warning('font failed to load from %s', path)
 
 
-def _deck_font(stretch=112):
-    """Industrial Latin face (Space Grotesk bundled, D35), else fallbacks.
-    setStretch stays as the widening path — setVariableAxis segfaults on
-    this PySide6 build (see D34 note)."""
+def _first_available(fams):
     available = set(QFontDatabase.families())
-    f = None
-    for fam in DECK_FONT_FAMILIES:
+    for fam in fams:
         if fam in available:
-            f = QFont(fam)
-            break
-    if f is None:
-        f = QFont()
-    # NB: QFont.setVariableAxis segfaults on this PySide6 build when the
-    # font is rendered — setStretch alone is the stable widening path.
-    f.setStretch(stretch)
+            return QFont(fam)
+    return QFont()
+
+
+def _display_font(size):
+    """Inter Black display role — mass, tight tracking, no synthetic bold."""
+    f = _first_available(DISPLAY_FAMILIES)
+    f.setPixelSize(size)
+    f.setWeight(QFont.Black)
+    # negative tracking: the Inter-900 dense-block look (archive reference)
+    f.setLetterSpacing(QFont.AbsoluteSpacing, round(size * -0.03, 2))
+    return f
+
+
+def _mono_font(size, weight=QFont.DemiBold):
+    """JetBrains Mono role — every field label, readout and button."""
+    f = _first_available(MONO_FAMILIES)
+    f.setPixelSize(size)
+    f.setWeight(weight)
+    f.setLetterSpacing(QFont.AbsoluteSpacing, max(0.5, round(size * 0.05, 2)))
     return f
 
 
@@ -127,15 +140,10 @@ def anim_enabled():
     return not QSettings('SBA', 'SBA').value('reduce_motion', False, type=bool)
 
 
-def deck_label(text, size=13, accent=False, stretch=112):
-    """Endfield field-console label: wide caps + 0.14em tracking (D34)."""
+def deck_label(text, size=12, accent=False):
+    """Field-console label: JetBrains Mono, uppercase, +0.05em (D35)."""
     lab = QLabel(text.upper() if text.isascii() else text)
-    font = _deck_font(stretch)
-    font.setPixelSize(size)
-    font.setBold(True)
-    # endfield-ui token: eyebrow letterSpacing 0.14em (AbsoluteSpacing —
-    # PercentageSpacing 6 would collapse glyphs).
-    font.setLetterSpacing(QFont.AbsoluteSpacing, max(0.5, round(size * 0.14, 2)))
+    font = _mono_font(size, QFont.Medium)
     lab.setFont(font)
     lab.setObjectName('deckAccent' if accent else 'deck')
     # Inline sheet: keeps the per-call size above the app-wide 16px rule.
@@ -146,9 +154,7 @@ def deck_label(text, size=13, accent=False, stretch=112):
 def deck_num(text):
     """Oversized engineering section numeral (background watermark)."""
     lab = QLabel(text)
-    font = _deck_font(125)
-    font.setPixelSize(36)
-    font.setBold(True)
+    font = _display_font(36)
     lab.setFont(font)
     lab.setObjectName('deckNum')
     lab.setStyleSheet('font-size: 36px;')
@@ -388,9 +394,7 @@ class ChamferButton(QPushButton):
 
         p.setPen(QColor(text_color))
         f = QFont()
-        f.setFamilies(['Space Grotesk'] + FONT_FAMILIES)
-        f.setPixelSize(15)
-        f.setBold(True)
+        f.setWeight(QFont.DemiBold)
         p.setFont(f)
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
         if self.icon() is not None and not self.icon().isNull():
@@ -1048,9 +1052,7 @@ class EndfieldPage(QWidget):
 
     def _paint_giant(self, painter):
         w, h = self.width(), self.height()
-        font = _deck_font()
-        font.setPixelSize(int(min(w, h) * 0.30))
-        font.setBold(True)
+        font = _display_font(int(min(w, h) * 0.30))
         path = QPainterPath()
         path.addText(QPointF(w * 0.05, h * 0.62), font, self.GIANT_TEXT)
         painter.setPen(QPen(QColor(255, 255, 255, 22), 1))
@@ -1280,9 +1282,7 @@ class GamePage(EndfieldPage):
         brand = QVBoxLayout()
         brand.setSpacing(1)
         wm = QLabel('UTTT')
-        f = _deck_font(125)
-        f.setPixelSize(19)
-        f.setBold(True)
+        f = _display_font(19)
         wm.setFont(f)
         wm.setStyleSheet('color: #EDEDED;')
         brand.addWidget(wm)
@@ -1314,9 +1314,7 @@ class GamePage(EndfieldPage):
         top.addWidget(self.step_lbl)
         top.addSpacing(8)
         self.clock_lbl = QLabel('')
-        cf = _deck_font(112)
-        cf.setPixelSize(15)
-        cf.setBold(True)
+        cf = _mono_font(15)
         self.clock_lbl.setFont(cf)
         self.clock_lbl.hide()
         top.addWidget(self.clock_lbl)
