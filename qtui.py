@@ -1326,14 +1326,14 @@ class GamePage(EndfieldPage):
         top.addWidget(self.byo_tag)
         top.addSpacing(8)
 
-        self.new_btn = ChamferButton(t('新遊戲', '新遊戲'))
+        self.new_btn = ChamferButton('新遊戲')
         self.new_btn.clicked.connect(self.new_game)
         top.addWidget(self.new_btn)
-        self.play_again_btn = ChamferButton(t('再玩一次', '再玩一次'), kind='primary')
+        self.play_again_btn = ChamferButton('再玩一次', kind='primary')
         self.play_again_btn.clicked.connect(self.new_game)
         self.play_again_btn.setVisible(False)
         top.addWidget(self.play_again_btn)
-        back_btn = ChamferButton(t('選單', '選單'), kind='ghost')
+        back_btn = ChamferButton('選單', kind='ghost')
         back_btn.clicked.connect(self.back_requested.emit)
         top.addWidget(back_btn)
         root.addWidget(bar)
@@ -1891,9 +1891,10 @@ class GamePage(EndfieldPage):
         winner = 'O' if side == 'X' else 'X'
         self._time_loss = side
         self._clock_timer.stop()
-        self.status_mark.setText('⏱')
+        self.status_mark.setText('○' if winner == 'O' else '✕')
         self.status_mark.setStyleSheet(
-            'color: #FFFA00; font-size: 20px; font-weight: 700;')
+            'color: ' + ('#FFFA00' if winner == 'O' else '#EDEDED')
+            + '; font-size: 20px; font-weight: 700;')
         self.status_text.setText(
             t(f'{side} lost on time — {winner} wins!',
               f'{side} 超時判負 — {winner} 獲勝！'))
@@ -1909,13 +1910,17 @@ class GamePage(EndfieldPage):
             return
         segs = []
         byo_side = None
+        mark = {'X': ('✕', '#EDEDED'), 'O': ('○', '#FFFA00')}
         for side in ('X', 'O'):
             c = self.clock[side]
+            glyph, gcol = mark[side]
+            head = f'<font color="{gcol}">{glyph}</font>'
             if c['in_byo']:
-                segs.append(f'{side} 讀秒{max(0, c["periods"])} {max(0.0, c["byo"]):0.1f}s')
+                segs.append(f'{head} 讀秒{max(0, c["periods"])} '
+                            f'{max(0.0, c["byo"]):0.1f}s')
                 byo_side = side
             else:
-                segs.append(f'{side} {self._fmt_main(c["main"])}')
+                segs.append(f'{head} {self._fmt_main(c["main"])}')
         active = (self.game.current if self.game is not None
                   and not self._time_loss else None)
         parts = []
@@ -1927,8 +1932,10 @@ class GamePage(EndfieldPage):
         self.clock_lbl.setText(' │ '.join(parts))
         if byo_side is not None and not self._time_loss:
             c = self.clock[byo_side]
+            glyph = '✕' if byo_side == 'X' else '○'
             self.byo_tag.setText(
-                f'{byo_side} 讀秒 {max(0, c["periods"])} · {max(0.0, c["byo"]):0.1f}s')
+                f'{glyph} 讀秒 {max(0, c["periods"])} · '
+                f'{max(0.0, c["byo"]):0.1f}s')
             self.byo_tag.show()
         else:
             self.byo_tag.hide()
