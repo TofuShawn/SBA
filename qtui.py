@@ -52,9 +52,10 @@ from SBA import (
 )
 
 
-# Font stack: Noto Sans TC is installed on Windows 10+; Segoe UI/雅黑 are
+# Font stack: HarmonyOS Sans / Noto Sans TC when installed; Segoe UI/雅黑 are
 # fallbacks so CJK and Latin both render cleanly.
-FONT_FAMILIES = ['Noto Sans TC', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
+FONT_FAMILIES = ['HarmonyOS Sans TC', 'HarmonyOS Sans SC', 'Noto Sans TC',
+                 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI']
 
 # Arknights Endfield palette: signal orange for win outlines/masks/labels
 # (was olive green; orange separates from the yellow O-side accent).
@@ -78,33 +79,35 @@ def _blur_pixmap(pm, radius):
     rp.end()
     return QPixmap.fromImage(out)
 
-# Mechanical Latin faces: Saira ships with the app (SIL OFL, see
-# static/fonts/) — wide geometric caps are half the Endfield look (D34).
-# 'Bender' etc. remain as fallbacks for a bare checkout without the font.
-DECK_FONT_FAMILIES = ['Saira', 'Bender', 'NovecentoSansWide', 'Oswald',
-                      'Gilroy', 'Space Grotesk', 'Segoe UI']
+# Mechanical Latin faces: Space Grotesk ships with the app (SIL OFL, see
+# static/fonts/) — flat terminals and sharp joins are the industrial look;
+# Saira read too rounded on dark grounds (D35 review). 'Bender' etc. remain
+# as fallbacks for a bare checkout without the font.
+DECK_FONT_FAMILIES = ['Space Grotesk', 'Saira', 'Bender', 'Oswald', 'Segoe UI']
 
 _FONT_LOADED = False
 
 
 def load_app_font():
-    """Register the bundled Saira variable font once (needs a QApplication)."""
+    """Register the bundled fonts once (needs a QApplication)."""
     global _FONT_LOADED
     if _FONT_LOADED:
         return
     _FONT_LOADED = True
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        'static', 'fonts', 'Saira.ttf')
-    if os.path.isfile(path):
-        fid = QFontDatabase.addApplicationFont(path)
-        if fid < 0:
-            log.warning('Saira font failed to load from %s', path)
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        'static', 'fonts')
+    for name in ('SpaceGrotesk-Medium.ttf', 'SpaceGrotesk-Bold.ttf',
+                 'Saira.ttf'):
+        path = os.path.join(base, name)
+        if os.path.isfile(path):
+            if QFontDatabase.addApplicationFont(path) < 0:
+                log.warning('font failed to load from %s', path)
 
 
 def _deck_font(stretch=112):
-    """Wide geometric Latin face (Saira bundled, D34), else fallbacks.
-    Saira is a variable font — the wdth axis is set directly when the
-    runtime supports it (Qt >= 6.7), setStretch as the fallback."""
+    """Industrial Latin face (Space Grotesk bundled, D35), else fallbacks.
+    setStretch stays as the widening path — setVariableAxis segfaults on
+    this PySide6 build (see D34 note)."""
     available = set(QFontDatabase.families())
     f = None
     for fam in DECK_FONT_FAMILIES:
@@ -385,7 +388,7 @@ class ChamferButton(QPushButton):
 
         p.setPen(QColor(text_color))
         f = QFont()
-        f.setFamilies(['Saira'] + FONT_FAMILIES)
+        f.setFamilies(['Space Grotesk'] + FONT_FAMILIES)
         f.setPixelSize(15)
         f.setBold(True)
         p.setFont(f)
