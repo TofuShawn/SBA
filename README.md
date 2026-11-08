@@ -167,61 +167,65 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 ## Architecture map / 架構地圖
 
 Read order is baked into the map: **[1] → [5]**, top layers depend on bottom
-layers (one-way, D2). Run it first — `python src/SBA.py` — then read downward /
-閱讀順序已編進圖裡：**[1] → [5]**；上層依賴下層、單向（D2）。先跑起來，再往下讀。
+layers (one-way, D2). All Python modules live in `src/` (D36). Run it first —
+`python src/SBA.py` — then read downward /
+閱讀順序已編進圖裡：**[1] → [5]**；上層依賴下層、單向（D2）。Python 模組都在 `src/`（D36）。
+先跑起來，再往下讀。
 
 ```
       UI LAYER (pick one — two front ends, one backend)
   +----------------------+  +----------------------+
   | src/qtui.py     [5a] |  | src/tui.py      [5b] |
   | PySide6 desktop      |  | rich terminal        |
-  | ~2500 lines          |  | ~1350 lines          |
+  | ~2500 lines          |  | ~1370 lines          |
   +----------+-----------+  +----------+-----------+
              |                         |
              +------------+------------+
                           |
-      GLUE LAYER                v
+      GLUE LAYER          v
   +------------------------------------------------------+
-  | src/SBA.py  [4]                                           |
-  | CLI entry · session state · t() bilingual strings     |
-  | --self-test / --bench / --train-az                    |
-  | ~260 lines                                            |
+  | src/SBA.py  [4]                                      |
+  | CLI entry · session state · t() bilingual strings    |
+  | --self-test / --bench / --train-az                   |
+  | ~250 lines                                           |
   +---------------------------+--------------------------+
                               |
       ENGINE LAYER            v
   +------------------------------------------------------+
-  | src/ai.py  [2]                                            |
-  | all engines + assistant analysis (get_ai_move,        |
-  | analyze_position); one search -> best moves           |
-  | AND (X, draw, O) win rates (D15)                      |
-  | ~1530 lines                                           |
+  | src/ai.py  [2]                                       |
+  | all engines + assistant analysis (get_ai_move,       |
+  | analyze_position); one search -> best moves          |
+  | AND (X, draw, O) win rates (D15)                     |
+  | ~1900 lines                                          |
   +---------+--------------------------------------------+
             |
             |  lazy import (loads torch only when selected)
             v
   +------------------------------------------------------+
-  | src/alphazero.py  [3]                                     |
-  | neural-guided MCTS: AZNet policy+value heads,         |
-  | self-play workers, replay buffer, LR/temp annealing   |
-  | Ultimate only (D4); ~900 lines                        |
+  | src/alphazero.py  [3]                                |
+  | neural-guided MCTS: AZNet policy+value heads,        |
+  | self-play workers, replay buffer, LR/temp annealing  |
+  | Ultimate only (D4); ~950 lines                       |
   +---------------------------+--------------------------+
                               |
       RULES LAYER             v
   +------------------------------------------------------+
-  | src/game.py  [1]                                          |
-  | NormalGame / UltimateGame / BitUltimateGame           |
-  | the only ground truth: legal_moves() make_move()      |
-  | result() clone()                                      |
-  | ~345 lines                                            |
+  | src/game.py  [1]                                     |
+  | NormalGame / UltimateGame / BitUltimateGame          |
+  | the only ground truth: legal_moves() make_move()     |
+  | result() clone()                                     |
+  | ~345 lines                                           |
   +------------------------------------------------------+
 
   SIDE CAR (no layer — loads in from the side)
-    config.toml -------- > ai.py        every engine switch + session defaults (D11)
-    native/*.c -> dll -- > all engines  C backends: full MCTS tree, rollouts,
-                                        minimax family (D27; ~37x, build via
-                                        native/build.py, auto-fallback to Python)
-    static/*.qss ------- > qtui          stylesheets only, no logic
-    tests/ --------------              headless pytest: rules, AI sanity, AZ smoke
+    config.toml -------------- > src/ai.py    every engine switch + session defaults (D11)
+    native/cengine.py + dll -- > src/ai.py    C backends (D25-D30): full MCTS tree,
+                                              rollouts and the minimax family live in
+                                              sba_engine.dll (~37x; built via
+                                              native/build.py, auto-fallback to Python)
+    static/ (qss·fonts·bg) --- > src/qtui.py  stylesheets, bundled OFL fonts, backdrops
+    tests/ -------------------                headless pytest: rules, AI sanity,
+                                              C engine, AZ recipe
 ```
 
 Reading-route highlights, condensed from the retired
