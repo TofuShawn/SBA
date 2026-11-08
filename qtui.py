@@ -299,6 +299,13 @@ class ChamferButton(QPushButton):
         self._wipe_anim.setEasingCurve(ChamferButton._MECH)
         self._wipe_anim.valueChanged.connect(self._on_wipe)
         self.setCursor(Qt.PointingHandCursor)
+        # mono role (D35 review): JetBrains Mono 13px DemiBold on the widget
+        # itself, so _deck_button's QFontMetrics measure what paint draws
+        f = QFont()
+        f.setFamilies(MONO_FAMILIES + FONT_FAMILIES)
+        f.setPixelSize(13)
+        f.setWeight(QFont.DemiBold)
+        self.setFont(f)
 
     def _on_wipe(self, v):
         self._wipe = float(v)
@@ -393,9 +400,7 @@ class ChamferButton(QPushButton):
             p.drawPath(path)
 
         p.setPen(QColor(text_color))
-        f = QFont()
-        f.setWeight(QFont.DemiBold)
-        p.setFont(f)
+        p.setFont(self.font())
         p.drawText(self.rect(), Qt.AlignCenter, self.text())
         if self.icon() is not None and not self.icon().isNull():
             # QIcon.paint rejects QRectF; only QRect or int x/y/w/h overloads exist
@@ -1651,7 +1656,15 @@ class GamePage(EndfieldPage):
         self.board.set_game(self.game)
         self.board.reset_reveal()
         if self.clock is not None:
+            # rewinding leaves any timeout verdict behind: the rewound
+            # position is live again, so resume the clock from now
+            self._time_loss = None
             self._clock_tick_t = time.monotonic()
+            if self.game.is_over():
+                self._clock_timer.stop()
+            else:
+                self._clock_timer.start(100)
+            self._update_clock_chips()
         self._render_history()
         self.refresh()
         self.trigger_analysis()
@@ -1904,7 +1917,7 @@ class GamePage(EndfieldPage):
         log.info('Time out: %s loses on time', side)
 
     def _update_clock_chips(self):
-        """D34: one Saira readout in the command bar — `X 3:00 │ O 2:41`,
+        """D34: one clock readout in the command bar — `✕ 3:00 │ ○ 2:41`,
         the side to move in signal yellow; a byo-yomi side becomes a
         yellow-filled tag (the endfield 'look at this' block)."""
         if self.clock is None:
@@ -1922,8 +1935,9 @@ class GamePage(EndfieldPage):
                 byo_side = side
             else:
                 segs.append(f'{head} {self._fmt_main(c["main"])}')
+        over = self.game is not None and self.game.is_over()
         active = (self.game.current if self.game is not None
-                  and not self._time_loss else None)
+                  and not self._time_loss and not over else None)
         parts = []
         for side, seg in zip(('X', 'O'), segs):
             if side == active:
@@ -1931,7 +1945,7 @@ class GamePage(EndfieldPage):
             else:
                 parts.append(f'<font color="#A3A3A3">{seg}</font>')
         self.clock_lbl.setText(' │ '.join(parts))
-        if byo_side is not None and not self._time_loss:
+        if byo_side is not None and not self._time_loss and not over:
             c = self.clock[byo_side]
             glyph = '✕' if byo_side == 'X' else '○'
             self.byo_tag.setText(
@@ -2175,9 +2189,9 @@ class GamePage(EndfieldPage):
         x, d, o = rates
         # Readout spans the FULL outcome distribution (a draw-expected
         # position used to collapse to a meaningless "X 0% · O 0%" — the
-        # user-caught design bug). Saira's capital O is glyph-identical to
-        # zero, so the sides use the ✕/○ marks with their board colors
-        # instead of bare letters.
+        # user-caught design bug). The mono capital O reads as zero, so
+        # the sides use the ✕/○ marks with their board colors instead of
+        # bare letters.
         tot3 = x + d + o
         if tot3 > 0:
             rx, rd, ro = x / tot3, d / tot3, o / tot3
