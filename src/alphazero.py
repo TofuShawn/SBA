@@ -625,7 +625,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           steps_per_game=5, replay_cap=500, channels=128, blocks=5,
           ckpt_every=None, dirichlet_eps=DIRICHLET_EPS, workers=1,
           weight_decay=1e-4, value_target='root_mean', policy_loss='kl',
-          augment=True, stage=2, resume=None, save_path=None):
+          augment=True, stage=2, resume=None, save_path=None,
+          eval_ai='MCTS', eval_sims=800):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
@@ -652,6 +653,9 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
     use_network = stage == 2
 
     def evaluate():
+        # in-training gauge: AZ@100 vs a classical MCTS opponent (C tree) —
+        # Random loses its meaning once the network plays at all
+        from ai import get_ai_move
         wins = draws = losses = 0
         for _ in range(eval_games):
             for az_first in (True, False):
@@ -661,7 +665,7 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
                     if az_turn:
                         apply_move(game, alphazero_move(game, model, 100))
                     else:
-                        apply_move(game, random.choice(game.legal_moves()))
+                        apply_move(game, get_ai_move(game, eval_ai, eval_sims))
                 r = game.result()
                 az_won = (r == X and az_first) or (r == O and not az_first)
                 if az_won:
@@ -732,7 +736,10 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             el = time.time() - start
             w, d, l = evaluate()
             print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
-                  % (game_type, it, games, w, d, l, total_loss / steps_per_game, el), flush=True)
+                  '  [eval: AZ@100 vs %s@%d]'
+                  % (game_type, it, games, w, d, l,
+                     total_loss / steps_per_game, el, eval_ai, eval_sims),
+                  flush=True)
 
     if save:
         _save_model(model, size, channels, blocks, save_path)
@@ -868,6 +875,10 @@ def main(argv=None):
     tr.add_argument('--sims', type=int, default=80)
     tr.add_argument('--eval-every', type=int, default=25)
     tr.add_argument('--eval-games', type=int, default=20)
+    tr.add_argument('--eval-ai', type=str, default='MCTS',
+                    help='in-training eval opponent (default: MCTS via the C tree)')
+    tr.add_argument('--eval-sims', type=int, default=800,
+                    help='sim budget of the in-training eval opponent (default: 800)')
     tr.add_argument('--lr', type=float, default=1e-3)
     tr.add_argument('--seed', type=int, default=None)
     tr.add_argument('--rollout-weight', type=float, default=ROLLOUT_WEIGHT,
@@ -916,7 +927,8 @@ def main(argv=None):
               replay_cap=args.replay_cap, weight_decay=args.weight_decay,
               value_target=args.value_target, policy_loss=args.policy_loss,
               augment=not args.no_augment, stage=args.stage,
-              resume=args.resume, save_path=args.model_path)
+              resume=args.resume, save_path=args.model_path,
+              eval_ai=args.eval_ai, eval_sims=args.eval_sims)
     else:
         model = load_model('ultimate')
         if model is None:
