@@ -110,7 +110,7 @@ CLI flags / 指令參數：
 
 ```bash
 python src/SBA.py --self-test
-# Windows: run.bat --self-test (local launcher, not tracked in git)
+# Windows: start.bat --self-test (local launcher, not tracked in git)
 ```
 
 Runs the pytest suite covering rules, AI sanity, termination, and AlphaZero
@@ -297,7 +297,7 @@ Measured with `python src/SBA.py --bench` on this machine (AMD Ryzen 9 9950X,
 RX 7900 XTX); **score% = (wins + draws/2) / games**, 20–30 games per matchup,
 first player alternates. Reproduce any row with `--ai-a X --ai-b Y --games N`.
 Rows below predate the native C engine (D27 numbers in the section above).
-/ 本機實測（`python src/SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20–30 局、輪換先手。
+/ 本機實測（`python src/SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20 局、輪換先手（預設 1600 sims）。
 以下數字測於原生 C 引擎之前（D27 數據見上一節）。
 
 ### All engines vs Basic (Ultimate) / 全部引擎 vs Basic（終極，20 局）
@@ -347,19 +347,23 @@ Engine-fix evidence: Minimax Pro root move ordering (D19) went 32.5% → 45% vs
 plain Minimax and 40% → 47.5% vs MCTS / 引擎修正證據：Minimax Pro 根節點排序修正（D19）
 對普通 Minimax 32.5% → 45%、對 MCTS 40% → 47.5%。
 
-### MCTS family round-robin (Ultimate, 30 games/pair, 300 sims) / MCTS 家族循環賽
+### MCTS family round-robin (Ultimate, 20 games/pair, 1600 sims) / MCTS 家族循環賽
 
 | A vs B / 對戰 | W / D / L | Score / 得分率 |
 |---|---|---|
-| MCTS vs MCTS+RAVE | 14 / 3 / 13 | 51.7% |
-| MCTS vs MCTS+GRAVE | 13 / 3 / 14 | 48.3% |
-| MCTS+RAVE vs MCTS+GRAVE | 10 / 7 / 13 | 45.0% |
+| MCTS vs MCTS+RAVE | 11 / 2 / 7 | 60.0% |
+| MCTS vs MCTS+GRAVE | 8 / 1 / 11 | 42.5% |
+| MCTS+RAVE vs MCTS+GRAVE | 4 / 4 / 12 | 30.0% |
 
-Statistically tied (each within ±9%); the shared optimizations (heuristic
-rollout, dynamic UCT, tree reuse) now dominate the RAVE/GRAVE bias term, so
-the older D8/D12 "GRAVE ahead" ranking no longer holds at 300 sims /
-三者統計持平（各在 ±9% 內）；共用優化（啟發式 rollout、動態 UCT、樹重用）已蓋過
-RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立。
+At 1600 sims the AMAF statistics pay off: GRAVE leads both matchups (57.5%
+vs MCTS, 70.0% vs RAVE) and draws drop to ~12%. At the older 300-sim default
+the family was draw-saturated and statistically tied (one 20-game run:
+0 W / 19 D / 1 L), which is why the D8/D12 "GRAVE ahead" ranking was
+retracted there. 20 games ≈ ±11% — read the ordering, not the percentages /
+1600 sims 下 AMAF 統計開始回本：GRAVE 對兩者皆領先，和局率降到 ~12%。舊的
+300-sim 預設下三者大量和局、統計持平（曾出現 0 勝 19 和 1 敗的一組），
+舊 D8/D12「GRAVE 領先」就是在那裡被撤回的。20 局解析度約 ±11%——看排序，
+別看百分比。
 
 ---
 

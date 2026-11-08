@@ -167,7 +167,7 @@ def _play_match(x_ai, o_ai, game_type, iterations, depth):
     return game.result()
 
 
-def bench(games=30, iterations=300, game_type='ultimate', seed=12345,
+def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
           ai_a=None, ai_b=None, depth=4):
     """Head-to-head score comparison: win = 1, draw = 0.5.
 
@@ -232,8 +232,8 @@ def main():
         sys.exit(alphazero.main(['train'] + rest))
     if '--bench' in sys.argv:
         sys.exit(bench(
-            games=_flag_value('--games', 30),
-            iterations=_flag_value('--iters', 300),
+            games=_flag_value('--games', 20),
+            iterations=_flag_value('--iters', 1600),
             game_type='normal' if '--normal' in sys.argv else 'ultimate',
             ai_a=_flag_arg('--ai-a'),
             ai_b=_flag_arg('--ai-b'),

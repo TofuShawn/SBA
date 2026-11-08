@@ -11,7 +11,7 @@ __pycache__/
 models/
 
 # Windows launcher (local convenience script)
-run.bat
+start.bat
 
 # Temp report fragments (local paste sources, not part of the repository)
 _rep_text.txt

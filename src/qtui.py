@@ -2488,6 +2488,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='SBA desktop app (PySide6)')
     parser.add_argument('--debug', action='store_true',
                         help='verbose backend logs')
+    parser.add_argument('--qt', action='store_true',
+                        help='start the desktop app (it is the default entry)')
     args = parser.parse_args(argv)
     if args.debug:
         log.setLevel(logging.DEBUG)
