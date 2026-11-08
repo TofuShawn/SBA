@@ -33,7 +33,14 @@ jobs:
       - name: Install MinGW gcc
         shell: bash
         run: |
-          choco install mingw -y --no-progress
+          # the mingw-builds CDN intermittently 504s — retry before giving up
+          for i in 1 2 3 4; do
+            choco install mingw -y --no-progress && break
+            echo "choco attempt $i failed; retrying in 20s"
+            sleep 20
+          done
+          test -f /c/ProgramData/mingw64/mingw64/bin/gcc.exe || {
+            echo "mingw gcc not installed"; exit 1; }
           echo "C:\ProgramData\mingw64\mingw64\bin" >> "$GITHUB_PATH"
 
       - name: Build native engine (sba_engine.dll)
