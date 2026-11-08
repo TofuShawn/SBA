@@ -357,9 +357,20 @@ RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立�
 
 ## Credits / 致謝
 
-- [Qt for Python (PySide6)](https://github.com/qt/pyside-setup) - the desktop UI framework / 桌面版 UI 框架
-- [PyTorch](https://pytorch.org) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
-- [NumPy](https://numpy.org) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
+- [Qt for Python (PySide6)](https://github.com/qtproject/pyside-pyside-setup) - the desktop UI framework / 桌面版 UI 框架
+- [PyTorch](https://github.com/pytorch/pytorch) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
+- [NumPy](https://github.com/numpy/numpy) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
+
+### Algorithm sources / 算法出處
+
+The engines reimplement these published methods / 引擎實現自以下公開發表的方法：
+
+- [AlphaZero](https://www.science.org/doi/10.1126/science.aar6404) — Silver et al., *Science* 2018: neural-guided MCTS with policy and value heads, trained by self-play / 神經導引 MCTS、策略與價值頭、自對弈訓練
+- [MCTS](https://link.springer.com/chapter/10.1007/978-3-540-75575-2_8) — Coulom 2006: Monte-Carlo tree search with efficient selectivity and backup operators / 蒙地卡羅樹搜索
+- [UCT](https://link.springer.com/chapter/10.1007/11871842_29) — Kocsis & Szepesvári 2006: the UCB1-based tree policy / 基於 UCB1 的樹策略
+- [RAVE](https://www.semanticscholar.org/paper/All-Moves-As-First-Heuristics-in-Monte-Carlo-Go-Helmbold-Parker-Wood/87b89babfa66c3bc33ad579e59e65321fb4b6d48) — Helmbold & Parker-Wood 2009: all-moves-as-first statistics / AMAF 統計
+- [GRAVE](https://arxiv.org/abs/1203.6660) — Childs et al. 2012: AMAF statistics shared through reference nodes / 以參考節點共享 AMAF 統計
+- [Alpha-beta pruning](https://doi.org/10.1016/0004-3702(75)90019-3) — Knuth & Moore 1975: the minimax search backbone / minimax 搜索骨架
 
 ---
 
