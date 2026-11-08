@@ -113,18 +113,20 @@ def test_immediate_win_across_engines():
 def test_opening_book():
     g = NormalGame()
     assert opening_book_move(g) in (0, 2, 4, 6, 8)
+    # after X's opener it is O's turn (filled == 1, current == O): the book
+    # answers 4 unless X took 4, then a corner
     g2 = NormalGame()
-    g2.board[4] = O
-    g2.current = X
+    g2.board[4] = X
+    g2.current = O
     assert opening_book_move(g2) in (0, 2, 6, 8)
     g3 = NormalGame()
-    g3.board[0] = O
-    g3.current = X
+    g3.board[0] = X
+    g3.current = O
     assert opening_book_move(g3) == 4
     g4 = NormalGame()
     g4.board = [X, O] + [EMPTY] * 7
-    g4.current = O
-    assert opening_book_move(g4) is None
+    g4.current = X
+    assert opening_book_move(g4) is None  # past the book
     gu = UltimateGame()
     assert opening_book_move(gu) in gu.legal_moves()
 
@@ -166,6 +168,9 @@ def test_rollout_heuristic():
 
 
 def test_tree_reuse():
+    # the opening book would answer the first two plies itself — turn it off
+    # so the moves actually go through MCTS and populate the reuse cache
+    set_engine_config({'engine': {'opening_book': False}})
     g = NormalGame()
     m1 = get_ai_move(g, 'MCTS', 100)
     apply_move(g, m1)
@@ -174,6 +179,7 @@ def test_tree_reuse():
     assert len(_REUSE) > 0
     reset_engine_caches()
     assert len(_REUSE) == 0
+    set_engine_config()
 
 
 def test_fork_count():

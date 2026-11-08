@@ -1,5 +1,10 @@
 """Recipe unit tests: D4 flip augmentation and root-mean value target."""
 
+import pytest
+
+pytest.importorskip("numpy")
+pytest.importorskip("torch")
+
 import numpy as np
 import torch
 

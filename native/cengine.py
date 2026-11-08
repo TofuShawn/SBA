@@ -44,49 +44,53 @@ def _load():
     with _load_lock:
         if _lib is not None:
             return _lib
-    path = _ENGINE_DLL if os.path.isfile(_ENGINE_DLL) else (
-        _LEGACY_DLL if os.path.isfile(_LEGACY_DLL) else None)
-    if path is None:
-        return None
-    try:
-        lib = ctypes.CDLL(path)
-        ptr = ctypes.POINTER(ctypes.c_int32)
-        rollout_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32,
-                        ctypes.c_uint64]
-        _bind(lib, 'sba_rollout', ctypes.c_int32, rollout_args)
-        _bind(lib, 'sba_rollout_pattern', ctypes.c_int32, rollout_args)
-        state_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32]
-        if os.path.basename(path) == 'sba_engine.dll':
-            _bind(lib, 'sba_rollout_trace', ctypes.c_int32,
-                  state_args + [ctypes.c_uint64,
-                                ctypes.POINTER(ctypes.c_int32),
-                                ctypes.POINTER(ctypes.c_int32),
-                                ctypes.c_int32])
-            _bind(lib, 'sba_mcts_search', ctypes.c_int32,
-                  state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                ctypes.c_int32,
-                                ctypes.POINTER(ctypes.c_int32),
-                                ctypes.POINTER(ctypes.c_int32),
-                                ptr, ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_double),
-                                ctypes.POINTER(ctypes.c_int32),
-                                ctypes.c_void_p, ctypes.c_int32,
-                                ctypes.c_void_p, ctypes.c_int32])
-            _bind(lib, 'sba_minimax_normal', ctypes.c_int32,
-                  [ptr, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
-                   ctypes.POINTER(ctypes.c_double)])
-            _bind(lib, 'sba_minimax_ultimate', ctypes.c_int32,
-                  state_args + [ctypes.c_int32,
-                                ctypes.POINTER(ctypes.c_int32)])
-            _bind(lib, 'sba_flat_mcts', ctypes.c_int32,
-                  state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                ctypes.c_int32,
-                                ctypes.POINTER(ctypes.c_int32)])
-            _has_engine = True
-        _lib = lib
-    except OSError:
-        _lib = None
-    return _lib
+        # load AND bind under the lock: a second thread entering mid-bind
+        # would otherwise call symbols whose argtypes are not declared yet
+        path = _ENGINE_DLL if os.path.isfile(_ENGINE_DLL) else (
+            _LEGACY_DLL if os.path.isfile(_LEGACY_DLL) else None)
+        if path is None:
+            return None
+        try:
+            lib = ctypes.CDLL(path)
+            ptr = ctypes.POINTER(ctypes.c_int32)
+            rollout_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32,
+                            ctypes.c_uint64]
+            _bind(lib, 'sba_rollout', ctypes.c_int32, rollout_args)
+            _bind(lib, 'sba_rollout_pattern', ctypes.c_int32, rollout_args)
+            state_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32]
+            if os.path.basename(path) == 'sba_engine.dll':
+                _bind(lib, 'sba_rollout_trace', ctypes.c_int32,
+                      state_args + [ctypes.c_uint64,
+                                    ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.c_int32])
+                _bind(lib, 'sba_mcts_search', ctypes.c_int32,
+                      state_args + [ctypes.c_int32, ctypes.c_uint64,
+                                    ctypes.c_int32,
+                                    ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_int32),
+                                    ptr, ctypes.POINTER(ctypes.c_double),
+                                    ctypes.POINTER(ctypes.c_double),
+                                    ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.POINTER(ctypes.c_int32),
+                                    ctypes.c_void_p, ctypes.c_int32,
+                                    ctypes.c_void_p, ctypes.c_int32])
+                _bind(lib, 'sba_minimax_normal', ctypes.c_int32,
+                      [ptr, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
+                       ctypes.POINTER(ctypes.c_double)])
+                _bind(lib, 'sba_minimax_ultimate', ctypes.c_int32,
+                      state_args + [ctypes.c_int32,
+                                    ctypes.POINTER(ctypes.c_int32)])
+                _bind(lib, 'sba_flat_mcts', ctypes.c_int32,
+                      state_args + [ctypes.c_uint64,
+                                    ctypes.c_int32,
+                                    ctypes.POINTER(ctypes.c_int32)])
+                _bind(lib, 'sba_node_size', ctypes.c_int32, [])
+                _has_engine = True
+            _lib = lib
+        except OSError:
+            _lib = None
+        return _lib
 
 
 def available(engine=False):
@@ -177,8 +181,9 @@ def rollout_trace(state, rng_seed=None, pattern=False):
 
 def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None):
     """Full native MCTS. Returns (best_move, stats, tree) where stats is a
-    list of (move, visits, wins, mover) for the root children — wins counted
-    from the mover's perspective, matching ai.py's MCTSNode; tree is the
+    list of (move, visits, wins, mover, draws) for the root children — wins
+    counted from the mover's perspective (draw = 0.5) plus the raw draw
+    counter, matching ai.py's MCTSNode; tree is the
     ctypes arena buffer holding the finished tree (pass it back as `prev` on
     the next search to reuse it, D30). Returns (None, [], None) when the full
     engine DLL is unavailable.
@@ -202,11 +207,14 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None):
     visits = (ctypes.c_double * 81)()
     wins = (ctypes.c_double * 81)()
     mover = (ctypes.c_int32 * 81)()
+    draws = (ctypes.c_int32 * 81)()
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    # per-call arena, 512 B per node upper bound. With tree reuse the kept
+    # per-call arena, sizeof(MctsNode) per node (queried from the DLL). With
+    # tree reuse the kept
     # subtree (<= previous iterations) is copied in first, hence the 2x.
     factor = 2 if prev is not None else 1
-    buf = (ctypes.c_uint8 * ((iterations * factor + 64) * 512))()
+    node_size = _lib.sba_node_size()
+    buf = (ctypes.c_uint8 * ((iterations * factor + 64) * node_size))()
     prev_buf = None
     prev_bytes = 0
     if prev is not None:
@@ -214,18 +222,19 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None):
     r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
                             1 if use_pattern else 0,
                             ctypes.byref(best), ctypes.byref(count),
-                            moves, visits, wins, mover, buf, len(buf),
-                            prev_buf, prev_bytes)
+                            moves, visits, wins, mover, draws,
+                            buf, len(buf), prev_buf, prev_bytes)
     if r == -3 and prev is not None:
         # reused subtree didn't fit: retry from a fresh root
         r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
                                 1 if use_pattern else 0,
                                 ctypes.byref(best), ctypes.byref(count),
-                                moves, visits, wins, mover, buf, len(buf),
-                                None, 0)
+                                moves, visits, wins, mover, draws,
+                                buf, len(buf), None, 0)
     if r < 0:
         return None, [], None
-    stats = [(moves[k], visits[k], wins[k], mover[k]) for k in range(count.value)]
+    stats = [(moves[k], visits[k], wins[k], mover[k], draws[k])
+             for k in range(count.value)]
     mv = best.value if best.value >= 0 else None
     tree = (buf, len(buf)) if mv is not None else None
     return mv, stats, tree

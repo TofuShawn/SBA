@@ -1,5 +1,10 @@
 """AlphaZero smoke tests (tiny nets / few sims)."""
 
+import pytest
+
+pytest.importorskip("numpy")
+pytest.importorskip("torch")
+
 import numpy as np
 import random
 

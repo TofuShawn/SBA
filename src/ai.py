@@ -46,8 +46,8 @@ _CFG_DEFAULTS = {
         'rollout_heuristic': True, 'tree_reuse': True, 'dynamic_uct': True,
         'progressive_widening': False, 'early_stop': False,
         'opening_book': True, 'micro_tablebase': True,
-        'symmetry': False, 'object_pool': True, 'bitboard': True,
-        'c_rollout': True, 'c_rollout_pattern': False,
+        'symmetry': True, 'object_pool': True, 'bitboard': False,
+        'c_rollout_pattern': False,
         'c_mcts': True, 'c_minimax': True,
         'multithreaded': False, 'use_lmr': True, 'use_killers': True,
         'use_aspiration': True, 'use_eval_ordering': True,
@@ -123,7 +123,10 @@ def _load_config():
         import tomllib
         with open(path, 'rb') as fh:
             return tomllib.load(fh)
-    except Exception:
+    except Exception as exc:
+        # a broken TOML must not silently masquerade as "all defaults" — the
+        # next save_engine_config would overwrite the user's file with them
+        log.warning('config.toml failed to load (%s); using code defaults', exc)
         return {}
 
 
@@ -190,7 +193,17 @@ def save_engine_config(overrides=None):
                     text = new_text
                 else:
                     appended.append((section, key, str(val)))
-            # floats/strings are left untouched (managed by hand)
+            elif isinstance(val, float):
+                # floats must round-trip too: leaving them in the file while
+                # the in-memory copy was reset diverges the two until restart
+                pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*)[0-9.]+(?:[eE][+-]?\d+)?(\s*(?:#.*)?)$'
+                new_text, n = re.subn(pattern,
+                                      lambda m: m.group(1) + repr(val) + m.group(2), text)
+                if n:
+                    text = new_text
+                else:
+                    appended.append((section, key, repr(val)))
+            # strings (none in [engine]/[session] today) stay hand-managed
     if appended:
         text = text.rstrip('\n') + '\n'
         cur_section = None
@@ -410,7 +423,8 @@ def minimax_move_ultimate(game, depth=3):
     return random.choice(best_moves)
 
 class MCTSNode:
-    __slots__ = ('state', 'move', 'parent', 'children', 'mover', 'visits', 'wins', 'untried')
+    __slots__ = ('state', 'move', 'parent', 'children', 'mover', 'visits',
+                 'wins', 'draws', 'untried')
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -420,6 +434,7 @@ class MCTSNode:
         self.mover = mover
         self.visits = 0
         self.wins = 0.0
+        self.draws = 0
         self.untried = state.legal_moves()
         random.shuffle(self.untried)
 
@@ -456,6 +471,7 @@ class NodePool:
             n.mover = mover
             n.visits = 0
             n.wins = 0.0
+            n.draws = 0
             n.untried = [] if state.is_over() else state.legal_moves()
             random.shuffle(n.untried)
             return n
@@ -526,6 +542,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
                 node.wins += 1.0
             elif result == 'D':
                 node.wins += 0.5
+                node.draws += 1
             node = node.parent
         if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
                 and root.children):
@@ -695,16 +712,51 @@ def _can_expand(node):
 
 
 def _pop_untried(node, root_sym, is_root):
-    """Pop an untried move, skipping D4-symmetric duplicates at the root."""
+    """Pop an untried move, skipping D4-equivalent duplicates at the root.
+
+    The dedup key is the CANONICAL FORM OF THE RESULTING POSITION, not the
+    move's cell orbit: on an asymmetric root board two orbit-mate moves can
+    lead to entirely different positions (one a forced win, one a blunder) —
+    the cell-orbit key made the symmetry switch skip real wins (found by the
+    2026-11-08 review round: GRAVE missed a forced win in 21/30 seeds with
+    symmetry on)."""
     while node.untried:
         m = node.untried.pop()
         if cfg_engine('symmetry', False) and is_root:
-            img = _sym_images(m)
-            if img in root_sym:
+            g = node.state.clone()
+            apply_move(g, m)
+            imgs = [_tt_key(g)]
+            if isinstance(g, NormalGame):
+                for t in _D4[1:]:
+                    imgs.append(''.join(g.board[t[i]] or '.'
+                                        for i in range(9)))
+                key = min(imgs)
+            else:
+                # Ultimate: dedup only on the raw micro grid + routing, the
+                # same encoding _tt_key uses, min over the 8 cell transforms
+                base = g
+                key = min(_tt_key(base) if t == 0 else _ultt_sym_key(base, t)
+                          for t in range(8))
+            if key in root_sym:
                 continue
-            root_sym.add(img)
+            root_sym.add(key)
         return m
     return None
+
+
+def _ultt_sym_key(game, t):
+    """Canonical key of an Ultimate position under the t-th D4 transform:
+    stones, macro statuses and the active-macro routing all travel with the
+    transform, so two keys are equal iff the positions are truly equivalent."""
+    p9 = _D4[t]
+    P = [p9[m] * 9 + p9[i] for m in range(9) for i in range(9)]
+    micro = ''.join(c or '.' for row in game.micro for c in row)
+    cells = ''.join(micro[P[i]] or '.' for i in range(81))
+    macro_t = ''.join('.' if game.macro[p9[m]] == EMPTY
+                      else str(game.macro[p9[m]]) for m in range(9))
+    active = game.active_macro
+    active_t = p9[active] if active is not None and active >= 0 else -1
+    return cells + '|' + macro_t + '|' + str(active_t) + game.current
 
 
 def _uct_scale(c, root_visits, iterations):
@@ -790,6 +842,7 @@ def reset_engine_caches():
     _REUSE_LAST.clear()
     _get_tt().clear()
     _get_killers().clear()
+    _C_PREV.clear()
 
 
 # ---------------------------------------------------------------
@@ -876,7 +929,7 @@ def solver_move(game, mcts_budget=800):
 
 class RAVENode:
     __slots__ = ('state', 'move', 'parent', 'children', 'mover',
-                 'visits', 'wins', 'untried', 'amaf')
+                 'visits', 'wins', 'draws', 'untried', 'amaf')
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -886,6 +939,7 @@ class RAVENode:
         self.mover = mover
         self.visits = 0
         self.wins = 0.0
+        self.draws = 0
         self.untried = [] if state.is_over() else state.legal_moves()
         random.shuffle(self.untried)
         self.amaf = {}
@@ -962,6 +1016,8 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
             node.visits += 1
             win = 1.0 if result == node.mover else (0.5 if result == 'D' else 0.0)
             node.wins += win
+            if result == 'D':
+                node.draws += 1
             # AMAF is scored from the perspective of the player to move at this
             # node (standard all-moves RAVE), not from the player who moved into it.
             if node.mover is None:
@@ -1002,7 +1058,7 @@ def mcts_rave_move(game, iterations):
 
 class GraveNode:
     __slots__ = ('state', 'move', 'parent', 'children', 'mover',
-                 'visits', 'wins', 'untried', 'ref', 'rave')
+                 'visits', 'wins', 'draws', 'untried', 'ref', 'rave')
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -1012,6 +1068,7 @@ class GraveNode:
         self.mover = mover
         self.visits = 0
         self.wins = 0.0
+        self.draws = 0
         self.untried = [] if state.is_over() else state.legal_moves()
         random.shuffle(self.untried)
         self.ref = None   # reference node providing this move's RAVE stats
@@ -1071,7 +1128,8 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                 node = child
                 rollout_moves.append(m)
         if _ce.available() and not isinstance(state, NormalGame):
-            result, seq = _ce.rollout_trace(state)
+            result, seq = _ce.rollout_trace(
+                state, pattern=bool(cfg_engine('c_rollout_pattern', False)))
             if result is None:
                 result = _py_rollout_state(state)
             for m in seq:
@@ -1093,6 +1151,8 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
             node.visits += 1
             win = 1.0 if result == node.mover else (0.5 if result == 'D' else 0.0)
             node.wins += win
+            if result == 'D':
+                node.draws += 1
             ref = node.ref if node.ref is not None else node
             if id(ref) not in seen_refs:
                 seen_refs.add(id(ref))
@@ -1380,9 +1440,9 @@ def opening_book_move(game):
         filled = sum(1 for c in game.board if c != EMPTY)
         if filled == 0 and game.current == X:
             return random.choice((0, 2, 4, 6, 8))
-        if filled == 1 and game.current == X:
-            om = next(i for i, c in enumerate(game.board) if c == O)
-            return 4 if om != 4 else random.choice((0, 2, 6, 8))
+        if filled == 1 and game.current == O:
+            xm = next(i for i, c in enumerate(game.board) if c == X)
+            return 4 if xm != 4 else random.choice((0, 2, 6, 8))
         return None
     filled = sum(1 for row in game.micro for c in row if c != EMPTY)
     if filled == 0 and game.current == X:
@@ -1411,7 +1471,9 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
       other threads start fresh. Merging therefore never double-counts.
     """
     pattern = bool(cfg_engine('c_rollout_pattern', False))
-    threads = int(cfg_engine('workers', 8) or 1)
+    # the multithreaded switch gates root parallelization; workers caps it
+    threads = (int(cfg_engine('workers', 8) or 1)
+               if cfg_engine('multithreaded', False) else 1)
     threads = max(1, min(threads, max(1, budget // 400)))
     prev = _C_PREV.get('MCTS')
 
@@ -1442,18 +1504,19 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     for mv_idx, stats, buf in results:
         if buf is not None and tree is None:
             tree = buf
-        for mi, v, w, mo in stats:
+        for mi, v, w, mo, dr in stats:
             e = merged.get(mi)
             if e is None:
-                merged[mi] = [v, w, mo]
+                merged[mi] = [v, w, mo, dr]
             else:
                 e[0] += v
                 e[1] += w
+                e[3] += dr
     if tree is not None:
         _C_PREV['MCTS'] = tree
     if not merged:
         return None
-    stats = [(mi, v[0], v[1], v[2]) for mi, v in merged.items()]
+    stats = [(mi, v[0], v[1], v[2], v[3]) for mi, v in merged.items()]
 
     # best move: highest win-rate among sufficiently visited children,
     # preferring an immediate game win (parity with _best_mcts_move)
@@ -1731,45 +1794,58 @@ def reason_for_move(game, move):
     return 'Positional'
 
 def _rates_from_root(root, game):
-    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root."""
-    tot_x = tot_o = tot = 0.0
+    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root.
+
+    Each child's wins carry draws at 0.5 from the mover's perspective, so the
+    draw share needs the node's raw draw counter — 1 - x - o from the score
+    alone is identically zero and used to fake the triplet (D15 regression)."""
+    tot_x = tot_o = tot_d = tot = 0.0
     for child in root.children:
         if child.visits == 0:
             continue
-        w = child.wins / child.visits
+        v = child.wins / child.visits            # mover score = win + draw/2
+        d = getattr(child, 'draws', 0) / child.visits
         tot += child.visits
+        win_m = v - 0.5 * d                      # mover's pure win share
+        lose_m = 1.0 - v - 0.5 * d               # opponent's pure win share
         if child.mover == X:
-            tot_x += child.visits * w
-            tot_o += child.visits * (1.0 - w)
+            tot_x += child.visits * win_m
+            tot_o += child.visits * lose_m
         else:
-            tot_o += child.visits * w
-            tot_x += child.visits * (1.0 - w)
+            tot_o += child.visits * win_m
+            tot_x += child.visits * lose_m
+        tot_d += child.visits * d
     if tot == 0:
         return (0.5, 0.0, 0.5)
-    x, o = tot_x / tot, tot_o / tot
-    return (x, max(0.0, 1.0 - x - o), o)
+    x, o, d = tot_x / tot, tot_o / tot, tot_d / tot
+    s = x + o + d
+    return (x / s, d / s, o / s) if s > 0 else (0.5, 0.0, 0.5)
 
 
 def _rates_from_stats(stats):
     """(X win, draw, O win) from cengine root-child stats — the same math
-    as _rates_from_root over (move, visits, wins, mover) tuples."""
-    tot_x = tot_o = tot = 0.0
-    for _mv, visits, wins, mover in stats:
+    as _rates_from_root over (move, visits, wins, mover, draws) tuples."""
+    tot_x = tot_o = tot_d = tot = 0.0
+    for _mv, visits, wins, mover, draws in stats:
         if visits <= 0:
             continue
-        w = wins / visits
+        v = wins / visits
+        d = draws / visits
         tot += visits
-        mover_x = mover == 1
-        if mover_x:
-            tot_x += visits * w
-            tot_o += visits * (1.0 - w)
+        win_m = v - 0.5 * d
+        lose_m = 1.0 - v - 0.5 * d
+        if mover == 1:
+            tot_x += visits * win_m
+            tot_o += visits * lose_m
         else:
-            tot_o += visits * w
-            tot_x += visits * (1.0 - w)
+            tot_o += visits * win_m
+            tot_x += visits * lose_m
+        tot_d += visits * d
     if tot == 0:
         return (0.5, 0.0, 0.5)
-    x, o = tot_x / tot, tot_o / tot
-    return (x, max(0.0, 1.0 - x - o), o)
+    x, o, d = tot_x / tot, tot_o / tot, tot_d / tot
+    s = x + o + d
+    return (x / s, d / s, o / s) if s > 0 else (0.5, 0.0, 0.5)
 
 
 def _c_ultt_analysis(game, mcts_budget):
@@ -1783,10 +1859,10 @@ def _c_ultt_analysis(game, mcts_budget):
     _mv, stats, _tree = _ce.mcts_search(
         game, mcts_budget, use_pattern=bool(cfg_engine('c_rollout_pattern', False)),
         prev=_C_PREV.get('MCTS'))
-    if stats is None:
+    if not stats:
         return None
     items = []
-    for mv, visits, wins, _mover in sorted(stats, key=lambda s: (-s[1], -s[2]))[:5]:
+    for mv, visits, wins, _mover, _draws in sorted(stats, key=lambda s: (-s[1], -s[2]))[:5]:
         if visits <= 0:
             continue
         move = (mv // 9, mv % 9)

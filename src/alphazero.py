@@ -230,7 +230,7 @@ class _CRootView:
     def __init__(self, stats):
         from types import SimpleNamespace
         self.children = [SimpleNamespace(visits=v, wins=w)
-                         for _m, v, w, _mo in stats]
+                         for _m, v, w, _mo, _d in stats]
 
 
 def _c_rollout_value(g):
@@ -552,7 +552,8 @@ def self_play_game(make_game_fn, model, sims, temp,
             from native import cengine as _ce
             root_mv, stats, _tree = _ce.mcts_search(game, sims)
             if stats:
-                counts = {(m // 9, m % 9): int(v) for m, v, w, _mo in stats}
+                counts = {(m // 9, m % 9): int(v)
+                          for m, v, w, _mo, _d in stats}
                 root = _CRootView(stats)
             else:
                 from ai import mcts_search as pure_mcts

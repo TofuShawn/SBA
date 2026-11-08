@@ -99,19 +99,21 @@ def test_mcts_reaches_a_valid_endgame():
 
 
 def test_kernel_search_faster_than_python(monkeypatch=None):
-    """Soft check (1.5x): the kernel must not be a net regression."""
+    """The C tree must at least beat the pure-Python MCTS at equal budget
+    (soft 1.5x — timing in CI is noisy, so the hard floor is generous)."""
     g = UltimateGame()
     apply_move(g, (4, 4))
-    set_engine_config({'engine': {'c_rollout': True, 'opening_book': False,
+    set_engine_config({'engine': {'c_mcts': True, 'opening_book': False,
                                   'multithreaded': False}})
     try:
         t0 = time.perf_counter()
         _ce.mcts_search(g.clone(), 400)
         t_c = time.perf_counter() - t0
-        set_engine_config({'engine': {'c_rollout': False, 'opening_book': False,
+        set_engine_config({'engine': {'c_mcts': False, 'opening_book': False,
                                       'multithreaded': False}})
         t0 = time.perf_counter()
-        _ce.mcts_search(g.clone(), 400)
+        from ai import mcts_search as pure_mcts
+        pure_mcts(g.clone(), 400)
         t_p = time.perf_counter() - t0
         assert t_c < t_p * 1.5
     finally:

@@ -48,13 +48,15 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells, const int32_t *macro,
                                     int32_t use_pattern);
 
 /* full MCTS (sba_mcts.c) */
+int32_t __stdcall sba_node_size(void);
 int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   int32_t player, int32_t active,
                                   int32_t iterations, uint64_t seed,
                                   int32_t use_pattern, int32_t *out_best,
                                   int32_t *out_count, int32_t *out_moves,
                                   double *out_visits, double *out_wins,
-                                  int32_t *out_mover, uint8_t *arena_buf,
+                                  int32_t *out_mover, int32_t *out_draws,
+                                  uint8_t *arena_buf,
                                   int32_t arena_bytes,
                                   const uint8_t *prev_buf, int32_t prev_bytes);
 

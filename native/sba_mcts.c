@@ -11,8 +11,9 @@
  *     preferring an immediate game-winning move (parity with
  *     _best_mcts_move).
  *
- * Tree reuse is NOT carried over (the Python tree is not transferable);
- * the C search is fast enough that this nets out strongly positive.
+ * Tree reuse: the Python tree is not transferable, but a previous C arena
+ * can be passed back (D30) — the search walks it down to the current
+ * position and copies the matching subtree.
  */
 
 #include "sba_ultt.h"
@@ -25,6 +26,7 @@ typedef struct {
     int32_t mover;
     int32_t visits;
     double wins;
+    int32_t draws;         /* playouts through this node that ended in a draw */
     uint64_t untried[2];   /* bitmask of not-yet-expanded moves (81 bits) */
     int32_t cells[81];
     int32_t macro[SBA_N_MACROS];
@@ -55,6 +57,7 @@ static int32_t copy_subtree(MctsNode *dst, int32_t *dn, int32_t cap,
     n->mover = s->mover;
     n->visits = s->visits;
     n->wins = s->wins;
+    n->draws = s->draws;
     n->untried[0] = s->untried[0];
     n->untried[1] = s->untried[1];
     for (int32_t i = 0; i < 81; i++) n->cells[i] = s->cells[i];
@@ -70,13 +73,20 @@ static int32_t copy_subtree(MctsNode *dst, int32_t *dn, int32_t cap,
     return d;
 }
 
+int32_t __stdcall sba_node_size(void) {
+    /* the Python arena allocates this many bytes per node — always ask,
+     * never hardcode (the struct has grown before) */
+    return (int32_t)sizeof(MctsNode);
+}
+
 int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   int32_t player, int32_t active,
                                   int32_t iterations, uint64_t seed,
                                   int32_t use_pattern, int32_t *out_best,
                                   int32_t *out_count, int32_t *out_moves,
                                   double *out_visits, double *out_wins,
-                                  int32_t *out_mover, uint8_t *buf,
+                                  int32_t *out_mover, int32_t *out_draws,
+                                  uint8_t *buf,
                                   int32_t buf_bytes,
                                   const uint8_t *prev_buf,
                                   int32_t prev_bytes) {
@@ -130,6 +140,7 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
         root->mover = 0;   /* nobody moved into the root: Python parity (None) */
         root->visits = 0;
         root->wins = 0.0;
+        root->draws = 0;
         root->untried[0] = root->untried[1] = 0;
         root->player = player;
         root->active = active;
@@ -213,6 +224,7 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
             child->mover = node->player;
             child->visits = 0;
             child->wins = 0.0;
+            child->draws = 0;
             child->untried[0] = child->untried[1] = 0;
             for (int32_t i = 0; i < 81; i++) child->cells[i] = node->cells[i];
             for (int32_t m = 0; m < SBA_N_MACROS; m++)
@@ -274,8 +286,8 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
         MctsNode *bn = node;
         while (bn != NULL) {
             bn->visits++;
-            if (result == bn->mover) bn->wins += 1.0;
-            else if (result == 3) bn->wins += 0.5;
+            if (result == 3) { bn->wins += 0.5; bn->draws += 1; }
+            else if (result == bn->mover) bn->wins += 1.0;
             bn = bn->parent >= 0 ? &arena[bn->parent] : NULL;
         }
     }
@@ -293,8 +305,16 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
     for (int32_t ch = root->child; ch != -1; ch = arena[ch].next) {
         if (arena[ch].visits < min_visits) continue;
         int32_t m = arena[ch].move / 9, i = arena[ch].move % 9;
-        if (sba_wins_micro(root->cells, m, i, root->player)
-                && arena[ch].wins / arena[ch].visits == best_wr) {
+        /* a GAME win (macro line completed), matching Python's g.result():
+         * a bare micro win that claims no line must not count */
+        int32_t wins_game = 0;
+        if (sba_wins_micro(root->cells, m, i, root->player)) {
+            int32_t saved = root->macro[m];
+            root->macro[m] = root->player;
+            wins_game = sba_macro_line(root->macro, root->player);
+            root->macro[m] = saved;
+        }
+        if (wins_game && arena[ch].wins / arena[ch].visits == best_wr) {
             best_idx = arena[ch].move;
             break;
         }
@@ -308,6 +328,7 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
         if (out_visits) out_visits[cnt] = (double)arena[ch].visits;
         if (out_wins) out_wins[cnt] = arena[ch].wins;
         if (out_mover) out_mover[cnt] = arena[ch].mover;
+        if (out_draws) out_draws[cnt] = arena[ch].draws;
         cnt++;
     }
     if (out_count) *out_count = cnt;

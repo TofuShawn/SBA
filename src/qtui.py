@@ -2265,7 +2265,6 @@ class SettingsPage(EndfieldPage):
     KEY_LABELS = {
         'c_mcts': ('MCTS tree search in C', 'C 完整 MCTS 樹搜尋'),
         'c_minimax': ('Minimax backends in C', 'C Minimax 後端'),
-        'c_rollout': ('C rollout kernel', 'C rollout 核心'),
         'c_rollout_pattern': ('Pattern rollout (research, slower)',
                               'Pattern rollout（研究用，較慢）'),
         'rollout_heuristic': ('Heuristic rollout (win/block)', '啟發式 rollout（贏/擋）'),
@@ -2285,17 +2284,12 @@ class SettingsPage(EndfieldPage):
         'use_eval_ordering': ('Eval-based root ordering', '根節點評估排序'),
     }
 
-    def __init__(self):
-        super().__init__()
-        self.setObjectName('pageSettings')
-        self._build_ui()
-
     # Functional grouping: (deck title, one-line explanation, [switch keys]).
     # Everything here lives in the [engine] section of config.toml.
     GROUPS = [
         ('C ENGINE BACKENDS', 'C 引擎後端',
          '哪些演算法走原生 C 實作；關閉後自動回退純 Python（較慢）。',
-         ['c_mcts', 'c_minimax', 'c_rollout', 'c_rollout_pattern']),
+         ['c_mcts', 'c_minimax', 'c_rollout_pattern']),
         ('MCTS SEARCH', 'MCTS 搜尋行為',
          '影響 MCTS 搜尋策略與棋力（對 MCTS / MCTS+GRAVE / 助手分析生效）。',
          ['rollout_heuristic', 'tree_reuse', 'dynamic_uct', 'early_stop',

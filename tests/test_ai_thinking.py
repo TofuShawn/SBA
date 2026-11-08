@@ -37,9 +37,8 @@ def test_mcts_progress_reports_steps():
 
 
 def test_trace_has_top_candidates_and_pick():
-    from ai import cfg_engine
-    was = cfg_engine('multithreaded', False)
-    cfg_engine('multithreaded', False)
+    from ai import set_engine_config
+    set_engine_config({'engine': {'multithreaded': False}})
     try:
         g = _out_of_book_position()
         trace = {}
@@ -57,13 +56,14 @@ def test_trace_has_top_candidates_and_pick():
         shares = [share for _, share, _ in top]
         assert shares == sorted(shares, reverse=True)
     finally:
-        cfg_engine('multithreaded', was)
+        set_engine_config()
 
 
 def test_trace_on_parallel_mcts():
-    from ai import cfg_engine
-    was = cfg_engine('multithreaded', True)
-    cfg_engine('multithreaded', True)
+    # actually enable root parallelization — cfg_engine is a getter, and the
+    # old cfg_engine('multithreaded', True) calls never configured anything
+    from ai import set_engine_config
+    set_engine_config({'engine': {'multithreaded': True}})
     try:
         g = _out_of_book_position()
         trace = {}
@@ -75,7 +75,7 @@ def test_trace_on_parallel_mcts():
         assert trace['top']  # merged root stats fill the candidates
         assert events  # one coarse report per finished thread
     finally:
-        cfg_engine('multithreaded', was)
+        set_engine_config()
 
 
 def test_trace_on_book_and_basic():
