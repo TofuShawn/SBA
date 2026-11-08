@@ -1654,7 +1654,9 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
     if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
         return _mcts_move(game, ai_type, mcts_budget, on_progress, trace)
     if ai_type == 'Flat MCTS':
-        if cfg_engine('c_mcts', True) and _ce.available(engine=True):
+        # the C flat kernel serializes Ultimate boards only
+        if (not isinstance(game, NormalGame)
+                and cfg_engine('c_mcts', True) and _ce.available(engine=True)):
             moves = game.legal_moves()
             if moves:
                 mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)))

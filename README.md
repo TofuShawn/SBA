@@ -166,12 +166,6 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 
 ## Architecture map / 架構地圖
 
-Read order is baked into the map: **[1] → [5]**, top layers depend on bottom
-layers (one-way, D2). All Python modules live in `src/` (D36). Run it first —
-`python src/SBA.py` — then read downward /
-閱讀順序已編進圖裡：**[1] → [5]**；上層依賴下層、單向（D2）。Python 模組都在 `src/`（D36）。
-先跑起來，再往下讀。
-
 ```
       UI LAYER (pick one — two front ends, one backend)
   +----------------------+  +----------------------+
@@ -229,15 +223,13 @@ layers (one-way, D2). All Python modules live in `src/` (D36). Run it first —
 ```
 
 Reading-route highlights, condensed from the retired
-`docs/reading-guide.md` / 閱讀要點（自已退役的 `docs/reading-guide.md` 濃縮）：
+`docs/reading-guide.md` / 閱讀要點：
 
 - **[1] `src/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
 - **[2] `src/ai.py`**：按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
 - **[3] `src/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
 - **[4] `src/SBA.py`**：總覽地圖，最後讀。
 - **[5] UI**：兩端共用 [1]–[4]；`src/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
-
-驗收自問：終極棋盤的強制路由在哪實作？為什麼普通棋盤 Minimax 是完整解、終極只是估價？UCT 的探索/利用平衡在哪一行？助手勝率從哪來？— 答得出來就算讀懂了。
 
 ---
 
@@ -283,7 +275,7 @@ it automatically). Measured on this machine / 全部引擎熱路徑已下沉 C
 | MCTS 800 sims (full search) | ~530 ms | 14 ms (37x) | 3.4 ms @ 8T (3.6x wall) |
 | MCTS 3200 sims | — | 53 ms | 9.2 ms @ 8T (5.8x wall) |
 | Heuristic rollout (AZ leaf value) | 0.47 ms | 0.028 ms (16.9x) | — |
-| MCTS vs Basic (1600 sims, 16 games) | 87.5% | 96.9% (parallel + reuse) | — |
+| MCTS@1600 vs Basic (16 games) | 87.5% | 96.9% (parallel + reuse) | — |
 
 Extras: tree reuse carries the warm subtree between moves (diff-walk, auto
 fresh on rewind); settings page toggles every switch (D28); pattern rollout
@@ -293,45 +285,37 @@ variant kept off by default (D26 A/B: no gain at 4.4x cost).
 
 ## Benchmarks / 實測基準
 
-Measured with `python src/SBA.py --bench` on this machine (AMD Ryzen 9 9950X,
-RX 7900 XTX); **score% = (wins + draws/2) / games**, 20–30 games per matchup,
-first player alternates. Reproduce any row with `--ai-a X --ai-b Y --games N`.
-Rows below predate the native C engine (D27 numbers in the section above).
-/ 本機實測（`python src/SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20 局、輪換先手（預設 1600 sims）。
-以下數字測於原生 C 引擎之前（D27 數據見上一節）。
+n = 20; the 95% CI is roughly ±22% — for ranking only
+n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。
 
-### All engines vs Basic (Ultimate) / 全部引擎 vs Basic（終極，20 局）
+### All engines vs Basic (Ultimate, 20 games, MCTS@1600) / 全部引擎 vs Basic（終極 · 20 局 · MCTS@1600）
 
 | Engine / 引擎 | W / D / L | Score / 得分率 |
 |---|---|---|
-| Minimax (depth 4) | 20 / 0 / 0 | **100%** |
-| Minimax Pro | 19 / 1 / 0 | **97.5%** |
-| MCTS+GRAVE | 19 / 1 / 0 | **97.5%** |
-| Solver\* | 19 / 1 / 0 | **97.5%** |
-| MCTS | 17 / 2 / 1 | 90% |
-| MCTS+RAVE | 17 / 2 / 1 | 90% |
-| Flat MCTS | 14 / 3 / 3 | 77.5% |
-| AlphaZero (300 sims) | 12 / 6 / 2 | 75% |
-| Basic | 1 / 15 / 4 | 42.5% |
-| Random | 1 / 2 / 17 | 10% |
+| Minimax (depth 4) | 19 / 1 / 0 | **97.5%** |
+| MCTS+RAVE@1600 | 19 / 1 / 0 | **97.5%** |
+| Solver\*@1600 | 19 / 1 / 0 | **97.5%** |
+| Minimax Pro (depth 4) | 18 / 2 / 0 | **95.0%** |
+| MCTS+GRAVE@1600 | 18 / 2 / 0 | **95.0%** |
+| MCTS@1600 | 19 / 0 / 1 | **95.0%** |
+| Flat MCTS@1600 | 9 / 10 / 1 | 70.0% |
+| Random | 1 / 2 / 17 | 10.0% |
 
 \* On Ultimate, Solver is a plain MCTS fallback — it only truly solves Normal /
 終極模式的 Solver 實為 MCTS fallback（僅普通模式真正求解）。
 
-### All engines vs Basic (Normal) / 全部引擎 vs Basic（普通，20 局）
+### All engines vs Basic (Normal, 20 games, MCTS@1600) / 全部引擎 vs Basic（普通 · 20 局 · MCTS@1600）
 
 | Engine / 引擎 | W / D / L | Score / 得分率 |
 |---|---|---|
-| Minimax / Minimax Pro | 4 / 16 / 0 | **60%（0 敗）** |
-| Solver | 2 / 18 / 0 | **55%（0 敗）** |
-| Flat MCTS | 4 / 13 / 3 | 52.5% |
-| MCTS / MCTS+RAVE / MCTS+GRAVE | 0 / 19 / 1 | 47.5% |
-| Basic | 1 / 17 / 2 | 47.5% |
-| AlphaZero\* | 0 / 6 / 14 | 15% |
+| Flat MCTS@1600 | 8 / 10 / 2 | 65.0% |
+| Minimax Pro (depth 4) | 4 / 16 / 0 | 60.0% |
+| Minimax (depth 4) | 1 / 19 / 0 | 52.5% |
+| MCTS@1600 | 1 / 19 / 0 | 52.5% |
+| Solver (exact) | 0 / 20 / 0 | 50.0% |
+| MCTS+GRAVE@1600 | 0 / 20 / 0 | 50.0% |
+| MCTS+RAVE@1600 | 0 / 20 / 0 | 50.0% |
 | Random | 0 / 1 / 19 | 2.5% |
-
-\* Normal model is legacy; AlphaZero trains on Ultimate only (D4) /
-普通模型為舊版；AlphaZero 僅訓練終極模式（D4）。
 
 ### MCTS scales with budget / MCTS 隨預算變強（vs Minimax depth 4，Ultimate）
 
@@ -340,36 +324,20 @@ Rows below predate the native C engine (D27 numbers in the section above).
 | Minimax vs MCTS@800 | **63.3%（Minimax）** |
 | Minimax vs MCTS@2000 | **40.0%（MCTS）** |
 
-Crossover around 1200–1600 sims — MCTS has no depth cap, so it wins as the
-budget grows (D20) / 交叉點約 1200–1600 sims——MCTS 無深度上限，預算越高越強（D20）。
+Crossover around 1200–1600 sims — MCTS has no depth cap, so it wins as the buget grows (D20) 
+交叉點約 1200–1600 sims——MCTS 無深度上限，預算越高越強（D20）。
 
-Engine-fix evidence: Minimax Pro root move ordering (D19) went 32.5% → 45% vs
-plain Minimax and 40% → 47.5% vs MCTS / 引擎修正證據：Minimax Pro 根節點排序修正（D19）
-對普通 Minimax 32.5% → 45%、對 MCTS 40% → 47.5%。
-
-### MCTS family round-robin (Ultimate, 20 games/pair, 1600 sims) / MCTS 家族循環賽
+### MCTS family round-robin (Ultimate, 20 games/pair, all engines@1600) / MCTS 家族循環賽（全引擎@1600）
 
 All three share one playout policy: the plain win/block heuristic kernel
-(`c_rollout_pattern = false`, D26 default) / 三者共用同一 playout 策略
-（plain 啟發式核心，D26 預設）。
+(`c_rollout_pattern = false`)
+三者共用同一 playout 策略（plain 啟發式核心）。
 
 | A vs B / 對戰 | W / D / L | Score / 得分率 |
 |---|---|---|
 | MCTS vs MCTS+RAVE | 6 / 2 / 12 | 35.0% |
 | MCTS vs MCTS+GRAVE | 10 / 4 / 6 | 60.0% |
 | MCTS+RAVE vs MCTS+GRAVE | 9 / 5 / 6 | 57.5% |
-
-Reads as RAVE > MCTS > GRAVE at this budget (n = 20, ±11% — read the
-ordering, not the percentages; the 300-sim default this table used to run at
-was draw-saturated and tied, 0/19/1 in one Normal run). A cautionary
-measurement note: an earlier asymmetric run — pattern rollouts enabled,
-which then only reached the C MCTS tree — inverted the ranking completely
-(GRAVE swept both matchups); the `sba_rollout_trace` kernel now takes the
-same pattern flag so the switch is family-wide / 這個預算下排序為
-RAVE > MCTS > GRAVE（n=20，±11%——看排序別看百分比；舊的 300-sim 預設飽和平手，
-Normal 曾出現 0/19/1）。量測教訓：早前一輪不對稱的對照——pattern rollout 只
-餵到 C MCTS 樹——排名完全反轉（GRAVE 橫掃）；`sba_rollout_trace` 現已接受
-同一開關，pattern 成為全家族一致的配置。
 
 ---
 
