@@ -60,7 +60,8 @@ def _load():
             _bind(lib, 'sba_rollout_trace', ctypes.c_int32,
                   state_args + [ctypes.c_uint64,
                                 ctypes.POINTER(ctypes.c_int32),
-                                ctypes.POINTER(ctypes.c_int32)])
+                                ctypes.POINTER(ctypes.c_int32),
+                                ctypes.c_int32])
             _bind(lib, 'sba_mcts_search', ctypes.c_int32,
                   state_args + [ctypes.c_int32, ctypes.c_uint64,
                                 ctypes.c_int32,
@@ -153,9 +154,12 @@ def rollout_state(state, pattern=False, rng_seed=None):
     return _XO[fn(ca, ma, player, active, seed)]
 
 
-def rollout_trace(state, rng_seed=None):
-    """Native heuristic rollout that also returns the move sequence (for the
-    RAVE/GRAVE AMAF statistics). Returns (result, [moves]) or (None, [])."""
+def rollout_trace(state, rng_seed=None, pattern=False):
+    """Native rollout that also returns the move sequence (for the RAVE/GRAVE
+    AMAF statistics). Policy follows the plain heuristic kernel, or the D26
+    pattern kernel when `pattern` is set — the same switch the C MCTS tree
+    takes, so the whole family shares one playout policy. Returns
+    (result, [moves]) or (None, [])."""
     lib = _load()
     if lib is None or not _has_engine:
         return None, []
@@ -165,7 +169,8 @@ def rollout_trace(state, rng_seed=None):
     out_len = ctypes.c_int32(0)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     res = lib.sba_rollout_trace(ca, ma, player, active, seed,
-                                out_moves, ctypes.byref(out_len))
+                                out_moves, ctypes.byref(out_len),
+                                1 if pattern else 0)
     seq = [(out_moves[k] // 9, out_moves[k] % 9) for k in range(out_len.value)]
     return _XO[res], seq
 

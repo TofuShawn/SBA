@@ -940,7 +940,8 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 node = child
                 rollout_moves.append(m)
         if _ce.available() and not isinstance(state, NormalGame):
-            result, seq = _ce.rollout_trace(state)
+            result, seq = _ce.rollout_trace(
+                state, pattern=bool(cfg_engine('c_rollout_pattern', False)))
             if result is None:
                 result = _py_rollout_state(state)
             for m in seq:

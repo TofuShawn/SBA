@@ -349,21 +349,27 @@ plain Minimax and 40% → 47.5% vs MCTS / 引擎修正證據：Minimax Pro 根�
 
 ### MCTS family round-robin (Ultimate, 20 games/pair, 1600 sims) / MCTS 家族循環賽
 
+All three share one playout policy: the plain win/block heuristic kernel
+(`c_rollout_pattern = false`, D26 default) / 三者共用同一 playout 策略
+（plain 啟發式核心，D26 預設）。
+
 | A vs B / 對戰 | W / D / L | Score / 得分率 |
 |---|---|---|
-| MCTS vs MCTS+RAVE | 11 / 2 / 7 | 60.0% |
-| MCTS vs MCTS+GRAVE | 8 / 1 / 11 | 42.5% |
-| MCTS+RAVE vs MCTS+GRAVE | 4 / 4 / 12 | 30.0% |
+| MCTS vs MCTS+RAVE | 6 / 2 / 12 | 35.0% |
+| MCTS vs MCTS+GRAVE | 10 / 4 / 6 | 60.0% |
+| MCTS+RAVE vs MCTS+GRAVE | 9 / 5 / 6 | 57.5% |
 
-At 1600 sims the AMAF statistics pay off: GRAVE leads both matchups (57.5%
-vs MCTS, 70.0% vs RAVE) and draws drop to ~12%. At the older 300-sim default
-the family was draw-saturated and statistically tied (one 20-game run:
-0 W / 19 D / 1 L), which is why the D8/D12 "GRAVE ahead" ranking was
-retracted there. 20 games ≈ ±11% — read the ordering, not the percentages /
-1600 sims 下 AMAF 統計開始回本：GRAVE 對兩者皆領先，和局率降到 ~12%。舊的
-300-sim 預設下三者大量和局、統計持平（曾出現 0 勝 19 和 1 敗的一組），
-舊 D8/D12「GRAVE 領先」就是在那裡被撤回的。20 局解析度約 ±11%——看排序，
-別看百分比。
+Reads as RAVE > MCTS > GRAVE at this budget (n = 20, ±11% — read the
+ordering, not the percentages; the 300-sim default this table used to run at
+was draw-saturated and tied, 0/19/1 in one Normal run). A cautionary
+measurement note: an earlier asymmetric run — pattern rollouts enabled,
+which then only reached the C MCTS tree — inverted the ranking completely
+(GRAVE swept both matchups); the `sba_rollout_trace` kernel now takes the
+same pattern flag so the switch is family-wide / 這個預算下排序為
+RAVE > MCTS > GRAVE（n=20，±11%——看排序別看百分比；舊的 300-sim 預設飽和平手，
+Normal 曾出現 0/19/1）。量測教訓：早前一輪不對稱的對照——pattern rollout 只
+餵到 C MCTS 樹——排名完全反轉（GRAVE 橫掃）；`sba_rollout_trace` 現已接受
+同一開關，pattern 成為全家族一致的配置。
 
 ---
 

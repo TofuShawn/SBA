@@ -273,12 +273,15 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells_in,
     }
 }
 
-/* Trace variant (D27): same policy as sba_rollout but records every move so
- * the RAVE/GRAVE backends can maintain their AMAF statistics. */
+/* Trace variant (D27): records every move so the RAVE/GRAVE backends can
+ * maintain their AMAF statistics. Policy follows sba_rollout (use_pattern=0)
+ * or sba_rollout_pattern (use_pattern=1) — the flag keeps the whole MCTS
+ * family on the same playout policy when c_rollout_pattern is on. */
 int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
                                     const int32_t *macro_in, int32_t player,
                                     int32_t active, uint64_t seed,
-                                    int32_t *out_moves, int32_t *out_len) {
+                                    int32_t *out_moves, int32_t *out_len,
+                                    int32_t use_pattern) {
     int32_t cells[81];
     int32_t macro[SBA_N_MACROS];
     uint64_t rng = seed ? seed : 0x9E3779B97F4A7C15ULL;
@@ -312,7 +315,72 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
             }
         }
         int32_t pick;
-        if (n_wins > 0) {
+        if (use_pattern) {
+            /* D26 policy, mirroring sba_rollout_pattern (tier 0/1/2) */
+            int32_t opp = player == 1 ? 2 : 1;
+            int32_t win_m = -1, win_i = -1, game_win_m = -1, game_win_i = -1;
+            for (int32_t k = 0; k < n_legal; k++) {
+                int32_t m = legal_m[k], i = legal_i[k];
+                if (!sba_wins_micro(cells, m, i, player)) continue;
+                if (game_win_m < 0) {
+                    /* does claiming macro m complete the macro line? */
+                    int32_t saved = macro[m];
+                    macro[m] = player;  /* hypothetical claim */
+                    if (sba_macro_line(macro, player)) {
+                        game_win_m = m;
+                        game_win_i = i;
+                    }
+                    macro[m] = saved;
+                }
+                if (win_m < 0) { win_m = m; win_i = i; }
+            }
+            if (game_win_m >= 0) {
+                pick = game_win_m * 9 + game_win_i;  /* the line check below
+                                                        ends the rollout here */
+            } else if (win_m >= 0) {
+                pick = win_m * 9 + win_i;  /* a claimed macro is always strong */
+            } else {
+                /* tier 2: composite scoring */
+                double best = -1.0;
+                int32_t best_m[81], best_i[81];
+                int32_t n_best = 0;
+                for (int32_t k = 0; k < n_legal; k++) {
+                    int32_t m = legal_m[k], i = legal_i[k];
+                    double score = 0.0;
+                    int32_t blocks = sba_wins_micro(cells, m, i, opp);
+                    /* place, evaluate, undo */
+                    cells[m * 9 + i] = player;
+                    int32_t fork = (my_win_cells(cells, m, player) >= 2
+                                    && macro[m] == 0) ? 1 : 0;
+                    int32_t safe;
+                    if (macro[i] != 0) {
+                        safe = !opp_any_win(cells, macro, opp);
+                    } else {
+                        safe = !opp_win_in_macro(cells, i, opp);
+                    }
+                    cells[m * 9 + i] = 0;
+
+                    if (fork) score += 6.0;
+                    if (blocks) score += 4.0;
+                    if (safe) score += 3.0;
+                    if (i == 4) score += 1.0;
+                    else if (i == 0 || i == 2 || i == 6 || i == 8) score += 0.5;
+
+                    if (score > best + 1e-9) {
+                        best = score;
+                        best_m[0] = m;
+                        best_i[0] = i;
+                        n_best = 1;
+                    } else if (score > best - 1e-9) {
+                        best_m[n_best] = m;
+                        best_i[n_best] = i;
+                        n_best++;
+                    }
+                }
+                int32_t r = sba_rng_below(&rng, (uint32_t)n_best);
+                pick = best_m[r] * 9 + best_i[r];
+            }
+        } else if (n_wins > 0) {
             int32_t w = sba_rng_below(&rng, (uint32_t)n_wins);
             pick = wins_m[w] * 9 + wins_i[w];
         } else {

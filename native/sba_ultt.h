@@ -44,7 +44,8 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells, const int32_t *macro
                                       uint64_t seed);
 int32_t __stdcall sba_rollout_trace(const int32_t *cells, const int32_t *macro,
                                     int32_t player, int32_t active, uint64_t seed,
-                                    int32_t *out_moves, int32_t *out_len);
+                                    int32_t *out_moves, int32_t *out_len,
+                                    int32_t use_pattern);
 
 /* full MCTS (sba_mcts.c) */
 int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
