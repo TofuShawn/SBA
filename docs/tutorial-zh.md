@@ -1542,7 +1542,7 @@ pip freeze > requirements.txt      # 导出当前依赖清单
 pip install -r requirements.txt    # 别人（或新电脑）一键安装
 ```
 
-看本仓库的 `requirements.txt`：就 3 行（nicegui / pyside6 / pytest）——因为大型依赖
+看本仓库的 `requirements.txt`：就 3 行（pyside6 / textual / pytest）——因为大型依赖
 （PyTorch、ROCm）体积大、版本挑环境，单独手动装。
 
 ### 15.3 三个常见坑

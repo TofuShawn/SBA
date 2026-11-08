@@ -1542,7 +1542,7 @@ pip freeze > requirements.txt      # 導出當前依賴清單
 pip install -r requirements.txt    # 別人（或新電腦）一鍵安裝
 ```
 
-看本倉庫的 `requirements.txt`：就 3 行（nicegui / pyside6 / pytest）——因爲大型依賴
+看本倉庫的 `requirements.txt`：就 3 行（pyside6 / textual / pytest）——因爲大型依賴
 （PyTorch、ROCm）體積大、版本挑環境，單獨手動裝。
 
 ### 15.3 三個常見坑

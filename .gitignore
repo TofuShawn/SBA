@@ -6,7 +6,6 @@ __pycache__/
 
 # Virtual env & runtime dirs
 .venv/
-.nicegui/
 
 # Trained model weights
 models/
