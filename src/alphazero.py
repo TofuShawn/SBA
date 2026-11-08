@@ -35,7 +35,7 @@ import time
 # network/slow drive, the first conv2d can hang or raise
 # miopenStatusUnknownError, so pin the caches to the local project disk
 # (user-set overrides are respected).
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if os.name == 'nt':
     os.environ.setdefault('MIOPEN_USER_DB_PATH', os.path.join(HERE, '.miopen'))
     os.environ.setdefault('MIOPEN_CUSTOM_CACHE_DIR', os.path.join(HERE, '.miopen_cache'))

@@ -7,7 +7,7 @@ Shares the game rules (game.py), the AI engines (ai.py) and the per-session
 state / bilingual helpers (SBA.py) with the desktop UI.
 
 Run:
-    python tui.py            # terminal UI
+    python src/tui.py        # terminal UI
 
 Maintenance notes:
 - All AI moves and assistant analyses run in Textual Worker threads so the

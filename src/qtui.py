@@ -88,6 +88,9 @@ def _blur_pixmap(pm, radius):
 DISPLAY_FAMILIES = ['Inter', 'Segoe UI']
 MONO_FAMILIES = ['JetBrains Mono', 'Cascadia Mono', 'Consolas', 'Courier New']
 
+# repo root: the modules live in src/, tracked assets (static/) stay there
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 _FONT_LOADED = False
 
 
@@ -97,8 +100,7 @@ def load_app_font():
     if _FONT_LOADED:
         return
     _FONT_LOADED = True
-    base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        'static', 'fonts')
+    base = os.path.join(ROOT, 'static', 'fonts')
     for name in ('Inter-Regular.ttf', 'Inter-Bold.ttf', 'Inter-ExtraBold.ttf',
                  'Inter-Black.ttf', 'JetBrainsMono-Medium.ttf',
                  'JetBrainsMono-Bold.ttf'):
@@ -425,8 +427,7 @@ def _deck_button(text, parent=None, primary=False, slant=None):
 # static/endfield.qss so visuals can be retuned without touching logic; only
 # a tiny fallback is embedded for a missing file.
 # ---------------------------------------------------------------------------
-_QSS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         'static', 'endfield.qss')
+_QSS_PATH = os.path.join(ROOT, 'static', 'endfield.qss')
 _QSS_FALLBACK = (
     'QWidget { background: #09090b; color: #ffffff; }'
     'QPushButton#primary { background: #fffa00; color: #09090b; }'
@@ -1015,8 +1016,7 @@ class EndfieldPage(QWidget):
             return None
         pix = EndfieldPage._backdrop_cache.get(self.BACKDROP)
         if pix is None:
-            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                self.BACKDROP)
+            path = os.path.join(ROOT, self.BACKDROP)
             if not os.path.isfile(path):
                 return None
             pix = QPixmap(path)

@@ -78,11 +78,11 @@ AlphaZero 訓練方法與效能分析見
 
 ```bash
 # PySide6 desktop UI / PySide6 桌面版
-python SBA.py
+python src/SBA.py
 # or explicitly / 或明確指定
-python SBA.py --qt
+python src/SBA.py --qt
 # same as: / 等同於
-python qtui.py
+python src/qtui.py
 ```
 
 桌面版使用 Endfield 工業 console 主題（`static/endfield.qss` + 原生繪製棋盤），
@@ -91,7 +91,7 @@ python qtui.py
 ### 2. Terminal UI (TUI) / 終端機版
 
 ```bash
-python tui.py
+python src/tui.py
 ```
 
 Textual 終端機介面，同一套引擎與設定；適合 SSH／無 GUI 環境。
@@ -104,12 +104,12 @@ CLI flags / 指令參數：
 | `--debug` | Verbose backend logging / 後端詳細日誌 |
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
 | `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
-| `--train-az` | Alias for `alphazero.py train` / 等同執行 `alphazero.py train` |
+| `--train-az` | Alias for `src/alphazero.py train` / 等同執行 `src/alphazero.py train` |
 
 ### 3. Self-test / 自測
 
 ```bash
-python SBA.py --self-test
+python src/SBA.py --self-test
 # Windows: run.bat --self-test (local launcher, not tracked in git)
 ```
 
@@ -120,12 +120,12 @@ smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局�
 
 ```bash
 # default: MCTS vs MCTS+RAVE vs MCTS+GRAVE round-robin on Ultimate / 預設終極模式循環賽
-python SBA.py --bench
+python src/SBA.py --bench
 # pick your own matchup / 自訂對戰組合
-python SBA.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 40 --iters 400
-python SBA.py --bench --ai-a Minimax --ai-b MCTS+GRAVE --depth 4
+python src/SBA.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 40 --iters 400
+python src/SBA.py --bench --ai-a Minimax --ai-b MCTS+GRAVE --depth 4
 # smaller / faster, or Normal board / 較小規模或普通棋盤
-python SBA.py --bench --games 10 --iters 200 --normal
+python src/SBA.py --bench --games 10 --iters 200 --normal
 ```
 
 Available engines for `--ai-a`/`--ai-b`: Random, Basic, Minimax, Minimax Pro,
@@ -137,10 +137,10 @@ per game and per-match scores (win = 1, draw = 0.5) are printed /
 
 ```bash
 # train a neural net for Ultimate (Normal is solved and not supported) / 訓練終極模式神經網路（普通模式已破解，不支援）
-python alphazero.py train --games 400 --sims 80
+python src/alphazero.py train --games 400 --sims 80
 
 # evaluate a trained model vs MCTS / 評估模型對戰 MCTS
-python alphazero.py eval --games 30 --sims 200
+python src/alphazero.py eval --games 30 --sims 200
 ```
 
 Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoint）、
@@ -167,13 +167,13 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 ## Architecture map / 架構地圖
 
 Read order is baked into the map: **[1] → [5]**, top layers depend on bottom
-layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
+layers (one-way, D2). Run it first — `python src/SBA.py` — then read downward /
 閱讀順序已編進圖裡：**[1] → [5]**；上層依賴下層、單向（D2）。先跑起來，再往下讀。
 
 ```
       UI LAYER (pick one — two front ends, one backend)
   +----------------------+  +----------------------+
-  | qtui.py         [5a] |  | tui.py          [5b] |
+  | src/qtui.py     [5a] |  | src/tui.py      [5b] |
   | PySide6 desktop      |  | rich terminal        |
   | ~2500 lines          |  | ~1350 lines          |
   +----------+-----------+  +----------+-----------+
@@ -182,7 +182,7 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
                           |
       GLUE LAYER                v
   +------------------------------------------------------+
-  | SBA.py  [4]                                           |
+  | src/SBA.py  [4]                                           |
   | CLI entry · session state · t() bilingual strings     |
   | --self-test / --bench / --train-az                    |
   | ~260 lines                                            |
@@ -190,7 +190,7 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
                               |
       ENGINE LAYER            v
   +------------------------------------------------------+
-  | ai.py  [2]                                            |
+  | src/ai.py  [2]                                            |
   | all engines + assistant analysis (get_ai_move,        |
   | analyze_position); one search -> best moves           |
   | AND (X, draw, O) win rates (D15)                      |
@@ -200,7 +200,7 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
             |  lazy import (loads torch only when selected)
             v
   +------------------------------------------------------+
-  | alphazero.py  [3]                                     |
+  | src/alphazero.py  [3]                                     |
   | neural-guided MCTS: AZNet policy+value heads,         |
   | self-play workers, replay buffer, LR/temp annealing   |
   | Ultimate only (D4); ~900 lines                        |
@@ -208,7 +208,7 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
                               |
       RULES LAYER             v
   +------------------------------------------------------+
-  | game.py  [1]                                          |
+  | src/game.py  [1]                                          |
   | NormalGame / UltimateGame / BitUltimateGame           |
   | the only ground truth: legal_moves() make_move()      |
   | result() clone()                                      |
@@ -227,11 +227,11 @@ layers (one-way, D2). Run it first — `python SBA.py` — then read downward /
 Reading-route highlights, condensed from the retired
 `docs/reading-guide.md` / 閱讀要點（自已退役的 `docs/reading-guide.md` 濃縮）：
 
-- **[1] `game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
-- **[2] `ai.py`**：按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
-- **[3] `alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
-- **[4] `SBA.py`**：總覽地圖，最後讀。
-- **[5] UI**：兩端共用 [1]–[4]；`qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
+- **[1] `src/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
+- **[2] `src/ai.py`**：按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
+- **[3] `src/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
+- **[4] `src/SBA.py`**：總覽地圖，最後讀。
+- **[5] UI**：兩端共用 [1]–[4]；`src/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
 
 驗收自問：終極棋盤的強制路由在哪實作？為什麼普通棋盤 Minimax 是完整解、終極只是估價？UCT 的探索/利用平衡在哪一行？助手勝率從哪來？— 答得出來就算讀懂了。
 
@@ -285,11 +285,11 @@ variant kept off by default (D26 A/B: no gain at 4.4x cost).
 
 ## Benchmarks / 實測基準
 
-Measured with `python SBA.py --bench` on this machine (AMD Ryzen 9 9950X,
+Measured with `python src/SBA.py --bench` on this machine (AMD Ryzen 9 9950X,
 RX 7900 XTX); **score% = (wins + draws/2) / games**, 20–30 games per matchup,
 first player alternates. Reproduce any row with `--ai-a X --ai-b Y --games N`.
 Rows below predate the native C engine (D27 numbers in the section above).
-/ 本機實測（`python SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20–30 局、輪換先手。
+/ 本機實測（`python src/SBA.py --bench`）；得分率 =（勝 + 和/2）/ 局數，每組 20–30 局、輪換先手。
 以下數字測於原生 C 引擎之前（D27 數據見上一節）。
 
 ### All engines vs Basic (Ultimate) / 全部引擎 vs Basic（終極，20 局）

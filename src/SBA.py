@@ -8,10 +8,10 @@ them together, keeps the per-session UI state, runs the headless
 self-tests, and provides the CLI entry point.
 
 Run:
-    python SBA.py              # start the PySide6 desktop app (default)
-    python SBA.py --qt         # start the desktop app explicitly
-    python SBA.py --self-test  # run headless checks
-    python SBA.py --debug      # verbose backend logs
+    python src/SBA.py              # start the PySide6 desktop app (default)
+    python src/SBA.py --qt         # start the desktop app explicitly
+    python src/SBA.py --self-test  # run headless checks
+    python src/SBA.py --debug      # verbose backend logs
 
 Maintenance notes:
 - The desktop app is the default entry (decision D1).
@@ -223,7 +223,8 @@ def main():
         except ImportError:
             print('pytest is required for --self-test:  python -m pip install pytest')
             return 1
-        tests = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tests')
+        tests = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), 'tests')
         sys.exit(pytest.main(['-q', tests]))
     if '--train-az' in sys.argv:
         import alphazero

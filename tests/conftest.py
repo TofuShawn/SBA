@@ -7,8 +7,9 @@ import sys
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+SRC = os.path.join(ROOT, 'src')
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
 
 from ai import reset_engine_caches, set_engine_config  # noqa: E402
 

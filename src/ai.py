@@ -21,6 +21,7 @@ import logging
 import math
 import os
 import random
+import sys
 import threading
 import time
 
@@ -31,6 +32,9 @@ from game import (
 )
 
 log = logging.getLogger('ai')
+
+# repo root: src/ holds the modules, tracked data (config.toml) stays there
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # ============================================================
@@ -61,6 +65,8 @@ _CFG_DEFAULTS = {
 # C implementations when available and keeps pure-Python fallbacks for
 # everything (and always for RAVE/GRAVE, Minimax Pro and AlphaZero).
 # ---------------------------------------------------------------------------
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)   # the native/ package lives at the repo root
 from native import cengine as _ce
 
 _C_ROLL = True    # legacy test hook: replaced by cengine.available()
@@ -112,7 +118,7 @@ def _load_config():
     """Load config.toml (or $SBA_CONFIG) as a dict; missing/broken file -> {}."""
     path = os.environ.get('SBA_CONFIG')
     if not path:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
+        path = os.path.join(ROOT, 'config.toml')
     try:
         import tomllib
         with open(path, 'rb') as fh:
@@ -157,7 +163,7 @@ def save_engine_config(overrides=None):
     import re
     path = os.environ.get('SBA_CONFIG')
     if not path:
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.toml')
+        path = os.path.join(ROOT, 'config.toml')
     try:
         with open(path, encoding='utf-8') as fh:
             text = fh.read()

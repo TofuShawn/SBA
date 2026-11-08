@@ -1574,7 +1574,7 @@ pip install -r requirements.txt    # 別人（或新電腦）一鍵安裝
 ### 16.3 用 benchmark 說話
 
 不要說"我覺得 MCTS 比較強"，要說"**30 局 22 勝 4 平 4 負**"。
-本項目的 `python SBA.py --bench --ai-a Minimax --ai-b MCTS --games 30`
+本項目的 `python src/SBA.py --bench --ai-a Minimax --ai-b MCTS --games 30`
 就是幹這個的。數字不會說謊，也經得起追問。
 
 ### 16.4 測試讓你敢重構
