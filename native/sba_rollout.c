@@ -1,5 +1,17 @@
 #include "sba_ultt.h"
 
+/* The Python rules reject moves on a decided board; the C kernels must
+ * report the same verdict when handed one instead of playing on (otherwise
+ * sba_macro_line() in the loop credits the side to move). */
+static int32_t terminal_result(const int32_t *cells, const int32_t *macro) {
+    SbaState st;
+    for (int32_t i = 0; i < 81; i++) st.cells[i] = cells[i];
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) st.macro[m] = macro[m];
+    st.player = 1;
+    st.active = -1;
+    return sba_result(&st);
+}
+
 /*
  * cells : 81 ints, 0 empty / 1 X / 2 O
  * macro : 9 ints,  0 open / 1 X / 2 O / 3 full-draw
@@ -15,6 +27,10 @@ int32_t __stdcall sba_rollout(const int32_t *cells_in, const int32_t *macro_in,
 
     for (int32_t i = 0; i < 81; i++) cells[i] = cells_in[i];
     for (int32_t i = 0; i < SBA_N_MACROS; i++) macro[i] = macro_in[i];
+    {
+        int32_t terminal = terminal_result(cells, macro);
+        if (terminal) return terminal;  /* Python: no legal moves here */
+    }
 
     for (;;) {
         /* collect legal (m, i) pairs — macro cells with macro[m] == 0 */
@@ -106,7 +122,7 @@ int32_t __stdcall sba_rollout(const int32_t *cells_in, const int32_t *macro_in,
  * Pattern rollout (D26): a stronger policy with fork creation, safe routing
  * (never hand the opponent a macro where they can win immediately), blocking
  * and positional bias. Same signature and RNG contract as sba_rollout so the
- * two kernels can be A/B benched (c_rollout_pattern in sba.toml).
+ * two kernels can be A/B benched (c_rollout_pattern in config.toml).
  *
  * Policy, in order:
  *   0. a move that wins the GAME immediately (micro win completing the macro
@@ -156,6 +172,10 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells_in,
 
     for (int32_t i = 0; i < 81; i++) cells[i] = cells_in[i];
     for (int32_t i = 0; i < SBA_N_MACROS; i++) macro[i] = macro_in[i];
+    {
+        int32_t terminal = terminal_result(cells, macro);
+        if (terminal) return terminal;  /* Python: no legal moves here */
+    }
 
     for (;;) {
         int32_t legal_m[81], legal_i[81];
@@ -288,6 +308,10 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
 
     for (int32_t i = 0; i < 81; i++) cells[i] = cells_in[i];
     for (int32_t i = 0; i < SBA_N_MACROS; i++) macro[i] = macro_in[i];
+    {
+        int32_t terminal = terminal_result(cells, macro);
+        if (terminal) return terminal;  /* Python: no legal moves here */
+    }
     int32_t n_out = 0;
 
     for (;;) {

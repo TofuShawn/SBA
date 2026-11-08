@@ -159,74 +159,101 @@ def cfg_session(name, default=None):
 
 
 def save_engine_config(overrides=None):
-    """Apply overrides at runtime AND persist them back into config.toml
-    (D28). Comment lines survive: each key line is rewritten in place via
-    regex; keys missing from the file are appended to their section."""
-    set_engine_config(overrides)
+    """Apply overrides at runtime AND persist them to config.toml (D28).
+
+    The file is the source of truth: only the keys explicitly handed in are
+    rewritten, so hand-managed values (floats, the opening-book table,
+    [session] tweaks) survive a Settings save. A broken TOML is never
+    overwritten -- it is reported and left for the user to repair. Comment
+    lines survive: each key line is rewritten in place via regex.
+    """
     import re
-    path = os.environ.get('SBA_CONFIG')
-    if not path:
-        path = os.path.join(ROOT, 'config.toml')
+    import tomllib
+    path = os.environ.get('SBA_CONFIG') or os.path.join(ROOT, 'config.toml')
     try:
         with open(path, encoding='utf-8') as fh:
             text = fh.read()
+        on_disk = tomllib.loads(text)
     except OSError:
         log.warning('save_engine_config: cannot read %s', path)
         return
+    except Exception as exc:
+        # never turn a broken file into a longer broken file
+        log.warning('save_engine_config: %s is not valid TOML (%s); '
+                    'refusing to overwrite', path, exc)
+        return
+
+    if overrides is None:
+        # "Restore defaults": persist every scalar code default, but leave
+        # hand-managed tables (the opening book) untouched.
+        overrides = {
+            'engine': {k: v for k, v in _CFG_DEFAULTS['engine'].items()
+                       if not isinstance(v, dict)},
+            'session': dict(_CFG_DEFAULTS['session']),
+        }
+
+    # defaults <- file <- overrides. Keeping the file in the chain is what
+    # stops a save from silently discarding values the UI never touched.
+    global CONFIG
+    CONFIG = {
+        'engine': {**_CFG_DEFAULTS['engine'],
+                   **on_disk.get('engine', {}),
+                   **overrides.get('engine', {})},
+        'session': {**_CFG_DEFAULTS['session'],
+                    **on_disk.get('session', {}),
+                    **overrides.get('session', {})},
+    }
+
     appended = []
     for section in ('engine', 'session'):
-        for key, val in CONFIG.get(section, {}).items():
+        for key, val in overrides.get(section, {}).items():
             if isinstance(val, bool):
                 literal = 'true' if val else 'false'
-                pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*)(?:true|false)(\s*(?:#.*)?)$'
-                new_text, n = re.subn(pattern,
-                                      lambda m: m.group(1) + literal + m.group(2), text)
-                if n:
-                    text = new_text
-                else:
-                    appended.append((section, key, literal))
-            elif isinstance(val, int) and not isinstance(val, bool):
-                pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*)\d+(\s*(?:#.*)?)$'
-                new_text, n = re.subn(pattern,
-                                      lambda m: m.group(1) + str(val) + m.group(2), text)
-                if n:
-                    text = new_text
-                else:
-                    appended.append((section, key, str(val)))
+                value_re = r'(?:true|false)'
+            elif isinstance(val, int):
+                literal, value_re = str(val), r'-?\d+'
             elif isinstance(val, float):
-                # floats must round-trip too: leaving them in the file while
-                # the in-memory copy was reset diverges the two until restart
-                pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*)[0-9.]+(?:[eE][+-]?\d+)?(\s*(?:#.*)?)$'
-                new_text, n = re.subn(pattern,
-                                      lambda m: m.group(1) + repr(val) + m.group(2), text)
-                if n:
-                    text = new_text
-                else:
-                    appended.append((section, key, repr(val)))
-            # strings (none in [engine]/[session] today) stay hand-managed
+                literal = repr(val)
+                value_re = r'-?[0-9.]+(?:[eE][+-]?\d+)?'
+            else:
+                continue  # tables / strings are hand-managed, never rewritten
+            pattern = rf'(?m)^(\s*{re.escape(key)}\s*=\s*){value_re}(\s*(?:#.*)?)$'
+            text, n = re.subn(
+                pattern, lambda m: m.group(1) + literal + m.group(2), text)
+            if not n:
+                appended.append((section, key, literal))
+
     if appended:
-        text = text.rstrip('\n') + '\n'
-        cur_section = None
-        lines = text.split('\n')
-        out = []
-        for line in lines:
+        out, seen = [], set()
+        for line in text.rstrip('\n').split('\n'):
             out.append(line)
-            m = re.match(r'^\[(\w+)\]', line.strip())
+            m = re.match(r'^\[([^\]]+)\]', line.strip())
             if m:
-                cur_section = m.group(1)
-                pending = [a for a in appended if a[0] == cur_section]
-                for _sec, key, literal in pending:
-                    out.append(f'{key} = {literal}')
-                appended = [a for a in appended if a[0] != cur_section]
-        text = '\n'.join(out)
-        for _sec, key, literal in appended:  # section header missing -> append
-            text += f'\n{key} = {literal}'
+                sec = m.group(1)
+                seen.add(sec)
+                for a in [a for a in appended if a[0] == sec]:
+                    out.append(f'{a[1]} = {a[2]}')
+                appended = [a for a in appended if a[0] != sec]
+        for sec in ('engine', 'session'):
+            rest = [a for a in appended if a[0] == sec]
+            if rest:
+                if sec not in seen:
+                    out.append(f'[{sec}]')
+                out.extend(f'{a[1]} = {a[2]}' for a in rest)
+        text = '\n'.join(out) + '\n'
+
+    tmp = path + '.tmp'
     try:
-        with open(path, 'w', encoding='utf-8') as fh:
+        with open(tmp, 'w', encoding='utf-8') as fh:
             fh.write(text)
+        os.replace(tmp, path)   # atomic: a failed write leaves the old file
         log.info('save_engine_config: written to %s', path)
-    except OSError as e:
-        log.warning('save_engine_config: cannot write %s: %s', path, e)
+    except OSError as exc:
+        log.warning('save_engine_config: cannot write %s: %s', path, exc)
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 # ============================================================
@@ -525,17 +552,20 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
                 node.children.append(child)
                 node = child
         result = state.result()
-        if c_roll is not None:
-            result = _ce.rollout_state(state) or _py_rollout_state(state)
-        else:
-            result = state.result()
-            while result is None:
-                moves = state.legal_moves()
-                if not moves:
-                    break
-                m = _rollout_move(state, moves)
-                apply_move(state, m)
-                result = state.result()
+        if result is None:
+            # A terminal node (the expansion move may have just won the game)
+            # must not go to the C kernel: it only stops for a win it plays
+            # itself and would keep emitting moves on a finished board.
+            if c_roll is not None:
+                result = _ce.rollout_state(state) or _py_rollout_state(state)
+            else:
+                while result is None:
+                    moves = state.legal_moves()
+                    if not moves:
+                        break
+                    m = _rollout_move(state, moves)
+                    apply_move(state, m)
+                    result = state.result()
         while node is not None:
             node.visits += 1
             if result == node.mover:
@@ -828,14 +858,6 @@ def _d4_perms():
 _D4 = _d4_perms()
 
 
-def _sym_images(move):
-    """All D4 images of a Normal index or an Ultimate (m, i) move."""
-    if isinstance(move, tuple):
-        m, i = move
-        return tuple(sorted((_D4[t][m], _D4[t][i]) for t in range(8)))
-    return tuple(sorted(_D4[t][move] for t in range(8)))
-
-
 def reset_engine_caches():
     """Drop module-level search caches (used by self-tests/bench)."""
     _REUSE.clear()
@@ -993,7 +1015,8 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 node.children.append(child)
                 node = child
                 rollout_moves.append(m)
-        if _ce.available() and not isinstance(state, NormalGame):
+        if (_ce.available() and not isinstance(state, NormalGame)
+                and state.result() is None):
             result, seq = _ce.rollout_trace(
                 state, pattern=bool(cfg_engine('c_rollout_pattern', False)))
             if result is None:
@@ -1127,7 +1150,8 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                 node.children.append(child)
                 node = child
                 rollout_moves.append(m)
-        if _ce.available() and not isinstance(state, NormalGame):
+        if (_ce.available() and not isinstance(state, NormalGame)
+                and state.result() is None):
             result, seq = _ce.rollout_trace(
                 state, pattern=bool(cfg_engine('c_rollout_pattern', False)))
             if result is None:
@@ -1551,9 +1575,10 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
 def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
     if ai_type == 'MCTS':
-        # D27: the whole tree search runs in C (order-of-magnitude faster);
-        # the C path has no tree reuse — its speed more than compensates.
-        # Normal 3x3 stays on the Python path (too shallow to matter).
+        # D27: the whole tree search runs in C (order-of-magnitude faster).
+        # D30: _c_mcts_move carries its own warm C arena in _C_PREV between
+        # moves, so the C path does reuse a tree (the Python path has the
+        # separate _REUSE cache). Normal 3x3 stays on the Python path.
         if (cfg_engine('c_mcts', True) and isinstance(game, UltimateGame)
                 and _ce.available(engine=True)):
             mv = _c_mcts_move(game, budget, on_progress, trace)

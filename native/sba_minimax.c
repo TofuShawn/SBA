@@ -300,8 +300,13 @@ int32_t __stdcall sba_flat_mcts(const int32_t *cells, const int32_t *macro,
     }
     double best_wr = -1.0;
     int32_t best_move = moves[0];
+    int32_t best_is_win = 0;
     for (int32_t k = 0; k < n; k++) {
-        int32_t wins = 0;
+        double score = 0.0;
+        SbaState probe = st;
+        sba_apply(&probe, moves[k] / 9, moves[k] % 9);
+        /* Python flat_mcts_move breaks ties toward an immediate game win. */
+        int32_t immediate_win = (sba_result(&probe) == player);
         for (int32_t r = 0; r < per_move; r++) {
             SbaState t = st;
             sba_apply(&t, moves[k] / 9, moves[k] % 9);
@@ -313,11 +318,19 @@ int32_t __stdcall sba_flat_mcts(const int32_t *cells, const int32_t *macro,
                     : sba_rollout(t.cells, t.macro, t.player, t.active,
                                   sba_rng_next(&rng));
             }
-            if (res == player) wins++;
-            else if (res == 3) wins++;      /* Python: draws score 0.5 each */
+            /* Python _flat_playout: win 1.0 / draw 0.5 / loss 0.0. Counting a
+             * draw as a full win and dividing by 2N biased this kernel toward
+             * draws and could invert the candidate ordering. */
+            if (res == player) score += 1.0;
+            else if (res == 3) score += 0.5;
         }
-        double wr = wins / (2.0 * per_move);
-        if (wr > best_wr) { best_wr = wr; best_move = moves[k]; }
+        double wr = score / (double)per_move;
+        if (wr > best_wr + 1e-9 ||
+            (wr >= best_wr - 1e-9 && immediate_win && !best_is_win)) {
+            best_wr = wr;
+            best_move = moves[k];
+            best_is_win = immediate_win;
+        }
     }
     if (out_best) *out_best = best_move;
     return 0;

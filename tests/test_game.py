@@ -110,3 +110,31 @@ def test_bitboard_drawn_macro_displays_D():
     g.macro[0] = 'D'
     b = BitUltimateGame.from_game(g)
     assert b.macro[0] == 'D'
+
+
+def test_make_move_rejects_terminal_and_misrouted_moves():
+    """The rules layer is the ground truth: a won board has no legal moves,
+    and a move must honour the macro routing. All three implementations
+    agree."""
+    n = NormalGame()
+    for mv in (0, 3, 1, 4, 2):
+        n.make_move(mv)
+    assert n.result() == X and n.legal_moves() == []
+    with pytest.raises(ValueError, match='game is over'):
+        n.make_move(5)
+
+    u = UltimateGame()
+    apply_move(u, (0, 2))  # routes the reply into macro 2
+    with pytest.raises(ValueError, match='routed macro'):
+        u.make_move(5, 5)
+    b = BitUltimateGame.from_game(u)
+    with pytest.raises(ValueError, match='routed macro'):
+        b.make_move(5, 5)
+
+    draw = UltimateGame()
+    draw.macro = ['D'] * 9
+    for m in range(9):
+        draw.micro[m] = [X, O, X, X, O, O, O, X, X]
+    assert draw.result() == 'D'
+    with pytest.raises(ValueError, match='game is over'):
+        draw.make_move(0, 0)

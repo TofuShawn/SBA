@@ -30,6 +30,24 @@ def line_winner(cells):
     return None
 
 
+def _assert_playable(game):
+    """Reject moves on a finished board (shared by every rule implementation)."""
+    if game.result() is not None:
+        raise ValueError('game is over')
+
+
+def _assert_ultimate_routing(game, macro):
+    """Reject a move that ignores the forced macro routing or targets a closed
+    macro. O(1): deliberately avoids building the full legal_moves() list,
+    since make_move sits on the Python search hot path."""
+    active = game.active_macro
+    if active is not None and game.macro_open(active):
+        if macro != active:
+            raise ValueError('move must be in the routed macro')
+    elif not game.macro_open(macro):
+        raise ValueError('macro is not open')
+
+
 # ============================================================
 # Game engines
 # ============================================================
@@ -40,9 +58,14 @@ class NormalGame:
         self.current = X
 
     def legal_moves(self):
+        # A won board has no legal moves even when empty cells remain; without
+        # this, searches keep expanding terminal nodes.
+        if self.winner() is not None:
+            return []
         return [i for i, c in enumerate(self.board) if c == EMPTY]
 
     def make_move(self, index):
+        _assert_playable(self)
         if self.board[index] != EMPTY:
             raise ValueError('cell is occupied')
         self.board[index] = self.current
@@ -83,6 +106,8 @@ class UltimateGame:
         return self.macro[m] == EMPTY and any(c == EMPTY for c in self.micro[m])
 
     def legal_moves(self):
+        if self.winner() is not None:
+            return []
         if self.active_macro is not None and self.macro_open(self.active_macro):
             return [(self.active_macro, i)
                     for i in range(9) if self.micro[self.active_macro][i] == EMPTY]
@@ -99,6 +124,8 @@ class UltimateGame:
         return line_winner(self.micro[m])
 
     def make_move(self, macro, micro):
+        _assert_playable(self)
+        _assert_ultimate_routing(self, macro)
         if self.micro[macro][micro] != EMPTY:
             raise ValueError('cell is occupied')
         self.micro[macro][micro] = self.current
@@ -207,6 +234,8 @@ class BitUltimateGame:
         return self._micro_bits(m) != 0x1FF
 
     def legal_moves(self):
+        if self.winner() is not None:
+            return []
         if self.active_macro is not None and self.macro_open(self.active_macro):
             taken = self._micro_bits(self.active_macro)
             m = self.active_macro
@@ -222,6 +251,8 @@ class BitUltimateGame:
         return moves
 
     def make_move(self, m, i):
+        _assert_playable(self)
+        _assert_ultimate_routing(self, m)
         bit = 1 << (m * 9 + i)
         if (self.x | self.o) & bit:
             raise ValueError('cell is occupied')

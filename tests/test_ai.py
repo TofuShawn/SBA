@@ -11,7 +11,7 @@ from ai import (
     get_basic_move, minimax_move_normal, mcts_move, solver_move,
     minimax_pro_move, mcts_rave_move, mcts_grave_move, build_tablebase,
     _board_key, get_ai_move, opening_book_move, build_micro_tablebase,
-    _rollout_move, reset_engine_caches, _REUSE, _fork_count, _sym_images,
+    _rollout_move, reset_engine_caches, _REUSE, _fork_count,
     mcts_move_parallel, _D4, position_win_rate, position_win_rates,
     flat_mcts_move, analyze_position, set_engine_config, _diff_move,
 )
@@ -193,8 +193,34 @@ def test_minimax_pro_legal_with_refinements():
 
 
 def test_symmetry():
+    """D4 permutations are bijections; the canonical resulting-position key
+    (which replaced the old cell-orbit dedup) must notice asymmetric boards."""
     assert len({tuple(p) for p in _D4}) == 8
-    assert set(_sym_images(0)) == {0, 2, 6, 8}
+    assert all(sorted(p) == list(range(9)) for p in _D4)
+    g = UltimateGame()
+    apply_move(g, (4, 4))
+    apply_move(g, (4, 2))
+    keys = {ai._ultt_sym_key(g, t) for t in range(8)}
+    assert len(keys) > 1
+
+
+def test_symmetry_keeps_forced_win_on_python_path():
+    """Regression: the old cell-orbit dedup key merged non-equivalent root
+    moves and made GRAVE miss a forced win in 21/30 seeds with symmetry on."""
+    g = UltimateGame()
+    g.macro = [X, X, EMPTY] + [EMPTY] * 6
+    g.micro[2] = [EMPTY, EMPTY, EMPTY, EMPTY, X, EMPTY, X, EMPTY, EMPTY]
+    g.current = X
+    g.active_macro = 2
+    set_engine_config({'engine': {'symmetry': True, 'c_mcts': False,
+                                  'c_minimax': False, 'opening_book': False,
+                                  'bitboard': False, 'tree_reuse': False}})
+    try:
+        for seed in (1, 2, 3):
+            random.seed(seed)
+            assert get_ai_move(g.clone(), 'MCTS+GRAVE', 200) == (2, 2)
+    finally:
+        set_engine_config()
 
 
 def test_multithreaded_mcts_legal():
@@ -340,8 +366,8 @@ def test_diff_move():
     assert _diff_move(ua, ub) == (4, 4)
     assert _diff_move(BitUltimateGame.from_game(ua), ub) == (4, 4)
     ub2 = UltimateGame()
-    ub2.make_move(0, 0)
-    ub2.make_move(1, 1)
+    ub2.make_move(0, 0)   # routes the reply into macro 0
+    ub2.make_move(0, 1)
     assert _diff_move(ua, ub2) is None  # two new cells
     assert _diff_move(ub, ua) is None   # a removal is not a forward move
 

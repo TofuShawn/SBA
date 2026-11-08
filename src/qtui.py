@@ -2415,7 +2415,7 @@ class SettingsPage(EndfieldPage):
         self.status_lbl.setText(t('Saved to config.toml', '已保存到 config.toml'))
 
     def _on_reset(self):
-        save_engine_config()  # back to code defaults, persisted
+        save_engine_config()  # scalar defaults; hand-managed tables are kept
         self.refresh_values()
         self.status_lbl.setText(t('Defaults restored', '已恢復預設'))
 

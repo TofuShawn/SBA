@@ -81,8 +81,10 @@ def _load():
                 _bind(lib, 'sba_minimax_ultimate', ctypes.c_int32,
                       state_args + [ctypes.c_int32,
                                     ctypes.POINTER(ctypes.c_int32)])
+                # ABI (8 args): cells, macro, player, active,
+                # per_move, seed, use_pattern, out_best
                 _bind(lib, 'sba_flat_mcts', ctypes.c_int32,
-                      state_args + [ctypes.c_uint64,
+                      state_args + [ctypes.c_int32, ctypes.c_uint64,
                                     ctypes.c_int32,
                                     ctypes.POINTER(ctypes.c_int32)])
                 _bind(lib, 'sba_node_size', ctypes.c_int32, [])
