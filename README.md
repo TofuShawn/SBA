@@ -88,6 +88,14 @@ python qtui.py
 桌面版使用 Endfield 工業 console 主題（`static/endfield.qss` + 原生繪製棋盤），
 選單頁可進入 Settings 調整引擎開關。
 
+### 2. Terminal UI (TUI) / 終端機版
+
+```bash
+python tui.py
+```
+
+Textual 終端機介面，同一套引擎與設定；適合 SSH／無 GUI 環境。
+
 CLI flags / 指令參數：
 
 | Flag / 參數 | Description / 說明 |
@@ -98,7 +106,7 @@ CLI flags / 指令參數：
 | `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
 | `--train-az` | Alias for `alphazero.py train` / 等同執行 `alphazero.py train` |
 
-### 2. Self-test / 自測
+### 3. Self-test / 自測
 
 ```bash
 python SBA.py --self-test
@@ -108,7 +116,7 @@ python SBA.py --self-test
 Runs the pytest suite covering rules, AI sanity, termination, and AlphaZero
 smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試（需 `pip install pytest`，已列入 `requirements.txt`）。
 
-### 2b. MCTS benchmark / MCTS 對戰測試
+### 3b. MCTS benchmark / MCTS 對戰測試
 
 ```bash
 # default: MCTS vs MCTS+RAVE vs MCTS+GRAVE round-robin on Ultimate / 預設終極模式循環賽
@@ -125,7 +133,7 @@ MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero. The first player alte
 per game and per-match scores (win = 1, draw = 0.5) are printed /
 `--ai-a`/`--ai-b` 可用引擎如上；每局輪換先手，輸出各組合得分率（勝 = 1、和 = 0.5）。
 
-### 3. Train / evaluate AlphaZero / 訓練與評估 AlphaZero
+### 4. Train / evaluate AlphaZero / 訓練與評估 AlphaZero
 
 ```bash
 # train a neural net for Ultimate (Normal is solved and not supported) / 訓練終極模式神經網路（普通模式已破解，不支援）
@@ -349,6 +357,7 @@ RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立�
 
 ## Credits / 致謝
 
+- [Qt for Python (PySide6)](https://github.com/qt/pyside-setup) - the desktop UI framework / 桌面版 UI 框架
 - [PyTorch](https://pytorch.org) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
 - [NumPy](https://numpy.org) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
 
@@ -358,4 +367,3 @@ RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立�
 
 This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
 
-The project was relicensed to GPLv3 when PyQt-SiliconUI was vendored (D5); the vendor directory has since been removed (D35) and the license is retained / 專案因曾隨附 PyQt-SiliconUI 而改授權 GPLv3（D5）；vendor 目錄現已移除（D35），授權維持不變。

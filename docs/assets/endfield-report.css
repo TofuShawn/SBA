@@ -1,0 +1,623 @@
+/* ============================================================================
+ * SBA 報告共用主題 — Endfield field-engineering（決策 D23 的報告版）
+ *
+ * 單一樣式來源，供兩份文件共用：
+ *   docs/AlphaZero_UTTT_Technical_Report.html
+ *   docs/Transformer-AZ-AMAF-Design.html
+ *
+ * 語言：canvas black + graphite panels + signal-yellow accent、1px 硬邊、
+ *       2px 圓角、無模糊陰影；機械感 Latin 顯示字疊在 CJK 內文堆疊之上。
+ * 切換：暗色為預設；`.theme-switch:checked ~ .page` 覆寫為紙本淺色，
+ *       純 CSS（不需 JavaScript，靜態版在 Obsidian 內同樣可切換）。
+ * 列印：@media print 一律強制紙本淺色。
+ *
+ * 注意：本檔同時服務舊的 inline `var(--chip-*)` 寫法（章節編號），
+ *       因此保留 --chip-game / --chip-dl / --chip-both 三個名稱。
+ * ========================================================================== */
+
+/* ---- 1. tokens：暗色為預設 ------------------------------------------------ */
+:root {
+  --bg: #000000;
+  --panel: #09090b;
+  --surface: #141517;
+  --surface-2: #0f0f11;
+  --line: #35373c;
+  --line-strong: #46494f;
+  --line-soft: #2a2d31;
+  --ink: #ffffff;
+  --muted: #c6c9ce;
+  --dim: #8b8f96;
+  --accent: #fffa00;
+  --accent-hover: #fffd4d;
+  --accent-ink: #09090b;
+  --danger: #ff4d4d;
+  --teal: #2dd4bf;
+  --link: #fffa00;
+  --code-bg: #0b0b0d;
+  --code-ink: #e6e6e6;
+  --r: 2px;
+  --measure: 820px;
+  --font-head: "Bahnschrift", "DIN Alternate", "Segoe UI Variable Display",
+               "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+
+  /* 舊名稱對照（inline style 使用）：章節編號一律走訊號黃 */
+  --chip-game: var(--accent);
+  --chip-dl: var(--accent);
+  --chip-both: var(--accent);
+  --blue: var(--accent);
+  --blue-soft: transparent;
+  --teal-soft: transparent;
+  --amber: var(--danger);
+  --amber-soft: var(--surface-2);
+  --rose: var(--danger);
+  --rose-soft: var(--surface-2);
+  --violet: var(--dim);
+  --violet-soft: var(--surface-2);
+}
+
+/* 紙本淺色版（切換開啟時覆寫；列印亦套用同一組，見第 14 節） */
+.theme-switch:checked ~ .page,
+.page.paper {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --surface: #fdfdfb;
+  --surface-2: #faf9f6;
+  --line: #d8d5cc;
+  --line-strong: #b5b0a4;
+  --line-soft: #e7e4dc;
+  --ink: #16181d;
+  --muted: #4b5563;
+  --dim: #6b7280;
+  --accent: #0f172a;
+  --accent-hover: #0f172a;
+  --accent-ink: #ffffff;
+  --danger: #8a1c1c;
+  --teal: #0f766e;
+  --link: #16181d;
+  --code-bg: #f5f4f0;
+  --code-ink: #16181d;
+  --font-head: "Noto Serif TC", "PMingLiU", "Georgia", "Times New Roman", serif;
+  /* 別名必須在此重新宣告：--chip-* 在 :root 已依「當時的 --accent」完成
+     代換，僅覆寫 --accent 不會傳導過去（章節方塊會殘留亮黃） */
+  --chip-game: var(--accent);
+  --chip-dl: var(--accent);
+  --chip-both: var(--accent);
+}
+
+/* 紙本：表格不留斑馬紋（只靠 1px 細線） */
+.theme-switch:checked ~ .page tbody tr:nth-child(even),
+.page.paper tbody tr:nth-child(even) { background: transparent; }
+
+/* ---- 2. reset 與基礎排版 -------------------------------------------------- */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Segoe UI", sans-serif;
+  font-size: 16.5px;
+  line-height: 1.85;
+}
+::selection { background: var(--accent); color: var(--accent-ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.page {
+  /* 滿版繪製背景（切換到紙本時整頁變白），內容仍置中於 1000px 欄寬 */
+  --pad: max(28px, calc((100% - 1000px) / 2));
+  width: 100%;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 var(--pad) 90px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* 純 CSS 主題開關（sr-only 但可鍵盤聚焦） */
+.theme-switch {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ---- 3. hero ------------------------------------------------------------- */
+header.hero {
+  position: relative;
+  background: var(--panel);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 40px 36px 30px;
+  margin: 0 calc(-1 * var(--pad)) 34px;
+}
+header.hero .kicker {
+  display: inline-block;
+  font-size: 11.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  padding: 3px 10px;
+  margin-bottom: 16px;
+}
+header.hero h1 {
+  margin: 0 0 8px;
+  font-size: 29px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  font-family: var(--font-head);
+}
+header.hero .sub { font-size: 15px; color: var(--muted); margin-bottom: 20px; }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 26px;
+  font-size: 13px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.meta b { color: var(--ink); font-weight: 600; }
+.theme-toggle {
+  position: absolute;
+  top: 14px;
+  right: calc(var(--pad) + 12px);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
+.theme-toggle b { color: var(--accent); font-weight: 700; }
+/* 標籤文字隨狀態切換（純 CSS）：未勾選＝可切到紙本，勾選＝可切回深色 */
+.theme-toggle .to-paper { display: inline; }
+.theme-toggle .to-dark { display: none; }
+.theme-switch:checked ~ .page .theme-toggle .to-paper { display: none; }
+.theme-switch:checked ~ .page .theme-toggle .to-dark { display: inline; }
+.theme-switch:focus-visible ~ .page .theme-toggle {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- 4. 標題與章節標籤 --------------------------------------------------- */
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  margin: 48px 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line-strong);
+  scroll-margin-top: 16px;
+  font-family: var(--font-head);
+}
+h2 .no {
+  flex: 0 0 auto;
+  min-width: 34px;
+  height: 34px;
+  border-radius: var(--r);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; }
+h2 .side {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: var(--r);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+h2 .side.game { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+h2 .side.dl { background: transparent; color: var(--ink); border: 1px solid var(--line-strong); }
+h2 .side.both { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); }
+h3 {
+  font-size: 17.5px;
+  margin: 28px 0 10px;
+  color: var(--ink);
+  font-family: var(--font-head);
+  /* 小節錨點記號：61 個 h3 靠它掃讀（1px 硬邊語言裡的短橫槓） */
+  position: relative;
+  padding-left: 22px;
+  scroll-margin-top: 16px;
+}
+h3::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 14px;
+  height: 3px;
+  background: var(--accent);
+}
+h4 { font-size: 15.5px; margin: 20px 0 8px; color: var(--muted); scroll-margin-top: 16px; }
+/* 標題斷行平衡：CJK＋Latin 混排的長標題不留孤字尾 */
+h1, h2, h3 { text-wrap: balance; }
+
+/* ---- 5. 文字區塊 --------------------------------------------------------- */
+p { margin: 12px 0; }
+ul, ol { margin: 12px 0; padding-left: 24px; }
+li { margin: 5px 0; }
+/* 內文量尺：文字區塊 820px，表格／圖表／程式碼用滿欄寬 */
+p, ul, ol, .small, .src-label, .tbl-cap, .tbl-note,
+.note, .warn, .ok, .bug, .decide, .key, .callout { max-width: var(--measure); }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.small { font-size: 13px; color: var(--muted); }
+.src-label { font-size: 12px; color: var(--dim); font-style: italic; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 26px 0; }
+
+/* 行內程式碼 / 鍵盤標記 */
+.kbd, code {
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 12.8px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 0 4px;
+  /* 長識別字（_minimax_tt 之類）不得撐開 CJK 內文量尺 */
+  overflow-wrap: anywhere;
+}
+pre, pre.code {
+  margin: 0 0 18px;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 13.2px;
+  line-height: 1.65;
+}
+pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+/* highlight.js 只負責上色：底色一律由 pre 提供（避免深色內層與淺色外框的接縫） */
+code.hljs, pre code.hljs { background: transparent; }
+/* 紙本：程式碼改單色（深色主題的語法色在白底上不可讀） */
+.theme-switch:checked ~ .page pre code.hljs,
+.theme-switch:checked ~ .page pre code.hljs span,
+.page.paper pre code.hljs,
+.page.paper pre code.hljs span { color: var(--code-ink); }
+/* 紙本：斑馬紋與表格底色一併簡化 */
+.theme-switch:checked ~ .page th,
+.page.paper th { background: transparent; }
+pre.code .c { color: var(--dim); }
+
+/* 可收合程式碼區塊（checkbox 模式：列印時可強制展開） */
+.code-block { margin: 18px 0; }
+.code-toggle {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.code-block .codecap { margin: 0; cursor: pointer; }
+.code-block .codecap:hover { color: var(--ink); border-color: var(--line-strong); }
+.code-block .code-hint::after { content: "▸ 展開程式碼"; color: var(--accent); margin-left: 12px; }
+.code-toggle:checked ~ .codecap .code-hint::after { content: "▾ 收合"; color: var(--muted); }
+.code-toggle:not(:checked) ~ pre { display: none; }
+.code-toggle:focus-visible ~ .codecap { outline: 2px solid var(--accent); outline-offset: 2px; }
+.code-block pre { margin-bottom: 0; }
+
+/* 回到頂端（純錨點，無 JavaScript） */
+.to-top {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 5;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  padding: 6px 12px;
+  text-decoration: none;
+}
+.to-top:hover { background: var(--accent-hover); text-decoration: none; }
+.codecap {
+  font-family: "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--r) var(--r) 0 0;
+  padding: 7px 14px;
+  margin: 18px 0 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.codecap .tag {
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ---- 6. 卡片、提示框、公式面板 ------------------------------------------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 20px 24px;
+  margin: 18px 0;
+}
+.note, .warn, .ok, .bug, .decide, .key, .callout {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: 12px 16px;
+  margin: 14px 0;
+  font-size: 14px;
+}
+.note { border-left-color: var(--accent); }
+.warn, .bug { border-left-color: var(--danger); }
+.ok, .key { border-left-color: var(--teal); }
+.decide { border-left-color: var(--dim); }
+.callout { padding: 14px 18px; }
+.callout .t { font-weight: 700; display: block; margin-bottom: 4px; }
+.warn .t, .bug .t { color: var(--danger); }
+.ok .t, .key .t { color: var(--teal); }
+.note .t { color: var(--accent); }
+.formula, .math-display {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  padding: 10px 16px;
+  margin: 14px 0;
+  overflow-x: auto;
+}
+.formula { text-align: center; }
+/* .eq 的 overflow-x: auto 只在螢幕上當保險；公式本身用 max-width 縮放，
+   **不要**讓它溢出被裁掉（列印時 scrollbar 會直接把公式切斷）。 */
+.eq { margin: 14px 0; overflow-x: auto; }
+.math-svg { fill: currentColor; max-width: 100%; height: auto; }
+mjx-container svg { fill: currentColor; }
+#mathwarn { display: none; }
+
+/* ---- 7. 表格 ------------------------------------------------------------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 13.5px;
+  background: var(--surface);
+}
+th, td {
+  border: 1px solid var(--line);
+  padding: 8px 11px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--panel);
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+tbody tr:nth-child(even) { background: var(--surface-2); }
+/* 螢幕上的逐列掃讀輔助（列印由第 14 節強制透明） */
+tbody tr { transition: background 80ms linear; }
+tbody tr:hover { background: var(--line-soft); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- 7b. 表題、圖題與圖表清單 ------------------------------------------- */
+.tbl-cap {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 22px 0 6px;
+  break-after: avoid;
+}
+.tbl-note { font-size: 12.5px; color: var(--muted); margin: 6px 0 14px; }
+.chart-wrap .cap b { color: var(--ink); font-weight: 700; }
+#figlist ol { columns: 2; column-gap: 34px; }
+#figlist li { break-inside: avoid; font-size: 14px; }
+#figlist h3 {
+  margin: 18px 0 6px;
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* ---- 8. 目錄 ------------------------------------------------------------- */
+.toc, nav.toc {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 20px 24px;
+  margin: 26px 0 10px;
+}
+.toc h2, nav.toc h2 {
+  margin: 0 0 10px;
+  border: 0;
+  padding: 0;
+  font-size: 16px;
+  color: var(--muted);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.toc ol, nav.toc ol {
+  margin: 0;
+  padding-left: 20px;
+  columns: 2;
+  column-gap: 34px;
+  font-size: 14px;
+}
+.toc li { break-inside: avoid; }
+
+/* ---- 9. 圖表容器 --------------------------------------------------------- */
+.chart-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px 18px 10px;
+  margin: 18px 0;
+}
+.chart-wrap h4 { margin: 0 0 4px; color: var(--ink); }
+.chart-wrap .cap { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+.chart-wrap canvas { max-height: 360px; }
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 18px 0;
+}
+.grid2 .chart-wrap { margin: 0; }
+
+/* ---- 10. 架構圖（技術報告） --------------------------------------------- */
+.arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  margin: 20px 0;
+  font-size: 13px;
+}
+.arch .box {
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: 8px 16px;
+  text-align: center;
+  min-width: 220px;
+  box-shadow: none;
+}
+.arch .box b { display: block; font-size: 13.5px; }
+.arch .box span { color: var(--muted); font-size: 12px; }
+.arch .arrow { color: var(--dim); font-size: 18px; line-height: 1; padding: 4px 0; }
+.arch .split {
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  align-items: stretch;
+  width: 100%;
+}
+.arch .branch { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.arch .branch .head {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border-radius: var(--r);
+  padding: 2px 10px;
+  margin-bottom: 8px;
+}
+.arch .branch.pol .head { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+.arch .branch.val .head { background: transparent; color: var(--teal); border: 1px solid var(--teal); }
+
+/* ---- 11. 狀態 chip（設計文件） ------------------------------------------ */
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: var(--r);
+  padding: 1px 8px;
+  vertical-align: 2px;
+  margin-left: 6px;
+  background: transparent;
+}
+.chip.measured { color: var(--teal); border: 1px solid var(--teal); }
+.chip.defect { color: var(--danger); border: 1px solid var(--danger); }
+.chip.proposed { color: var(--dim); border: 1px solid var(--line-strong); }
+
+/* ---- 12. footer ---------------------------------------------------------- */
+footer {
+  margin-top: 52px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+/* ---- 13. 響應式 ---------------------------------------------------------- */
+@media (max-width: 820px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .toc ol, nav.toc ol { columns: 1; }
+  #figlist ol { columns: 1; }
+  header.hero { padding: 34px 24px 24px; }
+  header.hero h1 { font-size: 24px; }
+  .page { --pad: 18px; padding: 0 var(--pad) 70px; }
+  .theme-toggle { top: 10px; right: calc(var(--pad) + 8px); }
+}
+
+/* ---- 14. 列印：一律走紙本淺色 ------------------------------------------- */
+@media print {
+  .theme-toggle, .theme-switch { display: none !important; }
+  /* 列印時不留水平捲軸：公式已由 .math-svg{max-width:100%} 縮放進欄寬 */
+  .eq, .formula, .math-display, .chart-wrap { overflow: visible !important; }
+  .page {
+    --bg: #ffffff; --panel: #ffffff; --surface: #ffffff; --surface-2: #ffffff;
+    --line: #cfcbc2; --line-strong: #9a958a; --line-soft: #e7e4dc;
+    --ink: #000000; --muted: #333333; --dim: #555555;
+    --accent: #000000; --accent-ink: #ffffff;
+    --danger: #8a1c1c; --teal: #0f766e; --link: #000000;
+    --code-bg: #f5f4f0; --code-ink: #000000;
+    --font-head: "Noto Serif TC", "PMingLiU", "Georgia", "Times New Roman", serif;
+    --chip-game: var(--accent); --chip-dl: var(--accent); --chip-both: var(--accent);
+    max-width: none;
+  }
+  header.hero { background: #ffffff; border-bottom: 1px solid #9a958a; }
+  .page { --pad: 0; }
+  .page tbody tr:nth-child(even), .page th { background: transparent; }
+  /* 紙本程式碼：轉灰階但保留語法區辨（不要一片黑） */
+  .page pre code.hljs, .page pre code.hljs span { color: #1a1a1a; }
+  .page code.hljs .hljs-keyword,
+  .page code.hljs .hljs-built_in,
+  .page code.hljs .hljs-type { color: #000000; font-weight: 700; }
+  .page code.hljs .hljs-string,
+  .page code.hljs .hljs-regexp { color: #333333; }
+  .page code.hljs .hljs-comment,
+  .page code.hljs .hljs-quote { color: #6b7280; font-style: italic; }
+  .page code.hljs .hljs-title,
+  .page code.hljs .hljs-function,
+  .page code.hljs .hljs-section { color: #1a1a1a; font-weight: 600; }
+  .page code.hljs .hljs-number,
+  .page code.hljs .hljs-literal,
+  .page code.hljs .hljs-params,
+  .page code.hljs .hljs-attr { color: #444444; }
+  table, .chart-wrap, .card, .formula, .math-display, pre, .callout,
+  .note, .warn, .ok, .bug, .decide, .key { break-inside: avoid; }
+  /* 收合的程式碼在列印時一律展開（純 CSS，因隱藏是我們自己的規則） */
+  .to-top, .code-hint { display: none !important; }
+  .code-toggle:not(:checked) ~ pre { display: block !important; }
+  nav.toc { break-before: page; break-after: page; }
+  h2 { break-before: page; }
+  thead { display: table-header-group; }
+  tbody tr { break-inside: avoid; }
+  .tbl-cap, .chart-wrap .cap { break-after: avoid; }
+  #figlist { break-after: page; }
+  h2, h3 { break-after: avoid; }
+  a { color: var(--ink); text-decoration: underline; }
+}
+
+/* ---- 15. 列印頁面尺寸（A4） --------------------------------------------- */
+@page { size: A4; margin: 20mm 18mm 18mm; }

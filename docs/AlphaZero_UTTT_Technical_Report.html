@@ -12,330 +12,23 @@ window.MathJax = {
 };
 </script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
-<style>
-:root {
-  --bg: #f6f8fb;
-  --surface: #ffffff;
-  --ink: #1e293b;
-  --muted: #64748b;
-  --line: #e2e8f0;
-  --blue: #2563eb;
-  --blue-soft: #eff4ff;
-  --teal: #0d9488;
-  --teal-soft: #ecfdf8;
-  --code-bg: #0f172a;
-  --code-ink: #e2e8f0;
-  --chip-game: #2563eb;
-  --chip-dl: #0d9488;
-  --chip-both: #7c3aed;
-}
-* { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Segoe UI", sans-serif;
-  font-size: 15.5px;
-  line-height: 1.75;
-}
-.page {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 0 28px 80px;
-}
-header.hero {
-  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #0d9488 130%);
-  color: #f1f5f9;
-  border-radius: 0 0 22px 22px;
-  padding: 56px 44px 44px;
-  margin: 0 0 36px;
-}
-header.hero .kicker {
-  display: inline-block;
-  font-size: 12.5px;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: #93c5fd;
-  border: 1px solid rgba(147, 197, 253, 0.45);
-  border-radius: 999px;
-  padding: 3px 14px;
-  margin-bottom: 18px;
-}
-header.hero h1 {
-  margin: 0 0 10px;
-  font-size: 30px;
-  line-height: 1.35;
-  letter-spacing: 0.2px;
-}
-header.hero .sub {
-  font-size: 15px;
-  color: #cbd5e1;
-  margin-bottom: 22px;
-}
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 26px;
-  font-size: 13px;
-  color: #cbd5e1;
-  border-top: 1px solid rgba(203, 213, 225, 0.25);
-  padding-top: 16px;
-}
-.meta b { color: #f1f5f9; font-weight: 600; }
-h2 {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 22px;
-  margin: 52px 0 18px;
-  padding-bottom: 10px;
-  border-bottom: 2px solid var(--line);
-  scroll-margin-top: 16px;
-}
-h2 .no {
-  flex: 0 0 auto;
-  min-width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-}
-h2 .side {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  border-radius: 999px;
-  padding: 2px 12px;
-  white-space: nowrap;
-}
-h2 .side.game { background: var(--chip-game); color: #fff; }
-h2 .side.dl { background: var(--chip-dl); color: #fff; }
-h2 .side.both { background: var(--chip-both); color: #fff; }
-h3 {
-  font-size: 17px;
-  margin: 30px 0 10px;
-  color: #0f172a;
-}
-h4 {
-  font-size: 15px;
-  margin: 22px 0 8px;
-  color: #334155;
-}
-p { margin: 10px 0; }
-ul, ol { margin: 10px 0; padding-left: 26px; }
-li { margin: 5px 0; }
-a { color: var(--blue); text-decoration: none; }
-a:hover { text-decoration: underline; }
-.toc {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 22px 26px;
-  margin: 24px 0 8px;
-}
-.toc h2 { margin: 0 0 12px; border: 0; font-size: 18px; padding: 0; }
-.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 44px; }
-.toc li { break-inside: avoid; font-size: 14px; }
-.card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 20px 24px;
-  margin: 18px 0;
-}
-.note {
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-left: 4px solid #f59e0b;
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin: 14px 0;
-  font-size: 14px;
-}
-.warn {
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-left: 4px solid #ef4444;
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin: 14px 0;
-  font-size: 14px;
-}
-.ok {
-  background: var(--teal-soft);
-  border: 1px solid #99f6e4;
-  border-left: 4px solid var(--teal);
-  border-radius: 10px;
-  padding: 12px 16px;
-  margin: 14px 0;
-  font-size: 14px;
-}
-.formula {
-  background: #f8fafc;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 16px;
-  margin: 14px 0;
-  overflow-x: auto;
-  text-align: center;
-}
-.codecap {
-  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
-  font-size: 12px;
-  color: #334155;
-  background: #eef2f7;
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: 10px 10px 0 0;
-  padding: 7px 14px;
-  margin: 18px 0 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.codecap .tag {
-  font-weight: 700;
-  color: var(--blue);
-}
-pre {
-  margin: 0 0 18px;
-  background: var(--code-bg);
-  border-radius: 0 0 10px 10px;
-  padding: 14px 16px;
-  overflow-x: auto;
-  line-height: 1.5;
-  font-size: 12.8px;
-}
-pre code {
-  background: transparent;
-  font-family: "JetBrains Mono", Consolas, "Courier New", monospace;
-  color: var(--code-ink);
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 14px 0;
-  font-size: 13.5px;
-  background: var(--surface);
-}
-th, td {
-  border: 1px solid var(--line);
-  padding: 8px 12px;
-  text-align: left;
-  vertical-align: top;
-}
-th {
-  background: #eef2ff;
-  color: #1e3a8a;
-  font-weight: 600;
-  white-space: nowrap;
-}
-tr:nth-child(even) td { background: #fafbfd; }
-.chart-wrap {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px 18px 10px;
-  margin: 18px 0;
-}
-.chart-wrap h4 { margin: 0 0 4px; }
-.chart-wrap .cap {
-  font-size: 12.5px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.chart-wrap canvas { max-height: 360px; }
-.grid2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  margin: 18px 0;
-}
-.grid2 .chart-wrap { margin: 0; }
-@media (max-width: 820px) {
-  .grid2 { grid-template-columns: 1fr; }
-  .toc ol { columns: 1; }
-  header.hero { padding: 38px 26px; }
-  header.hero h1 { font-size: 24px; }
-}
-/* ---- architecture diagram ---- */
-.arch {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  margin: 20px 0;
-  font-size: 13px;
-}
-.arch .box {
-  background: var(--surface);
-  border: 1.5px solid #c7d2fe;
-  border-radius: 10px;
-  padding: 8px 16px;
-  text-align: center;
-  min-width: 220px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
-}
-.arch .box b { display: block; font-size: 13.5px; }
-.arch .box span { color: var(--muted); font-size: 12px; }
-.arch .arrow { color: #94a3b8; font-size: 18px; line-height: 1; padding: 4px 0; }
-.arch .split {
-  display: flex;
-  gap: 22px;
-  justify-content: center;
-  align-items: stretch;
-  width: 100%;
-}
-.arch .branch {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.arch .branch .head {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  border-radius: 999px;
-  padding: 2px 12px;
-  margin-bottom: 8px;
-}
-.arch .branch.pol .head { background: var(--blue-soft); color: var(--blue); }
-.arch .branch.val .head { background: var(--teal-soft); color: var(--teal); }
-footer {
-  margin-top: 56px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 12.5px;
-  text-align: center;
-}
-.src-label {
-  font-size: 12px;
-  color: var(--muted);
-  font-style: italic;
-}
-.kbd { font-family: Consolas, monospace; background: #eef2f7; padding: 0 4px; border-radius: 4px; }
-</style>
+<link rel="stylesheet" href="assets/endfield-report.css">
+<link rel="stylesheet" href="assets/print-compact.css">
 </head>
 <body>
+<input class="theme-switch" type="checkbox" id="theme-light">
 <div class="page">
 
 <header class="hero">
   <span class="kicker">Full Technical &amp; Coding Report</span>
+  <label class="theme-toggle" for="theme-light"><span class="to-paper"><b>Light</b> 紙本模式</span><span class="to-dark"><b>Dark</b> 深色模式</span></label>
   <h1>基於 AlphaZero 求解終極井字棋<br>完整技術與編碼報告</h1>
   <div class="sub">AlphaZero for Ultimate Tic-Tac-Toe — 遊戲側演算法 × 深度學習側管線 × 程式碼級拆解</div>
   <div class="meta">
     <span>準備者：<b>TofuShawn（專案作者）</b></span>
     <span>對象：<b>AI / 遊戲開發技術團隊</b></span>
-    <span>日期：<b>2026 年 8 月 21 日</b></span>
+    <span>日期：<b>2026 年 8 月 21 日</b>（v1.4 增補：2026 年 11 月 7 日）</span>
+<span>版本：<b>v1.4 — 原生 C 引擎（D25–D30）與前端收斂同步</b></span>
     <span>專案：<b>SBA（E:\Project\SBA）</b></span>
   </div>
 </header>
@@ -350,24 +43,68 @@ footer {
     <li><a href="#s5">核心程式碼深度拆解</a>（雙側）</li>
     <li><a href="#s6">訓練表現、超參數與效能優化</a>（深度學習側）</li>
     <li><a href="#s7">結論與未來研究</a></li>
-    <li><a href="#appendix">附錄：資料來源、決策對照與差異註記</a></li>
+    <li><a href="#appendix">附錄：資料來源、決策對照、差異註記、參考文獻、符號表、指令速查與版本紀錄</a></li>
   </ol>
 </nav>
+
+<section id="figlist">
+<h2><span class="no" style="background:var(--muted)">圖</span>圖表清單<span class="side dl">List of Figures &amp; Tables</span></h2>
+<!-- FIGLIST:START -->
+<h3>圖（Figures）</h3>
+<ol>
+  <li><a href="#fig1">圖 1</a>　訓練損失曲線（800 局與 6000 局；僅起訖端點，虛線為趨勢示意）。</li>
+  <li><a href="#fig2">圖 2</a>　評估勝率 vs 隨機（按對局數；各點來自不同記錄 run）。</li>
+  <li><a href="#fig3">圖 3</a>　Rollout 權重消融：對隨機勝率。</li>
+  <li><a href="#fig4">圖 4</a>　多進程自對弈加速比（以每局時間量測）。</li>
+</ol>
+<h3>表（Tables）</h3>
+<ol>
+  <li><a href="#tbl1">表 1</a>　優化項目與量測結論摘要</li>
+  <li><a href="#tbl2">表 2</a>　硬體規格與在本專案中的角色</li>
+  <li><a href="#tbl3">表 3</a>　軟體與執行環境版本</li>
+  <li><a href="#tbl4">表 4</a>　超參數總表（訓練、MCTS 與介面）</li>
+  <li><a href="#tbl5">表 5</a>　對等預算基準：AlphaZero vs MCTS（30 局、800/800、±9%）</li>
+  <li><a href="#tbl6">表 6</a>　6000 局訓練日誌：逐點損失與對隨機勝率（每點 20 盤、±11%）</li>
+  <li><a href="#tbl7">表 7</a>　多進程自對弈的每局時間與加速比</li>
+  <li><a href="#tbl8">表 8</a>　決策編號對照（D2–D35）</li>
+  <li><a href="#tbl9">表 9</a>　數據來源與引用標註</li>
+  <li><a href="#tbl10">表 10</a>　參考文獻（20 筆）</li>
+  <li><a href="#tbl11">表 11</a>　符號表</li>
+  <li><a href="#tbl12">表 12</a>　版本紀錄（v1.0–v1.3）</li>
+</ol>
+<!-- FIGLIST:END -->
+</section>
 
 <section id="s1">
 <h2><span class="no" style="background:var(--chip-both)">1</span>執行摘要<span class="side both">雙側</span></h2>
 
+<h3>1.1 摘要（Abstract）</h3>
 <p>終極井字棋（Ultimate Tic-Tac-Toe, UTTT）是經典井字棋的遞移化擴展：棋盤由 3×3 個小九宮格組成，共 81 個落子格；玩家落子後，<b>下一步被強制限制在該格對應的小九宮格</b>，僅當該小九宮格已填滿或已分勝負時，才獲得「全盤自由落子權（Wildcard）」。這個遞移規則把「區域戰術」與「全域戰略」綁在一起，使得局面樹遠比 81 格的表面大小更為深廣：任何一手的價值都同時取決於它對所屬小九宮格的影響，以及它把對手<em>導向哪一個</em>小九宮格。傳統的窮舉式搜尋在這種棋上迅速失守——普通 3×3 井字棋只有 \(3^9 = 19683\) 種盤面，而 UTTT 的搜尋樹在實用時間內無法靠固定深度 Minimax 覆蓋。</p>
 
-<p>本報告針對「以 AlphaZero 從零自對弈學會 UTTT」的專案，沿<b>遊戲側（Game Side）</b>與<b>深度學習側（Deep Learning Side）</b>雙線展開，並以 <span class="kbd">game.py</span>、<span class="kbd">ai.py</span>、<span class="kbd">alphazero.py</span> 三個模組的真實程式碼為唯一事實來源。</p>
+<p>本報告針對「以 AlphaZero[1,2] 從零自對弈學會 UTTT」的專案，沿<b>遊戲側（Game Side）</b>與<b>深度學習側（Deep Learning Side）</b>雙線展開，並以 <span class="kbd">game.py</span>、<span class="kbd">ai.py</span>、<span class="kbd">alphazero.py</span> 與 <span class="kbd">native/</span> C 引擎核心的真實程式碼為唯一事實來源。</p>
 
+<p><b>Abstract (EN).</b> This report documents an AlphaZero-style pipeline for Ultimate Tic-Tac-Toe built on a Python codebase (<span class="kbd">game.py</span> / <span class="kbd">ai.py</span> / <span class="kbd">alphazero.py</span>) with a native C engine core (<span class="kbd">native/*.c</span> → <span class="kbd">sba_engine.dll</span>, D25–D30). Part I covers a family of game-side engines (Basic, Minimax with alpha-beta, Minimax Pro, MCTS with UCT, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, a 3<sup>9</sup> tablebase solver) plus engineering work on bitboard search, heuristic rollouts, tree reuse and multi-process self-play, and a native C backend that moves rollouts, the full MCTS tree and the minimax family into C (~37× search speed-up). Part II covers a two-headed residual policy/value network trained by self-play; measured results are 96.3% score against a random opponent (38W/1D/1L, 40 games, 200 sims; draws count as half) and 23.3% against PUCT-MCTS at equal budget (6W/2D/22L, 30 games, 800/800, ±9%). A recipe overhaul (two-stage self-play, root-mean value target, D4 augmentation, masked KL, AdamW, replay cap 500) raises that same match-up from 20.0% (6W/0D/24L) to 50.0% (13W/4D/13L) after only 600 self-play games, indicating that recipe and data quality dominate sample count at this scale. All numbers are traceable to the appendix, and every claim carries its measurement budget; results are preliminary (10–30 games per point) and not yet statistically significant.</p>
+
+<p><b>關鍵字 / Keywords</b>：終極井字棋（UTTT）、AlphaZero、PUCT、RAVE／GRAVE、AMAF、自對弈（self-play）</p>
+
+<p>報告中所有程式碼區塊皆逐字引用專案原始碼並標註檔名與行號；所有歷史數據標註來源（<span class="kbd">docs/decisions.md</span> 決策編號 D1–D35、<span class="kbd">docs/rocm-wsl2.md</span> 環境記錄、本機實測與訓練日誌）。若描述與實際程式碼衝突，一律以實際程式碼為準，並於附錄集中註明差異。<b>評分慣例</b>：本報告所有對戰一律採「得分率 =（勝 + 0.5 × 和）／局數」，並在每張表標明局數 \(n\) 與誤差 \(\pm\sigma\)（\(\sigma \approx 50\%/\sqrt{n}\)，為保守上界）。</p>
+
+<h3>1.2 貢獻</h3>
 <ul>
-  <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）、MCTS+RAVE、MCTS+GRAVE、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。現行優化下 MCTS/RAVE/GRAVE 於 30 局/對、300 sims 循環賽中<b>統計持平</b>（51.7% / 48.3% / 45.0%，D21 取代 D8/D12 的舊排名）。</li>
-  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.46 降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（95%）</b>。對普通 MCTS 在同預算（800/800）下得分率僅 <b>23.3%</b>（6W/2D/22L，30 盤）——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
+  <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）[10]、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）[3]、MCTS+RAVE[5,6]、MCTS+GRAVE[7]、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。現行優化下 MCTS/RAVE/GRAVE 於 30 局/對、300 sims 循環賽中<b>統計持平</b>（51.7% / 48.3% / 45.0%，n = 30／對，±9%，D21 取代 D8/D12 的舊排名）。</li>
+  <li><b>深度學習側成果</b>：雙頭殘差網路（4 通道輸入、128 通道 × 5 殘差塊、Policy 81 維 / Value 1 維）經 6000 局自對弈訓練後，總損失由 2.846（首點 500 局）降至 <b>0.094</b>；200 sims 對隨機對手 40 盤取得 <b>38 勝 1 平 1 負（96.3%，和 = 0.5）</b>。對普通 MCTS 在同預算（800/800）下得分率僅 <b>23.3%</b>（6W/2D/22L，30 盤）——這個結構性差距點出了「全展開＋先驗引導搜尋」與「啟發式 rollout 深戰術搜尋」的本質差異，也是本報告第 6 章分析的重點。</li>
+  <li><b>配方勝過資料量（D22）</b>：以兩階段自對弈、root 平均價值目標、D4 翻轉增強、masked KL、AdamW 與 replay cap 500 重寫配方後，<b>僅 600 局</b>自對弈的模型在對 MCTS@800 的同一賽制下由 <b>20.0%（6W/0D/24L）提升到 50.0%（13W/4D/13L）</b>（各 30 局、±9%），而舊配方 6000 局仍只有 20.0%。以雙比例檢定估算（把得分率視為比例），差距約在 \(p \approx 0.015\) 水準顯著；但樣本僅 30 局，仍屬初步證據，複驗需以每點 ≥100 局。</li>
   <li><b>兩側協作</b>：遊戲側的啟發式 rollout（<span class="kbd">ai._rollout_move</span>）與位板搜尋（<span class="kbd">BitUltimateGame</span>）被 AlphaZero 的葉節點評估與 MCTS 搜尋直接復用；位板表示同時服務傳統引擎與神經搜尋，形成單向依賴 <span class="kbd">game.py → ai.py → alphazero.py</span> 的乾淨架構（D2）。</li>
+  <li><b>原生 C 引擎（D25–D30）</b>：搜尋熱路徑全部下沉 C——rollout 核心（單次 17.7×、整場搜尋 12.4×，D25），到全後端 C 化：完整 MCTS 樹、Minimax 家族與 trace rollout 編成單一 <span class="kbd">sba_engine.dll</span>，800 sims 由 530ms 降至 14ms（約 37×，D27）；每次呼叫獨立 arena 修復並發搜尋互踩（D29）；根節點平行化在 2/4/8 執行緒實測 1.8×/3.1×/5.8×，樹重用以差分下降回到 C 端（D30）；C MCTS 對 Basic 96.9%（1600 sims、16 局）。Python 端保留完整回退。</li>
 </ul>
 
-<p>報告中所有程式碼區塊皆逐字引用專案原始碼並標註檔名與行號；所有歷史數據標註來源（<span class="kbd">docs/decisions.md</span> 決策編號 D1–D18、<span class="kbd">docs/rocm-wsl2.md</span> 環境記錄、本機實測與訓練日誌）。若描述與實際程式碼衝突，一律以實際程式碼為準，並於附錄集中註明差異。</p>
+<h3>1.3 非目標（v1 明確不做）</h3>
+<ul>
+  <li><b>不做規模化訓練</b>：不追求超越既有 6000 局的規模，也不做分散式／多機訓練；本輪重點在配方、搜尋品質與量測可信度。</li>
+  <li><b>不整合外部強力引擎</b>：MuZero／KataHex／KataGo 等僅列為未來方向（§7.2），不納入本次實作。</li>
+  <li><b>不做模型壓縮與部署優化</b>：量化與剪枝不在本輪範圍（C/C++ 算子下沉已於 D27–D30 完成，見 3.8 節）。</li>
+  <li><b>不涵蓋 UI／UX</b>：Endfield 主題、棋盤視覺與互動（D23）屬另一條產品線，本報告只在需要解釋量測時提及。</li>
+</ul>
 </section>
 
 <section id="s2">
@@ -381,8 +118,10 @@ footer {
   <li><b><span class="kbd">BitUltimateGame</span></b>（第 142–281 行）：以 81-bit 掩碼 <span class="kbd">x</span>/<span class="kbd">o</span> 與 9-bit 宏觀掩碼 <span class="kbd">mx</span>/<span class="kbd">mo</span> 表示同一狀態，並以 <span class="kbd">micro</span>/<span class="kbd">macro</span> property 重建列表視圖（第 263–280 行），與列表表示完全等價。</li>
 </ul>
 
-<div class="codecap"><span><span class="tag">game.py</span> 第 37–73 行 — NormalGame：9 格列表表示</span><span>規則引擎</span></div>
-<pre><code class="language-python">class NormalGame:
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-1">
+  <label class="codecap" for="cb-1"><span><span class="tag">game.py</span> 第 37–73 行 — NormalGame：9 格列表表示</span><span>規則引擎</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">class NormalGame:
     def __init__(self):
         self.board = [EMPTY] * 9
         self.current = X
@@ -419,9 +158,12 @@ footer {
         g.board = self.board[:]
         g.current = self.current
         return g</code></pre>
+</div>
 
-<div class="codecap"><span><span class="tag">game.py</span> 第 75–139 行 — UltimateGame：micro/macro/active_macro 與 Wildcard 規則</span><span>遞移落子限制</span></div>
-<pre><code class="language-python">class UltimateGame:
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-2">
+  <label class="codecap" for="cb-2"><span><span class="tag">game.py</span> 第 75–139 行 — UltimateGame：micro/macro/active_macro 與 Wildcard 規則</span><span>遞移落子限制</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">class UltimateGame:
     def __init__(self):
         self.micro = [[EMPTY] * 9 for _ in range(9)]
         self.macro = [EMPTY] * 9
@@ -486,6 +228,7 @@ footer {
         g.current = self.current
         g.active_macro = self.active_macro
         return g</code></pre>
+</div>
 
 <h3>2.2 active_macro 與 Wildcard：legal_moves() 的兩種分支</h3>
 <p><span class="kbd">UltimateGame.legal_moves()</span>（第 85–96 行）是規則的心臟，直接對應 UTTT 的兩條分支：</p>
@@ -508,8 +251,10 @@ footer {
   <li><b>平局顯示</b>：<span class="kbd">macro</span> property（第 275–280 行）在掩碼未定局但九格全滿時回傳 <span class="kbd">'D'</span>，讓 UI 呈現與列表版完全一致。</li>
 </ul>
 
-<div class="codecap"><span><span class="tag">game.py</span> 第 142–207 行 — BitUltimateGame：狀態、轉換與位元輔助</span><span>位板表示</span></div>
-<pre><code class="language-python">class BitUltimateGame:
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-3">
+  <label class="codecap" for="cb-3"><span><span class="tag">game.py</span> 第 142–207 行 — BitUltimateGame：狀態、轉換與位元輔助</span><span>位板表示</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">class BitUltimateGame:
     &quot;&quot;&quot;Ultimate board stored as bit masks (X/O 81-bit, macro 9-bit).
 
     Same interface as UltimateGame (legal_moves / make_move / result /
@@ -575,9 +320,12 @@ footer {
         if (self.mx | self.mo) &amp; (1 &lt;&lt; m):
             return False
         return self._micro_bits(m) != 0x1FF</code></pre>
+</div>
 
-<div class="codecap"><span><span class="tag">game.py</span> 第 209–280 行 — BitUltimateGame：落子、勝負與列表視圖重建</span><span>等價介面</span></div>
-<pre><code class="language-python">    def legal_moves(self):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-4">
+  <label class="codecap" for="cb-4"><span><span class="tag">game.py</span> 第 209–280 行 — BitUltimateGame：落子、勝負與列表視圖重建</span><span>等價介面</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    def legal_moves(self):
         if self.active_macro is not None and self.macro_open(self.active_macro):
             taken = self._micro_bits(self.active_macro)
             m = self.active_macro
@@ -649,8 +397,9 @@ footer {
                 (O if self.mo &amp; (1 &lt;&lt; m) else
                  (&#x27;D&#x27; if self._micro_bits(m) == 0x1FF else EMPTY))
                 for m in range(9)]</code></pre>
+</div>
 
-<p><b>等價性與效能對比</b>：<span class="kbd">from_game()</span>（第 160–176 行）與 <span class="kbd">micro/macro</span> property 構成雙向轉換，使 MCTS 家族能以位板搜尋、再把走法交回列表版 UI（見 <span class="kbd">_mcts_move</span> 第 1243–1246 行）。位板路徑的優勢在於原生整數運算：佔位檢查、連線判定、威脅掃描（<span class="kbd">_threat_cells</span> 的 <span class="kbd">_LINE_BITS</span>/<span class="kbd">bit_count</span> 路徑，見第 3.5 節）都能避免逐格走訪；代價是盤面重建與語意間接。依據 D12 的實測，<b>在已啟用啟發式 rollout 的配置下，位板並未測得增益，故其開關保留於 <span class="kbd">sba.toml</span>（現行預設為開啟）</b>——附錄 A 對 D12 文字與現行程式碼的差異有完整註記。</p>
+<p><b>等價性與效能對比</b>：<span class="kbd">from_game()</span>（第 160–176 行）與 <span class="kbd">micro/macro</span> property 構成雙向轉換，使 MCTS 家族能以位板搜尋、再把走法交回列表版 UI（見 <span class="kbd">_mcts_move</span> 第 1243–1246 行）。位板路徑的優勢在於原生整數運算：佔位檢查、連線判定、威脅掃描（<span class="kbd">_threat_cells</span> 的 <span class="kbd">_LINE_BITS</span>/<span class="kbd">bit_count</span> 路徑，見第 3.5 節）都能避免逐格走訪；代價是盤面重建與語意間接。依據 D12 的實測，<b>在已啟用啟發式 rollout 的配置下，位板並未測得增益，故其開關保留於 <span class="kbd">config.toml</span>（現行預設為開啟）</b>——附錄 A 對 D12 文字與現行程式碼的差異有完整註記。</p>
 
 <h3>2.5 狀態編碼 encode()：深度學習側的接口</h3>
 <p><span class="kbd">alphazero.py</span> 的 <span class="kbd">encode()</span>（第 88–111 行）把遊戲狀態轉為固定形狀輸入張量 <span class="kbd">[4, size, size]</span>（size = 3 或 9）：</p>
@@ -661,8 +410,10 @@ footer {
 </ul>
 <p>值得注意的是 <span class="kbd">encode()</span> 對普通模式與終極模式共用同一函式（<span class="kbd">is_normal()</span> 以有無 <span class="kbd">board</span> 屬性判別，第 73–74 行），並以 NumPy 建構後轉 <span class="kbd">torch.tensor</span>（第 93、111 行）——訓練管線中狀態張量被反覆堆疊，先 NumPy 後張量的順序可避免 PyTorch 逐元素填入的額外開銷。</p>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 88–111 行 — encode()：4 通道狀態編碼</span><span>DL 側接口</span></div>
-<pre><code class="language-python">    return m * 9 + i
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-5">
+  <label class="codecap" for="cb-5"><span><span class="tag">alphazero.py</span> 第 88–111 行 — encode()：4 通道狀態編碼</span><span>DL 側接口</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    return m * 9 + i
 
 
 def encode(game):
@@ -686,6 +437,7 @@ def encode(game):
         if game.active_macro is not None:
             mr, mc = divmod(game.active_macro, 3)
             planes[3, mr * 3:(mr + 1) * 3, mc * 3:(mc + 1) * 3] = 1.0</code></pre>
+</div>
 
 <h3>2.6 重要修正：本專案沒有「合法動作掩碼（Action Masking）」</h3>
 <p>本專案的 MCTS 直接以 <span class="kbd">legal_moves()</span> 枚舉合法走法建立子節點（<span class="kbd">mcts_search</span> 第 327–343 行），而 Policy Head 輸出<b>完整 81 維 logits</b>。擴展時僅從 <span class="kbd">probs</span> 中取出合法子集的先驗：</p>
@@ -708,7 +460,7 @@ def encode(game):
 </ol>
 
 <h3>3.2 Minimax：alpha-beta 剪枝與深度加權終局分</h3>
-<p><span class="kbd">minimax_move_normal()</span>（第 165–176 行）在普通模式上完美求解：<span class="kbd">_minimax_normal()</span>（第 138–165 行）實作標準 alpha-beta（fail-hard），終局分為 <b>100 − depth</b>（越快贏分越高，見第 152 行），平局為 0。終極模式則限深：<span class="kbd">minimax_move_ultimate()</span>（第 263–281 行）預設深度 3（session 設定 4），並在合法步 ≤ 6 時動態加深一層（第 265–266 行）——殘局分支少，可安全多搜一層。根節點以 <span class="kbd">eval_ultimate</span> 排序走法（<span class="kbd">order_key</span>，第 268–271 行）提升剪枝效率，並在平分時隨機選擇。</p>
+<p><span class="kbd">minimax_move_normal()</span>（第 165–176 行）在普通模式上完美求解：<span class="kbd">_minimax_normal()</span>（第 138–165 行）實作標準 alpha-beta[10]（fail-hard），終局分為 <b>100 − depth</b>（越快贏分越高，見第 152 行），平局為 0。終極模式則限深：<span class="kbd">minimax_move_ultimate()</span>（第 263–281 行）預設深度 3（session 設定 4），並在合法步 ≤ 6 時動態加深一層（第 265–266 行）——殘局分支少，可安全多搜一層。根節點以 <span class="kbd">eval_ultimate</span> 排序走法（<span class="kbd">order_key</span>，第 268–271 行）提升剪枝效率，並在平分時隨機選擇。</p>
 
 <p><b>剪枝原理</b>：alpha-beta 在經典 minimax 上維護兩個界——<span class="kbd">alpha</span>（我方目前已能保證的最佳值，只會上漲）與 <span class="kbd">beta</span>（對手能容忍的上限，只會下降）。當 <span class="kbd">beta &lt;= alpha</span> 時（第 160、169 行），剩餘分支不可能改變根節點的決定，直接放棄。此優化<b>不改變結果</b>，只減少搜尋量：</p>
 <ul>
@@ -716,8 +468,10 @@ def encode(game):
   <li><b>走法排序是關鍵</b>：先搜「最可能好」的走法，alpha 很快收斂到正確值，後續分支被剪得更多。<span class="kbd">minimax_move_normal()</span> 以 <span class="kbd">sorted(..., key=lambda i: i != 4)</span> 把中心放最前（第 167 行）。</li>
   <li><b>與 Minimax Pro 的關係</b>：§3.4 的 <span class="kbd">_negamax_tt</span>（第 1044–1099 行）是同一思想的工程化版本（negamax 形式 + 置換表 + Killer/LMR）——Killer 與 LMR 本質上都是「更好的走法排序 → 更多剪枝」。</li>
 </ul>
-<div class="codecap"><span><span class="tag">ai.py</span> 第 138–165 行 — _minimax_normal：標準 alpha-beta（fail-hard）</span><span>Minimax</span></div>
-<pre><code class="language-python">def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-6">
+  <label class="codecap" for="cb-6"><span><span class="tag">ai.py</span> 第 138–165 行 — _minimax_normal：標準 alpha-beta（fail-hard）</span><span>Minimax</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):
     result = game.result()
     if result is not None:
         if result == 'D':
@@ -742,6 +496,7 @@ def encode(game):
         if beta &lt;= alpha:
             break
     return best</code></pre>
+</div>
 
 <h3>3.3 eval_ultimate：宏觀/微觀啟發式評估</h3>
 <p><span class="kbd">eval_ultimate()</span>（第 188–222 行）是終極模式的靜態局面評估，由四層訊號加總：</p>
@@ -762,8 +517,10 @@ def encode(game):
   <li><b>Aspiration Window</b>：疊代加深第 d 層以上一層分數 ± max(200, 10%) 開窗，若越界則全窗重搜（第 1130–1145 行）；時間上限內任一階段超時即回傳目前最佳（第 1126–1127、1147 行）。</li>
 </ul>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 1109–1149 行 — minimax_pro_move：疊代加深 + Aspiration + 時間上限</span><span>Minimax Pro</span></div>
-<pre><code class="language-python">def minimax_pro_move(game, depth=5, time_limit=8.0):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-7">
+  <label class="codecap" for="cb-7"><span><span class="tag">ai.py</span> 第 1109–1149 行 — minimax_pro_move：疊代加深 + Aspiration + 時間上限</span><span>Minimax Pro</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def minimax_pro_move(game, depth=5, time_limit=8.0):
     &quot;&quot;&quot;Normal: perfect full search. Ultimate: ID negamax + TT + time cap.&quot;&quot;&quot;
     _get_tt().clear()
     _get_killers().clear()
@@ -804,11 +561,12 @@ def encode(game):
         if abs(bv) &gt;= 100000 or time.time() - start &gt; time_limit:
             break
     return best_move</code></pre>
+</div>
 
 <h3>3.5 MCTS 家族</h3>
 
 <h4>3.5.1 MCTS（UCT）：動態 UCT、啟發式 rollout 與樹重用</h4>
-<p><span class="kbd">MCTSNode.best_child()</span>（第 308–318 行）實作標準 UCT：</p>
+<p><span class="kbd">MCTSNode.best_child()</span>（第 308–318 行）實作標準 UCT[3]：</p>
 <div class="formula">\[
 \mathrm{UCT}(s,a) = \frac{W(s,a)}{N(s,a)} + c\cdot\sqrt{\frac{\log N(s)}{N(s,a)}}
 \]</div>
@@ -826,8 +584,10 @@ def encode(game):
   <li><b>並行 MCTS</b>：<span class="kbd">mcts_move_parallel()</span>（第 1281–1316 行）把預算切成 workers 份，各自獨立搜尋後<b>合併根節點的 (visits, wins) 統計</b>，再依勝率選步（平手時偏好立即勝）。因每個執行緒各自持有整棵樹，不需虛擬損失同步。</li>
 </ul>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 437–497 行 — _LINE_BITS、_threat_cells 位板路徑與 _rollout_move</span><span>啟發式 rollout</span></div>
-<pre><code class="language-python">_LINE_BITS = [(1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c) for a, b, c in LINES]
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-8">
+  <label class="codecap" for="cb-8"><span><span class="tag">ai.py</span> 第 437–497 行 — _LINE_BITS、_threat_cells 位板路徑與 _rollout_move</span><span>啟發式 rollout</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">_LINE_BITS = [(1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c) for a, b, c in LINES]
 
 
 def _threat_cells(state, player):
@@ -888,6 +648,7 @@ def _rollout_move(state, moves=None):
     if len(threats) == 1:
         return next(iter(threats))
     return random.choice(moves)  # multiple threats: cannot block them all</code></pre>
+</div>
 
 <h4>3.5.2 MCTS+RAVE：AMAF 統計</h4>
 <p><span class="kbd">RAVENode</span>（第 743–774 行）在每個節點維護 <span class="kbd">amaf</span> 字典（走法 → [訪問, 勝分]）。RAVE 的 All-Moves-As-First 思想：對弈中出現的所有走法都同時更新其 AMAF 統計，與樹中位置無關，因此共享快且樣本多。選擇公式為（<span class="kbd">best_child</span> 第 759–774 行）：</p>
@@ -897,8 +658,10 @@ def _rollout_move(state, moves=None):
 \]</div>
 <p>其中 <span class="kbd">k = rave_k = 150</span>（<span class="kbd">_CFG_DEFAULTS</span> 第 49 行）。AMAF 分數以「該節點行棋方」視角計分（第 821–827 行註解），是標準 all-moves RAVE 語意。代價是每個節點一份 AMAF 表——記憶體與分支因子成正比。</p>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 759–774 行 — RAVENode.best_child：AMAF 混合選擇</span><span>RAVE</span></div>
-<pre><code class="language-python">    def best_child(self, c, k):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-9" checked>
+  <label class="codecap" for="cb-9"><span><span class="tag">ai.py</span> 第 759–774 行 — RAVENode.best_child：AMAF 混合選擇</span><span>RAVE</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    def best_child(self, c, k):
         log_n = math.log(max(1, self.visits))
         best, best_val = None, -math.inf
         for child in self.children:
@@ -914,12 +677,15 @@ def _rollout_move(state, moves=None):
             if uct &gt; best_val:
                 best, best_val = child, uct
         return best</code></pre>
+</div>
 
 <h4>3.5.3 MCTS+GRAVE：reference node 共享統計</h4>
 <p><span class="kbd">GraveNode</span>（第 859–892 行）是 RAVE 的後繼（Cazenave 2015，決策 D8）：RAVE 統計不複製到每個後代，而是保存在「該走法首次被嘗試的節點」（reference node），後代沿 <span class="kbd">ref</span> 鏈查詢（<span class="kbd">best_child</span> 第 884–885 行：<span class="kbd">ref = child.ref if child.ref is not None else self</span>）。回饋時每個 reference node 只更新一次（<span class="kbd">seen_refs</span>，第 938–958 行），避免同一統計被路徑上多個節點重複累加。數學上與 RAVE 相同，但記憶體從「每節點一份表」降到「每 reference node 一份表」，在 UTTT 的高分支因子上顯著省記憶體且估計更穩——D8 的 30 局/對對戰記錄 GRAVE 勝過 MCTS 與 RAVE。</p>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 876–892 行 — GraveNode.best_child：沿 reference 查詢 RAVE 統計</span><span>GRAVE</span></div>
-<pre><code class="language-python">    def best_child(self, c, k):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-10" checked>
+  <label class="codecap" for="cb-10"><span><span class="tag">ai.py</span> 第 876–892 行 — GraveNode.best_child：沿 reference 查詢 RAVE 統計</span><span>GRAVE</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    def best_child(self, c, k):
         log_n = math.log(max(1, self.visits))
         best, best_val = None, -math.inf
         for child in self.children:
@@ -936,6 +702,7 @@ def _rollout_move(state, moves=None):
             if uct &gt; best_val:
                 best, best_val = child, uct
         return best</code></pre>
+</div>
 
 <h4>3.5.4 樹重用：_REUSE_LAST 與 _diff_move</h4>
 <p>樹重用（<span class="kbd">_mcts_move</span> 第 1238–1278 行）讓引擎在本方落子後保留子樹，等對手回應後直接下鑽。實作分兩層：</p>
@@ -943,10 +710,13 @@ def _rollout_move(state, moves=None):
   <li><b>直連快取</b>：<span class="kbd">_REUSE[(ai_type, _tt_key(g))] = child</span>（第 1272 行）——以「引擎類型 + 局面鍵」直接命中「自己剛走完的狀態」之子樹；快取上限 <span class="kbd">reuse_cache = 32</span>（第 1274–1275 行）。</li>
   <li><b>跨回應下鑽</b>：<span class="kbd">_REUSE_LAST[ai_type]</span> 保存「引擎落子後」的節點（第 1273 行）；下一輪若直接命中失敗，則以 <span class="kbd">_diff_move(last.state, game)</span>（第 590–614 行）計算「從上輪狀態到當前局面唯一新增的落子」，並在 <span class="kbd">last.children</span> 中找到對應子節點（第 1256–1259 行）。<span class="kbd">_diff_move</span> 對回退、分支、換局回傳 <span class="kbd">None</span>，自動退回全新搜尋。</li>
 </ul>
+<p><b>C 端接管（D27/D30）</b>：這套 Python 樹重用在 D27 隨搜尋 C 化一度移除；D30 以 C 端差分下降重新引入——<span class="kbd">sba_mcts_search</span> 接收上一次的 arena，按棋盤差分逐層下降到當前局面並拷貝匹配子樹為新根，語意與本節相同（悔棋／新局自動回退全新樹），差異在保留樹僅由單執行緒（thread 0）攜帶，見 3.8.5。</p>
 <p><b>命中條件</b>：樹重用依賴「同引擎連續對局」——同一 <span class="kbd">ai_type</span> 的鍵才可命中，因此 CvC 交替對局中不同引擎各自維護自己的 <span class="kbd">_REUSE_LAST</span>，互不干擾。重用時 <span class="kbd">start_visits</span> 增量同時保證動態 UCT（3.5.1）與早期終止邏輯以「本輪新增訪問量」為準。</p>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 576–614 行 — 動態 UCT、重用快取與 _diff_move</span><span>樹重用</span></div>
-<pre><code class="language-python">def _uct_scale(c, root_visits, iterations):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-11">
+  <label class="codecap" for="cb-11"><span><span class="tag">ai.py</span> 第 576–614 行 — 動態 UCT、重用快取與 _diff_move</span><span>樹重用</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def _uct_scale(c, root_visits, iterations):
     &quot;&quot;&quot;Dynamic UCT: explore more early, exploit more as the search matures.&quot;&quot;&quot;
     if cfg_engine(&#x27;dynamic_uct&#x27;, True):
         return c * (0.6 + 0.4 * (1.0 - root_visits / max(1, iterations)))
@@ -985,9 +755,12 @@ def _diff_move(old_state, new_game):
     if len(diffs) != 1 or new_game.micro[diffs[0][0]][diffs[0][1]] == EMPTY:
         return None
     return diffs[0]</code></pre>
+</div>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 1238–1278 行 — _mcts_move：重用、位板搜尋與快取回填</span><span>引擎調度</span></div>
-<pre><code class="language-python">def _mcts_move(game, ai_type, budget):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-12">
+  <label class="codecap" for="cb-12"><span><span class="tag">ai.py</span> 第 1238–1278 行 — _mcts_move：重用、位板搜尋與快取回填</span><span>引擎調度</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def _mcts_move(game, ai_type, budget):
     &quot;&quot;&quot;Run an MCTS-family search, reusing the previous tree when enabled.&quot;&quot;&quot;
     if (ai_type == &#x27;MCTS&#x27; and cfg_engine(&#x27;multithreaded&#x27;, False)):
         return mcts_move_parallel(game, budget, cfg_engine(&#x27;workers&#x27;, 4))
@@ -1028,6 +801,7 @@ def _diff_move(old_state, new_game):
     if pool is not None:
         pool.release(root)
     return move</code></pre>
+</div>
 
 <h4>3.5.5 Flat MCTS（研究基準）</h4>
 <p><span class="kbd">flat_mcts_move()</span>（第 524–551 行）把預算均分給每個合法走法，各自從根層做獨立 rollout，完全沒有樹結構——是「只看一層」的基準，用來隔離「樹搜尋」本身的價值（D14，選單隱藏、保留研究）。</p>
@@ -1035,8 +809,10 @@ def _diff_move(old_state, new_game):
 <h3>3.6 殘局表 Solver 與開局書</h3>
 <p><span class="kbd">build_tablebase()</span>（第 675–718 行）以遞迴 negamax 求解普通井字棋全部 \(3^9 = 19683\) 個盤面，memo 以 <span class="kbd">_board_key()</span>（3 進位編碼）為鍵、<b>不包含行棋方</b>。這在數學上是合法的：井字棋嚴格輪流行棋且 X 先手，因此任何可達盤面的石子數奇偶性唯一決定行棋方（X 數 = O 數 → O 行棋；X 數 = O 數 + 1 → X 行棋）；把「不可能出現的盤面」一併求解也只會得到一致解。<span class="kbd">solver_move()</span>（第 721–736 行）查表後回傳最佳著（平手時隨機），終極模式則退回首搜 MCTS（第 723–724 行，因終極無殘局表）；<span class="kbd">build_micro_tablebase()</span>（第 712–718 行）是同一張表的語意別名，供 <span class="kbd">eval_ultimate</span> 在微觀層使用（D3：Solver 移出選單、保留分析面板）。</p>
 
-<div class="codecap"><span><span class="tag">ai.py</span> 第 675–718 行 — build_tablebase：3^9 殘局表（memo 僅以盤面為鍵）</span><span>Solver</span></div>
-<pre><code class="language-python">def build_tablebase():
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-13">
+  <label class="codecap" for="cb-13"><span><span class="tag">ai.py</span> 第 675–718 行 — build_tablebase：3^9 殘局表（memo 僅以盤面為鍵）</span><span>Solver</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def build_tablebase():
     global _TABLEBASE
     if _TABLEBASE is not None:
         return _TABLEBASE
@@ -1080,10 +856,12 @@ def build_micro_tablebase():
     this is a thin alias that keeps the intent readable at call sites.
     &quot;&quot;&quot;
     return build_tablebase()</code></pre>
+</div>
 
-<p><b>開局書</b>：<span class="kbd">ULTIMATE_BOOK</span>（第 1181–1195 行）為「X 第一手 → O 回應」的策展表（中心與角落起手），並可經 <span class="kbd">sba.toml</span> 的 <span class="kbd">[engine.opening_book_ultimate]</span> 覆寫（第 1197–1212 行）；<span class="kbd">opening_book_move()</span>（第 1215–1235 行）只在真正的開局（0–1 手）觸發，且所有回應都經 <span class="kbd">legal</span> 驗證後才使用。</p>
+<p><b>開局書</b>：<span class="kbd">ULTIMATE_BOOK</span>（第 1181–1195 行）為「X 第一手 → O 回應」的策展表（中心與角落起手），並可經 <span class="kbd">config.toml</span> 的 <span class="kbd">[engine.opening_book_ultimate]</span> 覆寫（第 1197–1212 行）；<span class="kbd">opening_book_move()</span>（第 1215–1235 行）只在真正的開局（0–1 手）觸發，且所有回應都經 <span class="kbd">legal</span> 驗證後才使用。3<sup>9</sup> 完全求解與 Minimax 家族現已一併下沉 C（D27，見 3.8 節），Python 端保留回退。</p>
 
 <h3>3.7 優化重點小結</h3>
+<p class="tbl-cap" id="tbl1">表 1　優化項目與量測結論摘要</p>
 <table>
   <thead>
     <tr><th>優化</th><th>解決的問題</th><th>實作位置</th></tr>
@@ -1097,8 +875,30 @@ def build_micro_tablebase():
     <tr><td>D4 對稱去重</td><td>對稱等價走法重複展開浪費預算</td><td>ai.py 563–650</td></tr>
     <tr><td>多執行緒並行 MCTS</td><td>單執行緒無法吃滿多核心；合併根統計近似全域搜尋</td><td>ai.py 1281–1316</td></tr>
     <tr><td>啟發式 rollout</td><td>純隨機 rollout 樣本雜訊過大、評估弱（見 6.2 消融）</td><td>ai.py 478–497</td></tr>
+    <tr><td>C rollout 核心（D25）</td><td>逐步 Python rollout 的跨界開銷；整段 rollout 一次呼叫完成（17.7×/次、整場搜尋 12.4×）</td><td>native/sba_rollout.c；ai.py 路由</td></tr>
+    <tr><td>全後端 C 化（D27）</td><td>每迭代 Python 樹操作成為瓶頸；800 sims 530ms → 14ms（約 37×）</td><td>native/sba_mcts.c、sba_minimax.c；native/cengine.py</td></tr>
+    <tr><td>每次呼叫獨立 arena（D29）</td><td>並發的助手分析與 AI 搜尋互踩共享緩衝（第三步卡死）</td><td>native/cengine.py</td></tr>
+    <tr><td>根節點平行化 + 樹重用（D30）</td><td>單執行緒吃不滿多核心；重用溫樹省重算（2/4/8 執行緒 1.8×/3.1×/5.8×）</td><td>native/sba_mcts.c；ai.py 合併</td></tr>
   </tbody>
 </table>
+
+<h3>3.8 原生 C 引擎後端（D25–D30）</h3>
+<p>3.1–3.7 的所有搜尋熱路徑現已下沉 C。<span class="kbd">native/</span> 拆成四個模組——<span class="kbd">sba_ultt.h/.c</span>（共用規則核心）、<span class="kbd">sba_rollout.c</span>（plain／pattern／trace rollout）、<span class="kbd">sba_mcts.c</span>（完整 MCTS 樹）、<span class="kbd">sba_minimax.c</span>（Minimax 家族）——編成單一 <span class="kbd">sba_engine.dll</span>，以 <span class="kbd">native/cengine.py</span> 作為唯一 ctypes 邊界；<span class="kbd">ai.py</span> 依 <span class="kbd">config.toml</span> 的開關路由（<span class="kbd">c_mcts</span> / <span class="kbd">c_minimax</span> / <span class="kbd">c_rollout</span> / <span class="kbd">c_rollout_pattern</span> / <span class="kbd">workers</span> / <span class="kbd">assistant_sims</span>），DLL 缺失或關閉時自動回退 3.1–3.6 的純 Python 路徑。</p>
+
+<h4>3.8.1 Rollout 核心（D25）</h4>
+<p>cProfile 顯示 rollout 佔 MCTS 時間約 80%。D25 把整段 rollout 一次 C 呼叫完成：策略與 <span class="kbd">_rollout_move</span> 逐項對齊（能贏 → 封單一威脅 → 隨機），xorshift64* 種子由 Python 傳入保證可重現。實測單次 rollout 0.029ms vs 0.508ms（17.7×）、800 sims 全搜尋 12.4×；MCTS(kernel) 對 Basic 87.5%，與純 Python 基準的 90% 在噪聲內一致。</p>
+
+<h4>3.8.2 Pattern rollout（D26）</h4>
+<p>在 C kernel 上疊加 fork 製造、安全路由（不送對手進可贏 macro）、封鎖與位置偏好。20 局 A/B（300 sims）得分率 47.5%，統計持平，單次成本卻是 4.4×——偏置 rollout 會造成價值估計偏誤，與 D21「啟發式 rollout 已是主力」的結論一致，故<b>預設關閉</b>，保留為研究開關（同 Flat MCTS／RAVE 的待遇）。</p>
+
+<h4>3.8.3 全後端 C 化（D27）</h4>
+<p>D25 後剩餘瓶頸在每迭代的 Python 樹操作（下降／展開／回傳）。D27 把完整 MCTS 樹（動態 UCT、根統計導出）、Minimax 家族與 flat MCTS 全部下沉 C；實測 800 sims 530ms → 14ms（約 37×）、10000 sims 166ms，C MCTS 對 Basic 100%（16 局）。工程要點：交叉編譯的 mingw DLL 沒有可用 CRT，節點 arena 的記憶體由呼叫端提供。</p>
+
+<h4>3.8.4 並發安全（D29）</h4>
+<p>介面會同時跑兩個搜尋（AI 助手分析＋AI 走子）；模組級共享緩衝被並發寫入踩踏後，樹結構被破壞成死循環——即「第三步卡死」。修法是每次呼叫獨立分配 arena（約 1MB，相對 14ms 的搜尋可忽略）並對 DLL 載入加鎖；同時新增 GitHub Actions CI（ubuntu + windows 矩陣編譯 DLL 並跑完整 pytest）。</p>
+
+<h4>3.8.5 根節點平行化與樹重用（D30）</h4>
+<p><span class="kbd">sba_mcts_search</span> 接收上一次的 arena，按棋盤差分逐層下降到當前局面、拷貝匹配子樹為新根（語意同 3.5.4，悔棋／新局自動回退全新樹）。<span class="kbd">ai.py</span> 開 <span class="kbd">min(workers, budget/400)</span> 條執行緒（ctypes 內釋放 GIL），執行緒 0 攜帶熱樹、其餘全新起搜，合併根統計不重複計數。實測 2/4/8 執行緒牆鐘 1.8×/3.1×/5.8×（3200 sims）；C MCTS 對 Basic 96.9%（1600 sims、16 局）。</p>
 
 </section>
 
@@ -1106,7 +906,7 @@ def build_micro_tablebase():
 <h2><span class="no" style="background:var(--chip-dl)">4</span>AlphaZero 神經網路與 MCTS 整合<span class="side dl">深度學習側</span></h2>
 
 <h3>4.1 AZNet：雙頭殘差網路</h3>
-<p><span class="kbd">ResBlock</span>（<span class="kbd">alphazero.py</span> 第 134–145 行）與 <span class="kbd">AZNet</span>（第 148–172 行）構成標準 AlphaZero 雙頭架構：</p>
+<p><span class="kbd">ResBlock</span>[11]（<span class="kbd">alphazero.py</span> 第 134–145 行）與 <span class="kbd">AZNet</span>（第 148–172 行）構成標準 AlphaZero[1] 雙頭架構（含 BatchNorm[12] 正規化）：</p>
 <ul>
   <li><b>輸入</b>：<span class="kbd">[4, size, size]</span>（見 2.5 節 <span class="kbd">encode()</span>）。</li>
   <li><b>輸入卷積</b>：<span class="kbd">conv_in</span>（4→128 通道，3×3、padding=1）+ BatchNorm + ReLU。</li>
@@ -1116,8 +916,10 @@ def build_micro_tablebase():
 </ul>
 <p>以 128 通道 × 5 殘差塊計算，網路總參數量約 <b>158 萬</b>（本機以 <span class="kbd">AZNet(9, 128, 5)</span> 實測 <span class="kbd">sum(p.numel()) = 1,579,658</span>）——屬於刻意縮小的「微型網路」，對應 6.4 節的 GPU 利用率分析。</p>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 134–172 行 — ResBlock 與 AZNet 雙頭網路</span><span>神經網路</span></div>
-<pre><code class="language-python"># Network
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-14">
+  <label class="codecap" for="cb-14"><span><span class="tag">alphazero.py</span> 第 134–172 行 — ResBlock 與 AZNet 雙頭網路</span><span>神經網路</span><span class="code-hint"></span></label>
+  <pre><code class="language-python"># Network
 # ---------------------------------------------------------------
 
 class ResBlock(nn.Module):
@@ -1156,6 +958,7 @@ class AZNet(nn.Module):
             x = b(x)
         p = F.relu(self.pol_bn(self.pol_conv(x)))
         p = self.pol_fc(p.flatten(1))</code></pre>
+</div>
 
 <div class="arch">
   <div class="box"><b>輸入 4×9×9</b><span>X / O / 輪次 / 活動大格（Wildcard 全 0）</span></div>
@@ -1191,18 +994,18 @@ L = L_p + L_v = -\frac{1}{B}\sum_{b=1}^{B}\sum_{a} \pi_{b,a}\,\log \hat p_{b,a}
 <h3>4.3 神經引導 MCTS：四步驟逐段解析</h3>
 <p><span class="kbd">mcts_search()</span>（第 250–346 行）實作標準 AlphaZero 語意的四步驟迴圈，但以「葉子並行批推理」執行（見 4.4）。以下依真實程式碼拆解。</p>
 
-<h4>4.3.1 Selection：PUCT 與 Q 的存儲視角</h4>
-<p><span class="kbd">SearchNode.best_child()</span>（第 211–224 行）的選擇公式為：</p>
+<h4>4.3.1 Selection：PUCT[4] 與 Q 的存儲視角</h4>
+<p><span class="kbd">SearchNode.best_child()</span>（<span class="kbd">alphazero.py</span> 第 204–219 行；PUCT 運算式在第 216 行）的選擇公式為：</p>
 <div class="formula">\[
 \mathrm{PUCT}(s,a) = -Q(s,a) + C_{puct}\cdot P(s,a)\cdot
-\sqrt{\frac{\log\big(N(s)+N_v(s)\big)}{N(s,a)+N_v(s,a)}}
+\frac{\sqrt{N(s)+N_v(s)}}{1+N(s,a)+N_v(s,a)}
 \]</div>
 <p>兩個關鍵設計（皆有程式碼依據）：</p>
 <ul>
   <li><b>Q 的存儲視角</b>：<span class="kbd">q</span> 以「該節點狀態的行棋方」為視角儲存（第 191–192 行類別註解、第 281 行 <span class="kbd">n.q = n.wins / n.visits</span>）。因此在父節點選擇時，子節點的 q 是「對手視角」，必須取負號才是對父節點行棋方的價值——這就是公式中 <b>−Q(s,a)</b> 的來源，與回饋端的 negamax 交替（第 282 行 <span class="kbd">value = -value</span>）互為鏡像。</li>
   <li><b>虛擬損失</b>：<span class="kbd">VIRTUAL_LOSS = 2.0</span>（第 180 行）在批選過程中對路徑上每個節點加 <span class="kbd">v_visits += 1</span>、<span class="kbd">v_wins += VIRTUAL_LOSS</span>（第 297–299 行），使同一輪內並行的選擇器傾向走不同分支，並在回饋時移除（第 274–277 行）。注意虛擬損失加到 <span class="kbd">v_wins</span> 是「正值」，會壓低 −q 項，刻意讓已被佔用的分支在虛擬期間失寵——這是發散作用而非統計修正。</li>
 </ul>
-<div class="warn"><b>與文獻公式的差異</b>：經典 AlphaZero 的 PUCT 分母通常寫為 \(1+N(s,a)\)，本專案實作（第 212–221 行）為 \(\sqrt{\log(N_{\mathrm{parent}})/N_{\mathrm{child}}}\)，<b>沒有 +1</b>。由於本專案採全展開（見下），子節點必有 \(N\ge 1\)，+1 的保護作用被最小化；此處以實際程式碼為準，並於附錄 A 記錄此差異。</div>
+<div class="warn"><b>引擎之間的公式差異（v1.2 更正）</b>：神經引導搜尋（<span class="kbd">alphazero.py</span> 第 204–219 行）<b>與經典 AlphaZero 一致</b>——分母含 +1：\(-Q + c\,P\sqrt{N(s)+N_v(s)}\,/\,\bigl(1+N(s,a)+N_v(s,a)\bigr)\)，其中 \(N_v\) 為虛擬損失統計。真正與文獻不同的是<b>傳統引擎</b>：<span class="kbd">ai.py</span> 的 MCTS／RAVE／GRAVE 採 UCT 形式 \(Q + c\sqrt{\ln N_{\text{parent}}/N_a}\)（第 299–306、750–762、867–880 行），<b>沒有 +1</b>。v1.1 的本段曾把兩個引擎混為一談，並連帶使 A.3 第 2 條出錯，已於 v1.2 更正。</div>
 
 <h4>4.3.2 Expansion：全展開與根節點 Dirichlet 噪聲</h4>
 <p>每個葉子首次被評估後立即<b>全展開</b>：為所有合法走法建立子節點並寫入先驗（第 325–344 行）。根節點在首次展開時以 <span class="kbd">dirichlet_alpha</span> 加入探索噪聲：</p>
@@ -1222,8 +1025,10 @@ v_{\mathrm{leaf}}(s) = (1-w)\,v_\theta(s) + w\cdot \mathrm{playout}(s),\qquad w 
 <h4>4.3.4 Backpropagation：negamax 交替累加</h4>
 <p><span class="kbd">backprop()</span>（第 274–282 行）先沿路徑移除虛擬損失，再以反序路徑累加：<span class="kbd">visits += 1</span>、<span class="kbd">wins += value</span>、更新 <span class="kbd">q</span>，然後 <span class="kbd">value = -value</span> 換手——與 4.3.1 的 −Q 對稱，保證每個節點的統計永遠以「該節點行棋方」視角累積。</p>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 227–245 行 — rollout_value：延遲匯入 ai 的啟發式 rollout</span><span>葉子評估</span></div>
-<pre><code class="language-python">        return best
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-15" checked>
+  <label class="codecap" for="cb-15"><span><span class="tag">alphazero.py</span> 第 227–245 行 — rollout_value：延遲匯入 ai 的啟發式 rollout</span><span>葉子評估</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">        return best
 
 
 def rollout_value(g):
@@ -1242,9 +1047,12 @@ def rollout_value(g):
             break
         apply_move(state, _rollout_move(state, legal))
     r = state.result()</code></pre>
+</div>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 250–305 行 — mcts_search（一）：初始化、backprop 與葉子收集</span><span>搜尋主體</span></div>
-<pre><code class="language-python">
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-16">
+  <label class="codecap" for="cb-16"><span><span class="tag">alphazero.py</span> 第 250–305 行 — mcts_search（一）：初始化、backprop 與葉子收集</span><span>搜尋主體</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">
 
 
 @torch.no_grad()
@@ -1300,9 +1108,12 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
             iterations += 1
             if node.untried == []:
                 backprop(path, terminal_value(node.state))</code></pre>
+</div>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 306–346 行 — mcts_search（二）：批次推論、rollout 混合與全展開</span><span>批次整合</span></div>
-<pre><code class="language-python">            else:
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-17">
+  <label class="codecap" for="cb-17"><span><span class="tag">alphazero.py</span> 第 306–346 行 — mcts_search（二）：批次推論、rollout 混合與全展開</span><span>批次整合</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">            else:
                 leaves.append((path, node))
 
         # Network: one batched forward for every selected leaf. The batch is
@@ -1343,6 +1154,7 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
                         child_state = node.state.clone()
                         apply_move(child_state, m)
                         node.children.append(SearchNode(child_state, m))</code></pre>
+</div>
 
 <h3>4.4 同步批次整合（非異步）：葉子並行批推理</h3>
 <p>本專案的批推理是<b>同步（synchronous）</b>的：同一搜尋回合內收集多個葉子，一次前向，而非異步（asynchronous）樹並行。實作細節（第 306–318 行）：</p>
@@ -1378,8 +1190,10 @@ p(a) \propto N(s,a)^{1/\tau}
 </ol>
 <p><b>Replay Buffer</b>（<span class="kbd">train()</span> 第 513–526 行）上限 <span class="kbd">replay_cap = 100</span> 局，新局塞入、最舊彈出；每局完成後以 <span class="kbd">steps_per_game = 5</span> 次梯度更新，每次從 buffer 隨機抽一局、以 128 樣本（可重複）組成固定批次——固定 128 也是為了「每行程單一張量形狀」的 MIOpen 穩定性（第 534–539 行註解）。</p>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 414–443 行 — self_play_game：MCTS 訪問次數 → 策略目標 → (s, π, z)</span><span>自對弈</span></div>
-<pre><code class="language-python">                &#x27;channels&#x27;: channels, &#x27;blocks&#x27;: blocks}, path)
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-18">
+  <label class="codecap" for="cb-18"><span><span class="tag">alphazero.py</span> 第 414–443 行 — self_play_game：MCTS 訪問次數 → 策略目標 → (s, π, z)</span><span>自對弈</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">                &#x27;channels&#x27;: channels, &#x27;blocks&#x27;: blocks}, path)
 
 
 def self_play_game(make_game_fn, model, sims, temp,
@@ -1409,9 +1223,12 @@ def self_play_game(make_game_fn, model, sims, temp,
         apply_move(game, legal[idx])
     result = game.result()
     zs = []</code></pre>
+</div>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 520–547 行 — train()：單進程主迴圈（replay、LR 退火、梯度步）</span><span>訓練管線</span></div>
-<pre><code class="language-python">            eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-19">
+  <label class="codecap" for="cb-19"><span><span class="tag">alphazero.py</span> 第 520–547 行 — train()：單進程主迴圈（replay、LR 退火、梯度步）</span><span>訓練管線</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">            eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
             channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
             start, ROLLOUT_WEIGHT)
     for it in range(1, games + 1):
@@ -1439,6 +1256,7 @@ def self_play_game(make_game_fn, model, sims, temp,
             loss_p = -(F.log_softmax(pred_p, dim=1) * target).sum(dim=1).mean()
             loss_v = F.mse_loss(pred_v[:, 0], z)
             (loss_p + loss_v).backward()</code></pre>
+</div>
 
 <h3>5.2 多進程自對弈：_train_multiprocess</h3>
 <p><span class="kbd">_train_multiprocess()</span>（第 568–654 行）把自對弈分散到 worker 行程：</p>
@@ -1450,8 +1268,10 @@ def self_play_game(make_game_fn, model, sims, temp,
 </ul>
 <div class="note"><b>為何否決「進程內多線程共享推理佇列」</b>：執行緒共享 GIL，CPU 密集的 rollout／樹搜尋在 8 執行緒下實測<b>慢 34%</b>；行程各自持有 GIL 與模型副本，才能讓 CPU 密集部分真正平行（<span class="kbd">_train_multiprocess</span> 第 573–578 行與第 449–452 行註解）。此方案因此被刪除，D18 記錄 8 worker 約 3× 吞吐。</div>
 
-<div class="codecap"><span><span class="tag">alphazero.py</span> 第 568–645 行 — _train_multiprocess：spawn 池、權重隨任務、結果佇列與主進程訓練</span><span>多進程</span></div>
-<pre><code class="language-python">    return model
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-20">
+  <label class="codecap" for="cb-20"><span><span class="tag">alphazero.py</span> 第 568–645 行 — _train_multiprocess：spawn 池、權重隨任務、結果佇列與主進程訓練</span><span>多進程</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    return model
 
 
 def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
@@ -1529,10 +1349,13 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                 print(&#x27;[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)&#x27;
                       % (game_type, done, games, w, d, l,
                          total_loss / steps_per_game, el), flush=True)</code></pre>
+</div>
 
 <h3>5.3 Minimax Pro 核心：_negamax_tt 與置換表</h3>
-<div class="codecap"><span><span class="tag">ai.py</span> 第 1053–1106 行 — _negamax_tt：置換表 + LMR + Killer 的 negamax 核心</span><span>Minimax Pro</span></div>
-<pre><code class="language-python">def _negamax_tt(game, depth, alpha, beta):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-21">
+  <label class="codecap" for="cb-21"><span><span class="tag">ai.py</span> 第 1053–1106 行 — _negamax_tt：置換表 + LMR + Killer 的 negamax 核心</span><span>Minimax Pro</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def _negamax_tt(game, depth, alpha, beta):
     result = game.result()
     if result is not None:
         if result == &#x27;D&#x27;:
@@ -1586,10 +1409,13 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     if len(_get_tt()) &lt; _tt_max():
         _get_tt()[key] = (depth, flag, best, best_move)
     return best</code></pre>
+</div>
 
 <h3>5.4 並行 MCTS 合併根統計</h3>
-<div class="codecap"><span><span class="tag">ai.py</span> 第 1281–1316 行 — mcts_move_parallel：多執行緒獨立搜尋、合併根統計</span><span>並行 MCTS</span></div>
-<pre><code class="language-python">def mcts_move_parallel(game, iterations, workers=4):
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-22">
+  <label class="codecap" for="cb-22"><span><span class="tag">ai.py</span> 第 1281–1316 行 — mcts_move_parallel：多執行緒獨立搜尋、合併根統計</span><span>並行 MCTS</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def mcts_move_parallel(game, iterations, workers=4):
     &quot;&quot;&quot;Run several independent MCTS searches and merge their root stats.&quot;&quot;&quot;
     chunk = max(1, iterations // workers)
     results = []
@@ -1625,13 +1451,15 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                 best_move = m
                 break
     return best_move</code></pre>
+</div>
 
-<h3>5.5 三模組協作關係</h3>
-<p>依賴方向單向（D2）：<span class="kbd">game.py</span>（規則與位板）→ <span class="kbd">ai.py</span>（傳統引擎與啟發式）→ <span class="kbd">alphazero.py</span>（神經搜尋與訓練）。跨側復用具體表現為：</p>
+<h3>5.5 模組協作關係</h3>
+<p>依賴方向單向（D2）：<span class="kbd">game.py</span>（規則與位板）→ <span class="kbd">ai.py</span>（傳統引擎與啟發式）→ <span class="kbd">alphazero.py</span>（神經搜尋與訓練）→ <span class="kbd">native/</span>（C 搜尋核心，經 <span class="kbd">native/cengine.py</span> 單一 ctypes 邊界，D27）。跨側復用具體表現為：</p>
 <ul>
   <li><b>位板被兩側共用</b>：<span class="kbd">BitUltimateGame</span> 同時服務傳統 MCTS（<span class="kbd">_mcts_move</span> 第 1243–1246 行）與局面分析（<span class="kbd">analyze_position</span> 第 1450–1454 行）；AlphaZero 搜尋的狀態雖為列表版，但其 rollout 經 <span class="kbd">ai._rollout_move</span> 間接使用同一套威脅掃描。</li>
   <li><b>啟發式 rollout 是橋樑</b>：<span class="kbd">alphazero.rollout_value</span> 延遲匯入 <span class="kbd">ai._rollout_move</span>（第 234 行），使深度學習側的葉子評估直接繼承遊戲側的戰術知識。</li>
   <li><b>引擎調度</b>：<span class="kbd">get_ai_move()</span>（第 1319–1342 行）統一分派全部引擎（含 AlphaZero 無模型時退回 MCTS，第 1167–1174 行），UI 與對戰基準共用同一入口。</li>
+  <li><b>C 後端路由與回退</b>：MCTS／Minimax／Flat／Solver 在 <span class="kbd">config.toml</span> 開關下優先走 <span class="kbd">native/</span>（D27），DLL 缺失時整段回退純 Python；RAVE／GRAVE 的 rollout 也改吃 C trace 核心，AI 助手分析與走子搜尋共用同一次搜尋的根統計。</li>
 </ul>
 </section>
 
@@ -1639,9 +1467,10 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <h2><span class="no" style="background:var(--chip-dl)">6</span>訓練表現、超參數與效能優化<span class="side dl">深度學習側為主</span></h2>
 
 <h3>6.0 訓練環境與硬體規格（Training Environment &amp; Hardware）</h3>
-<p>所有訓練、基準與 GPU 診斷皆在同一台 Windows 桌機完成；環境細節另見
+<p>所有訓練、基準與 GPU 診斷皆在同一台 Windows 桌機（Windows 原生 ROCm，RX 7900 XTX）完成，不使用雲端算力；GPU 前向靠「固定形狀＋同形狀暖機」才有效率（200 sims 冷形狀 1284ms → 暖機 126ms，D17），而搜尋熱路徑現已下沉 C（見 3.8 節），A/B 掃描不再是 Python 迴圈綁定。環境細節另見
 <span class="kbd">docs/rocm-wsl2.md</span>。記錄規格的原因：§6.2 的牆鐘（7.1 h → 62 min）、
 §6.3 的 kernel 啟動（≈640 µs）與 §5.2 的並行擴展都依賴這組硬體，離開本機即不可複現。</p>
+<p class="tbl-cap" id="tbl2">表 2　硬體規格與在本專案中的角色</p>
 <table>
   <thead>
     <tr><th>硬體</th><th>規格</th><th>在本專案的角色</th></tr>
@@ -1652,6 +1481,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     <tr><td>RAM</td><td>64 GB</td><td>—</td></tr>
   </tbody>
 </table>
+<p class="tbl-cap" id="tbl3">表 3　軟體與執行環境版本</p>
 <table>
   <thead>
     <tr><th>軟體 / 環境</th><th>版本</th><th>備註</th></tr>
@@ -1667,6 +1497,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <p class="src-label">來源：本機實測（<span class="kbd">python --version</span>、<span class="kbd">torch.__version__</span>、<span class="kbd">torch.cuda.is_available()</span>）；硬體由 Windows 系統資訊取得；GPU / ROCm / 驅動細節見 docs/rocm-wsl2.md。</p>
 
 <h3>6.1 超參數總表</h3>
+<p class="tbl-cap" id="tbl4">表 4　超參數總表（訓練、MCTS 與介面）</p>
 <table>
   <thead>
     <tr><th>參數</th><th>值</th><th>說明 / 出處</th></tr>
@@ -1694,6 +1525,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <h4>對等預算基準：AlphaZero vs MCTS（30 盤、雙方各 800 預算）</h4>
 <p>以 <span class="kbd">--bench --ai-a AlphaZero --ai-b MCTS --games 30 --iters 800</span>
 （終極模式、每局輪換先手）取代先前 6 盤、預算不對等（AZ 1600 vs MCTS 800）的紀錄：</p>
+<p class="tbl-cap" id="tbl5">表 5　對等預算基準：AlphaZero vs MCTS（30 局、800/800、±9%）</p>
 <table>
   <thead>
     <tr><th>引擎 A</th><th>引擎 B</th><th>A 勝</th><th>和</th><th>B 勝</th><th>A 得分率</th></tr>
@@ -1702,14 +1534,16 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     <tr><td><span class="kbd">AlphaZero</span></td><td><span class="kbd">MCTS</span></td><td>6</td><td>2</td><td>22</td><td><strong>23.3%</strong></td></tr>
   </tbody>
 </table>
-<p class="cap">對等預算下 AZ 明顯落後（6W/2D/22L）。差距來源即 6.4 節「搜尋退化」：全展開＋先驗引導在固定小預算下，先驗質量不足時訪問集中於少數高先驗分支，缺乏啟發式 rollout 的深層戰術修正。</p>
+<p class="tbl-note">表註：得分率 =（勝 + 0.5 × 和）／局數；\(n = 30\)，\(\sigma \approx 50\%/\sqrt{n} = \pm 9\%\) 為保守上界。本列與表 9 的 D22 對照列<b>同為 6000 局舊配方模型</b>，但是<b>兩次獨立的 30 局量測</b>（23.3% vs 20.0%，差 3.3 個百分點在 ±9% 之內），不可混用或視為兩個不同模型。</p>
+<p class="cap">對等預算下 AZ 明顯落後（6W/2D/22L＝23.3%，n = 30、±9%）。差距來源即 6.4 節「搜尋退化」：全展開＋先驗引導在固定小預算下，先驗質量不足時訪問集中於少數高先驗分支，缺乏啟發式 rollout 的深層戰術修正。</p>
 
 <h4>逐 eval 損失與對隨機勝率（6000 局訓練日誌）</h4>
 <p>取自 <span class="kbd">python alphazero.py train --games 6000 --sims 80 --workers 8 --eval-every 500 --eval-games 10</span>
 的逐點記錄（每點 20 盤 vs 隨機）；牆鐘 3731 s（62.2 min、0.62 s/局，與 D18「7.1h → 62 min」吻合）。</p>
+<p class="tbl-cap" id="tbl6">表 6　6000 局訓練日誌：逐點損失與對隨機勝率（每點 20 盤、±11%）</p>
 <table>
   <thead>
-    <tr><th>對局數</th><th>loss</th><th>vs Random（20 盤）</th><th>勝率</th></tr>
+    <tr><th>對局數</th><th>loss</th><th>vs Random（20 盤）</th><th>得分率</th></tr>
   </thead>
   <tbody>
     <tr><td>500</td><td>2.846</td><td>20W / 0D / 0L</td><td>100%</td></tr>
@@ -1719,10 +1553,10 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     <tr><td>2500</td><td>2.533</td><td>20W / 0D / 0L</td><td>100%</td></tr>
     <tr><td>3000</td><td>2.392</td><td>20W / 0D / 0L</td><td>100%</td></tr>
     <tr><td>3500</td><td>3.087</td><td>20W / 0D / 0L</td><td>100%</td></tr>
-    <tr><td>4000</td><td>2.164</td><td>18W / 2D / 0L</td><td>90%</td></tr>
-    <tr><td>4500</td><td>1.918</td><td>19W / 1D / 0L</td><td>95%</td></tr>
+    <tr><td>4000</td><td>2.164</td><td>18W / 2D / 0L</td><td>95.0%</td></tr>
+    <tr><td>4500</td><td>1.918</td><td>19W / 1D / 0L</td><td>97.5%</td></tr>
     <tr><td>5000</td><td>1.132</td><td>19W / 0D / 1L</td><td>95%</td></tr>
-    <tr><td>5500</td><td>0.627</td><td>18W / 1D / 1L</td><td>90%</td></tr>
+    <tr><td>5500</td><td>0.627</td><td>18W / 1D / 1L</td><td>92.5%</td></tr>
     <tr><td>6000</td><td>0.094</td><td>20W / 0D / 0L</td><td>100%</td></tr>
   </tbody>
 </table>
@@ -1736,12 +1570,12 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <div class="grid2">
   <div class="chart-wrap">
     <h4>訓練損失曲線</h4>
-    <div class="cap">800 局（3.37 → 1.29）與 6000 局（2.46 → 0.094）。僅記錄起訖端點，虛線為趨勢示意；中間檢查點（每 25 / 500 局）資料未隨附。</div>
+    <div class="cap" id="fig1"><b>圖 1　訓練損失曲線（800 局與 6000 局；僅起訖端點，虛線為趨勢示意）。</b> 800 局（3.37 → 1.29）與 6000 局（首點 500 局 2.846 → 6000 局 0.094；舊記錄的 2.46 對應 1000 局）。僅記錄起訖端點，虛線為趨勢示意；中間檢查點資料見表 6。</div>
     <canvas id="chartLoss"></canvas>
   </div>
   <div class="chart-wrap">
     <h4>評估勝率 vs 隨機（按對局數）</h4>
-    <div class="cap">400 局（w=0.5）97.5%、800 局 90%、6000 局 95%（38W/1D/1L，200 sims）。各點來自不同記錄 run，僅為趨勢參考。</div>
+    <div class="cap" id="fig2"><b>圖 2　評估勝率 vs 隨機（按對局數；各點來自不同記錄 run）。</b> 400 局（w=0.5）97.5%、800 局 90%（該點取自 800 局 run 的原始記錄）、6000 局 96.3%（38W/1D/1L，200 sims）。各點來自不同記錄 run，僅為趨勢參考。</div>
     <canvas id="chartEval"></canvas>
   </div>
 </div>
@@ -1755,16 +1589,17 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <div class="grid2">
   <div class="chart-wrap">
     <h4>Rollout 權重消融（對隨機勝率）</h4>
-    <div class="cap">純網路（w=0）在 400 與 800 局皆為 70–76% 區間（圖取區間上界）；w=0.5 在 400 局即 97.5%。</div>
+    <div class="cap" id="fig3"><b>圖 3　Rollout 權重消融：對隨機勝率。</b> 純網路（w=0）在 400 與 800 局皆為 70–76% 區間（圖取區間上界）；w=0.5 在 400 局即 97.5%。</div>
     <canvas id="chartRollout"></canvas>
   </div>
   <div class="chart-wrap">
     <h4>多進程自對弈加速比</h4>
-    <div class="cap">串行 3.17 s/局 → 2 / 4 / 8 workers 為 1.50× / 2.43× / 2.96×（每局時間量測）。</div>
+    <div class="cap" id="fig4"><b>圖 4　多進程自對弈加速比（以每局時間量測）。</b> 串行 3.17 s/局 → 2 / 4 / 8 workers 為 1.50× / 2.43× / 2.96×（每局時間量測）。</div>
     <canvas id="chartSpeed"></canvas>
   </div>
 </div>
 
+<p class="tbl-cap" id="tbl7">表 7　多進程自對弈的每局時間與加速比</p>
 <table>
   <thead>
     <tr><th>測量</th><th>串行</th><th>2 workers</th><th>4 workers</th><th>8 workers</th></tr>
@@ -1791,8 +1626,9 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <ul>
   <li><b>過擬合</b>：Replay Buffer 只含近 100 局，理論上容易對近期自對弈過擬；但自對弈對手即當前模型，分布持續漂移，因此觀察重點是「評估勝率 vs 隨機」是否與 loss 同步改善。本專案觀察到<b>評估勝率飽和而 loss 持續下降的分離</b>——loss 反映的是對「近期自對弈分布」的擬合，勝率才是泛化指標。</li>
   <li><b>策略崩塌（Policy Collapse）</b>：若 Dirichlet 噪聲太弱或 τ 退火太快，模型可能過早鎖定少數走法而喪失探索，自對弈分布退化為對稱盲點。本專案以 ε=0.25 根噪聲 + τ 1.0→0.05 慢退火對抗，且低溫選步以「價值最高」取代「最多訪問」（第 365–379 行），避免噪聲誘導的熱門誤導。</li>
-  <li><b>搜尋退化</b>：全展開 + 先驗引導在固定小預算下，若先驗質量不足，訪問會集中於少數高先驗分支而缺乏深層修正——「vs 隨機 95% 但 vs 啟發式 MCTS 2W/1D/3L」即為此現象的邊界證據；純網路（w=0）的平台期（70–76%）也顯示沒有 rollout 訊號時搜尋難以自我校正。</li>
+  <li><b>搜尋退化</b>：全展開 + 先驗引導在固定小預算下，若先驗質量不足，訪問會集中於少數高先驗分支而缺乏深層修正——「vs 隨機 96.3% 但 vs 啟發式 MCTS 2W/1D/3L」即為此現象的邊界證據；純網路（w=0）的平台期（70–76%）也顯示沒有 rollout 訊號時搜尋難以自我校正。</li>
 </ul>
+
 </section>
 
 <section id="s7">
@@ -1802,17 +1638,23 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <ul>
   <li><b>遊戲側</b>：傳統演算法與位板優化已達成熟——Minimax Pro 具備工業級搜尋元件（置換表/Killer/LMR/Aspiration/疊代加深），MCTS 家族具備動態 UCT、啟發式 rollout、樹重用與並行化；MCTS/RAVE/GRAVE 於現行優化下<b>統計持平</b>（D21 取代 D8/D12 舊排名）。</li>
   <li><b>深度學習側</b>：AlphaZero 在 6000 局內學會壓制隨機（95%，38W/1D/1L），並證明「遊戲側啟發式」與「神經先驗」的混合（w=0.5）在資料效率上遠勝純網路；同時以 2W/1D/3L 對啟發式 MCTS 的結果誠實標出當前邊界。</li>
-  <li><b>工程面</b>：Windows ROCm 環境的 kernel 啟動問題（640 µs/次）被固定形狀批次、批次化推論與多進程自對弈有效消化；單檔模組化（D2）使兩側優化可獨立演進、互相復用。</li>
+  <li><b>工程面</b>：Windows ROCm 環境的 kernel 啟動問題（640 µs/次）被固定形狀批次、批次化推論與多進程自對弈有效消化；搜尋熱路徑已下沉 C（§3.8，D25–D30），模組化（D2）使兩側優化可獨立演進、互相復用。</li>
 </ul>
 
 <h3>7.2 未來研究方向</h3>
 <ul>
-  <li><b>MuZero / LightZero 機制</b>：以潛在模型取代顯式狀態編碼，免除人工 4 通道特徵設計，並讓網路自己學習「遞移規則」的轉移函數。</li>
-  <li><b>位板 + 原生算子壓縮 MCTS 常數</b>：把 <span class="kbd">BitUltimateGame</span> 的整數運算向量化（batch bit ops），或移入 C/C++ 擴充，壓縮樹搜尋的每迭代常數。</li>
+  <li><b>MuZero[14] / LightZero[15] 機制</b>：以潛在模型取代顯式狀態編碼，免除人工 4 通道特徵設計，並讓網路自己學習「遞移規則」的轉移函數。</li>
+  <li><b>位板 + 原生算子壓縮 MCTS 常數</b>：搜尋核心移入 C 已於 D27 完成；下一步是把 <span class="kbd">BitUltimateGame</span> 的整數運算向量化（batch bit ops）或以 SIMD 指令壓縮每迭代常數。</li>
   <li><b>模型量化 / 剪枝</b>：158 萬參數的微型網路在 CPU 推理上仍有量化空間，可降低自對弈與部署延遲。</li>
   <li><b>更強評估基準</b>：與 Minimax Pro、GRAVE 的正式對戰矩陣（多 sims、多深度、先手平衡），取代「vs 隨機」作為主要指標。</li>
   <li><b>斷點續訓與 worker 容錯重派</b>：目前 worker 失敗僅記錄（第 601–603 行），可加入任務重派與檢查點續訓。</li>
   <li><b>殘局表輔助 AZ 葉子評估</b>：在微觀殘局（空格 ≤ 2）以 <span class="kbd">build_micro_tablebase()</span> 精確值取代 rollout/網路估值，提升終局精度。</li>
+  <li><b>Transformer 版 AlphaZero + AMAF（GRAVE-PUCT）</b>：§1–§7 描述的是 ResNet 版 AZ 的既有成果；2026-09 起研究線改以 Transformer 主幹 + 低訪問預算下的 AMAF／GRAVE 統計為主題，設計與量測細節見 <span class="kbd">docs/Transformer-AZ-AMAF-Design.html</span>。</li>
+  <li><b>β 排程的理論化與部署化</b>（v1.3 新增）：設計文件 §18.2 給出以偏差–變異數導出的混合係數 \(\beta^\star=(\sigma_N^2-c)/(b^2+\mathrm{Var}(\hat Q_A-\hat Q))\)，但其中的偏差 \(b\) 需要精確值，目前只在<b>已解遊戲</b>上可算（設計文件 §18.2.1 的三層定義域）。未來方向是把「偽真值誤差 → \(\beta^\star\) 誤差」的傳播界寫出，讓無表庫遊戲（含 UTTT）也能部署並附誤差保證。</li>
+  <li><b>共享統計的收斂條件</b>（v1.3 新增）：在視角契約與進場門檻之下證明參考節點共享的統計收斂到真實 \(Q\)。設計文件稽核的缺陷 #4（同一張共享表被三種視角寫入）正是缺少該條件時的反例，因此這個證明同時是修正方案的正當性依據。</li>
+  <li><b>共享類設計換到有置換與對稱的遊戲</b>（v1.3 新增，由負結果推出）：設計文件 §3.7.1 實測 UTTT 的價值保持等價類幾乎不存在（樹內置換率 <b>0</b>；D4 穩定子第 2 手即歸 1），因此「等價類共享」的失敗<b>可能是 UTTT 專屬</b>。應在 Connect Four／Hex／9×9 Go 等置換密集的遊戲上重測同一支儀器，量「可池化節點比例」與共享後的 \(\mathrm{MSE}=b^2+\mathrm{Var}\) 變化。</li>
+  <li><b>與 Gumbel 家族整合</b>[17]（v1.3 新增）：Gumbel AlphaZero 在低預算的表現是本主題最直接的競爭基線（設計文件 §18.5；順序減半的最低預算是局面相依的：空盤 \(m=81\) 需 166 sims、單一 macro 開啟時 \(m=9\) 僅需 20 sims）。未來方向為雙向：用 AMAF 統計改善 Gumbel 的 completed-Q，或把順序減半的預算分配與 \(\beta^\star\) 排程聯合最佳化。</li>
+  <li><b>量測儀器作為可重用 artifact</b>（v1.3 新增）：把設計文件 §18.3 的「表庫精確偏差儀器 ＋ 分桶統計」整理成可發布的小工具（輸入＝任何 RAVE／AMAF 變體；輸出＝\(|b|\)、\(\mathrm{Var}\)、\(\beta^\star\) vs \(N\)）。即使方法面全部落空，這仍是可被引用的基準工具。</li>
 </ul>
 </section>
 
@@ -1820,6 +1662,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <h2><span class="no" style="background:var(--muted)">附</span>附錄：資料來源、決策對照與差異註記</h2>
 
 <h3>A.1 決策編號對照（docs/decisions.md）</h3>
+<p class="tbl-cap" id="tbl8">表 8　決策編號對照（D2–D35）</p>
 <table>
   <thead>
     <tr><th>編號</th><th>決策</th><th>報告引用處</th></tr>
@@ -1829,17 +1672,32 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     <tr><td>D3</td><td>Solver 移出選單、保留分析面板</td><td>§3.6</td></tr>
     <tr><td>D4</td><td>AlphaZero 僅限終極模式</td><td>§1</td></tr>
     <tr><td>D8</td><td>新增 MCTS+GRAVE；RAVE 移出選單；30 局對戰 GRAVE 勝出</td><td>§3.5.3、A.2</td></tr>
-    <tr><td>D11</td><td>引擎參數集中 sba.toml</td><td>§3 開頭</td></tr>
+    <tr><td>D11</td><td>引擎參數集中 config.toml（原 sba.toml，D28 更名）</td><td>§3 開頭</td></tr>
     <tr><td>D12</td><td>優化清單採用；純 MCTS 約 60% 對 RAVE/GRAVE；bitboard 實測無增益</td><td>§2.4、§3.7、A.2</td></tr>
     <tr><td>D13</td><td>葉子並行批推理 BATCH_SIZE=16、VIRTUAL_LOSS=2；切換標準 AZ 全展開</td><td>§4.3–4.4</td></tr>
     <tr><td>D14</td><td>新增 Flat MCTS（研究基準）</td><td>§3.5.5</td></tr>
     <tr><td>D15</td><td>勝率圖表重用 analyze_position 單一搜尋</td><td>§3.5.1、A.1</td></tr>
     <tr><td>D17</td><td>固定 256 寬填充批次 + 強制 model.eval()</td><td>§4.4</td></tr>
     <tr><td>D18</td><td>多進程自對弈；8 worker 約 3× 吞吐；線程方案 GIL 受限</td><td>§5.2、§6.3</td></tr>
+    <tr><td>D19</td><td>Minimax Pro 根節點改用 <span class="kbd">eval_ultimate</span> 排序（僅根節點，<span class="kbd">use_eval_ordering</span> 開關）</td><td>—（本報告未展開；列此對齊 decisions.md）</td></tr>
+    <tr><td>D20</td><td>終極模式預設維持 MCTS；Minimax（深度 4）只在低預算勝出（交叉約 1200–1600 sims）</td><td>§1、§3.4、A.2</td></tr>
+    <tr><td>D21</td><td>MCTS／RAVE／GRAVE 統計持平，取代 D8／D12「GRAVE 領先」結論</td><td>§1、§3.5.3、§7.1、A.2</td></tr>
+    <tr><td>D22</td><td>AlphaZero 配方改造（兩階段自對弈、root 平均價值目標、D4 增強、masked KL、weight decay、replay cap 500）</td><td>§1.2、§6、§7、A.2</td></tr>
+    <tr><td>D23</td><td>Endfield UI 主題（QSS 抽離、X 白／O 訊號黃、減少動態）</td><td>—（UI 章，本報告未涵蓋）</td></tr>
+    <tr><td>D25</td><td>原生 C rollout 核心（17.7×/次、整場搜尋 12.4×）</td><td>§3.8.1</td></tr>
+    <tr><td>D26</td><td>Pattern rollout（實測持平、成本 4.4×，預設關）</td><td>§3.8.2</td></tr>
+    <tr><td>D27</td><td>全部 AI 後端 C 化（單一 sba_engine.dll，約 37×）</td><td>§3.8.3、§5.5</td></tr>
+    <tr><td>D28</td><td>sba.toml 更名 config.toml；Qt 設置頁原位寫回</td><td>§3.8、A.6</td></tr>
+    <tr><td>D29</td><td>每次呼叫獨立 arena（並發卡死修復）；GitHub Actions CI</td><td>§3.8.4</td></tr>
+    <tr><td>D30</td><td>C MCTS 根節點平行化 + 樹重用（差分下降）</td><td>§3.8.5、§3.5.4</td></tr>
+    <tr><td>D31–D34</td><td>棋盤動畫、AZ 自對弈接 C、圍棋式計時、Endfield UI 校準</td><td>—（UI 章，本報告未涵蓋）</td></tr>
+    <tr><td>D35</td><td>前端收斂：移除 NiceGUI 網頁版與隨附 SiliconUI</td><td>—（架構現況見 §5.5）</td></tr>
   </tbody>
 </table>
+<p class="src-label">D19–D23 為 v1.1 補列，D25–D35 為 v1.4 補列；其中未在內文展開者列此僅為與 <span class="kbd">docs/decisions.md</span> 對齊。</p>
 
 <h3>A.2 數據來源與引用標註</h3>
+<p class="tbl-cap" id="tbl9">表 9　數據來源與引用標註</p>
 <table>
   <thead>
     <tr><th>數據</th><th>數值</th><th>來源</th></tr>
@@ -1849,36 +1707,151 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     <tr><td>現行循環賽（30 局/對、300 sims）</td><td>MCTS/RAVE/GRAVE 統計持平：51.7% / 48.3% / 45.0%（D21 取代 D8/D12）</td><td>docs/decisions.md（D21）</td></tr>
     <tr><td>位板帶 rollout 無增益</td><td>—</td><td>docs/decisions.md（D12）</td></tr>
     <tr><td>訓練 loss（800 局）</td><td>3.37 → 1.29</td><td>訓練日誌記錄（起訖端點）</td></tr>
-    <tr><td>訓練 loss（6000 局）</td><td>2.46 → 0.094</td><td>訓練日誌記錄（起訖端點）</td></tr>
-    <tr><td>容量比較（800 → 6000 局）</td><td>loss 1.88 → 0.094；vs 隨機 90% → 95%</td><td>訓練日誌 / 本機實測</td></tr>
-    <tr><td>評估 vs 隨機（200 sims）</td><td>40 盤 38W / 1D / 1L（95%）</td><td>本機實測（<span class="kbd">alphazero.py eval</span>）</td></tr>
+    <tr><td>訓練 loss（6000 局）</td><td>2.846（500 局）→ 0.094（6000 局）</td><td>訓練日誌表 6（起訖端點）</td></tr>
+    <tr><td>容量比較（800 → 6000 局）</td><td>loss 1.88 → 0.094（各 run 端點）；對隨機之逐點得分率見表 6</td><td>訓練日誌 / 表 6</td></tr>
+    <tr><td>評估 vs 隨機（200 sims）</td><td>40 盤 38W / 1D / 1L＝<b>96.3%</b>（得分率，和 = 0.5；±8%）</td><td>本機實測（<span class="kbd">alphazero.py eval</span>）</td></tr>
     <tr><td>評估 vs 普通 MCTS（800 迭代、1600 sims）</td><td>2W / 1D / 3L</td><td>本機實測</td></tr>
-    <tr><td>評估 vs MCTS（同預算 800/800，30 盤）</td><td>6W / 2D / 22L（20%）</td><td>本機實測（<span class="kbd">SBA.py --bench</span>）</td></tr>
+    <tr><td>評估 vs MCTS（同預算 800/800，30 盤）</td><td>6W / 2D / 22L＝<b>23.3%</b>（得分率，和 = 0.5；±9%）</td><td>本機實測（<span class="kbd">python SBA.py --bench --ai-a AlphaZero --ai-b MCTS --games 30 --iters 800</span>）</td></tr>
+    <tr><td>配方對照：舊配方基線（6000 局模型、對 MCTS@800）</td><td>6W / 0D / 24L＝<b>20.0%</b>（±9%，30 局）</td><td>docs/decisions.md（D22）；同一個 6000 局舊配方模型、另一次 30 局量測（與表 5 不可混用）</td></tr>
+    <tr><td>配方對照：新配方（600 局自對弈、對 MCTS@800）</td><td>13W / 4D / 13L＝<b>50.0%</b>（±9%，30 局）</td><td>docs/decisions.md（D22）</td></tr>
     <tr><td>Rollout 消融</td><td>w=0：70–76%（400/800 局）；w=0.5：97.5%（400 局）</td><td>訓練日誌 / 本機實測</td></tr>
     <tr><td>並行擴展</td><td>1.00× / 1.50× / 2.43× / 2.96×（串行 3.17 s/局）</td><td>本機實測</td></tr>
     <tr><td>6000 局牆鐘</td><td>7.1 小時（串行）→ 62 分鐘（8 workers）</td><td>訓練日誌 / 本機實測</td></tr>
     <tr><td>GPU 診斷</td><td>conv kernel 啟動 ≈ 640 µs（佔自對弈 60%）；逐葉子同步 160 次/搜尋；8 執行緒慢 34%</td><td>本機實測（ROCm 環境，docs/rocm-wsl2.md）</td></tr>
+    <tr><td>低訪問預算的樹規模</td><td>被訪問節點數：32 sims → 33／深度 1；128 → 129／2；800 → 801／3（樹總節點數 82，根節點首次訪問即全展開 81 子節點）</td><td>設計文件 v1.1 §17.1（走訪整棵樹，seed 3）</td></tr>
+    <tr><td>低預算先導對局（10 局／項、seed 99）</td><td>MCTS 對 RAVE／GRAVE：32 sims 70.0%／75.0%；64 sims 70.0%／65.0%；128 sims 35.0%／50.0%</td><td>設計文件 v1.1 §17.2（<span class="kbd">SBA.py --bench</span>）</td></tr>
+    <tr><td>Transformer 參數量（閉式解）</td><td>\(d=128\)、\(L=4\) → 550,018；5 組設定與程式實測全數相符</td><td>設計文件 v1.1 §6.4</td></tr>
+    <tr><td>搜索成本（現行 ResNet 版）</td><td>554 / 656 µs per sim（w=0.5）；100 / 110 µs（w=0）；800 sims 暖機後 80 ms</td><td>設計文件 v1.1 附錄 B（本機 ROCm）</td></tr>
+    <tr><td>MIOpen 形狀暖機</td><td>同一網路 200 sims：冷形狀 1284 ms → 同形狀暖機後 126 ms</td><td>設計文件 v1.1 附錄 B</td></tr>
+    <tr><td>AMAF 記憶體</td><td>81 筆 {move: [n, w]} dict ≈ 3.5 KiB／節點 → 10k 節點 ≈ 34 MiB</td><td>設計文件 v1.1 附錄 B（tracemalloc）</td></tr>
+    <tr><td>勝負分佈（300 局隨機走子）</td><td>終極：X 127／O 113／和 60；普通：X 174／O 87／和 39</td><td>設計文件 v1.1 附錄 B</td></tr>
+    <tr><td>D4 增強一致性檢查</td><td>8 對稱 × 81 走法：終極版 432／567 不一致；普通模式不受影響</td><td>設計文件 v1.1 §9.1、附錄 B</td></tr>
+    <tr><td>值視角檢查</td><td>「下一步即勝」局面：<span class="kbd">root.q = +0.9650</span> vs <span class="kbd">_root_value = −0.9648</span></td><td>設計文件 v1.1 §9.2、附錄 B</td></tr>
+    <tr><td>GRAVE 共享表結構</td><td>400 sims：nodes = 401、unique refs = 1、同一 <span class="kbd">rave</span> 表內 mover ∈ {None, X, O}</td><td>設計文件 v1.1 §17.3</td></tr>
   </tbody>
 </table>
 
 <h3>A.3 差異與誠實註記</h3>
 <ol>
   <li><b>SearchNode 類別註解 vs 實際展開</b>：<span class="kbd">SearchNode</span> 第 185–192 行類別註解宣稱「一次展開一個子節點（untried list）」，但 <span class="kbd">mcts_search</span> 第 325–344 行的實際行為是<b>首次訪問即全展開所有子節點並填先驗</b>（標準 AZ，與 D13 記錄一致）。本報告以實際行為為準。</li>
-  <li><b>PUCT 分母無 +1</b>：rave.md 建議公式含 \(1+N(s,a)\)，實際程式碼為 \(\sqrt{\log(N_{\mathrm{parent}})/N_{\mathrm{child}}}\)（第 212–221 行）；以實際程式碼為準。</li>
-  <li><b>bitboard 預設值</b>：D12 記載「bitboard 實測無增益故預設關」，但現行 <span class="kbd">_CFG_DEFAULTS</span>（ai.py 第 46 行）與 <span class="kbd">sba.toml</span> 皆為 <span class="kbd">bitboard = true</span>（MCTS 在終極模式預設以位板搜尋）；報告以程式碼現況描述並標註此文件/程式差異。</li>
+  <li><b>PUCT 分母（v1.2 更正）</b>：神經引導搜尋 <span class="kbd">alphazero.py</span> 第 216 行為 \(c\,P\sqrt{N+N_v}/(1+N+N_v)\)，<b>與經典 AlphaZero 一致（含 +1）</b>；<span class="kbd">ai.py</span> 的 MCTS／RAVE／GRAVE 才是 UCT 形式（第 299–306、750–762、867–880 行）。v1.1 曾誤記為「本專案無 +1」，已更正。</li>
+  <li><b>bitboard 預設值</b>：D12 記載「bitboard 實測無增益故預設關」，但現行 <span class="kbd">_CFG_DEFAULTS</span>（ai.py 第 46 行）與 <span class="kbd">config.toml</span> 皆為 <span class="kbd">bitboard = true</span>（MCTS 在終極模式預設以位板搜尋）；報告以程式碼現況描述並標註此文件/程式差異。</li>
   <li><b>BATCH_SIZE 演進</b>：D13 記錄 16、D17 固定 256；現行程式碼為 256。</li>
-  <li><b>損失曲線僅端點</b>：800 局（3.37→1.29）與 6000 局（2.46→0.094）僅有起訖記錄，中間檢查點（每 25 / 500 局）資料未隨附；圖中虛線為趨勢示意而非量測值。</li>
+  <li><b>損失曲線僅端點</b>：800 局（3.37→1.29）與 6000 局（2.846→0.094）僅有起訖記錄，中間檢查點（每 25 / 500 局）資料未隨附；圖中虛線為趨勢示意而非量測值。</li>
   <li><b>400 局 97.5% vs 800 局 90%</b>：兩者來自不同訓練 run（配置/記錄基準不同），並列時不代表非單調曲線；圖表已加註。</li>
   <li><b>加速比與牆鐘不互推</b>：「3.17 s/局 → 1.50×/2.43×/2.96×」與「7.1 h → 62 min」為不同量測時點的記錄，直接相乘會矛盾，故分列。</li>
   <li><b>環境</b>：GPU 診斷基於 Windows 原生 ROCm（TheRock nightly wheel，RX 7900 XTX）；WSL2 ROCm 6.2.4 路徑因 <span class="kbd">/dev/kfd</span> 驅動問題為備案（docs/rocm-wsl2.md）。</li>
   <li><b>行號與基準更新</b>：本報告行號以撰寫時程式碼為準；型別註解重構（f264b56）與 D19 後部分行號漂移，請以實際程式碼為準。MCTS/RAVE/GRAVE 排名已依 D21 更新為統計持平；bench 指標統一為得分率（勝 = 1、和 = 0.5）。</li>
+  <li><b>結論與數據的基準</b>：§1–§7 的結論、數據與行號以 2026-08-21 的產品線程式碼為準（C 引擎增量見 3.8 節與 D25–D30）；研究線（Transformer + AMAF／GRAVE-PUCT）的程式碼變更多數仍為 proposed，不在本報告範圍。</li>
+  <li><b>兩份文件的角色</b>：本報告為<b>已完成成果</b>的技術與編碼報告；<span class="kbd">docs/Transformer-AZ-AMAF-Design.html</span> 為研究線的<b>設計文件</b>（含公式推導、缺陷稽核與量測協定），兩者互不從屬。</li>
 </ol>
+
+<h3 id="a4">A.4 參考文獻</h3>
+<p>本報告的技術主張可回溯至以下原始文獻；「用於本報告」欄標示對應章節或 <span class="kbd">docs/decisions.md</span> 的決策編號。編號僅供本表內部引用，非全報告引用標記。</p>
+<p class="tbl-cap" id="tbl10">表 10　參考文獻（17 筆）</p>
+<table>
+  <thead>
+    <tr><th>#</th><th>文獻</th><th>用於本報告</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>Silver, D., et al. “Mastering the game of Go without human knowledge.” <i>Nature</i> 550(7676):354–359, 2017. <a href="https://doi.org/10.1038/nature24270">doi:10.1038/nature24270</a></td><td>AlphaZero 主體：§1、§4、§5</td></tr>
+    <tr><td>2</td><td>Silver, D., et al. “A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play.” <i>Science</i> 362(6419):1140–1144, 2018. <a href="https://doi.org/10.1126/science.aar6404">doi:10.1126/science.aar6404</a></td><td>通用自對弈配方：§4.3、§8.1</td></tr>
+    <tr><td>3</td><td>Coulom, R. “Efficient Selectivity and Backup Operators in Monte-Carlo Tree Search.” <i>Computers and Games (CG 2006)</i>, LNCS 4630:72–83, 2007. <a href="https://doi.org/10.1007/978-3-540-75538-8_7">doi:10.1007/978-3-540-75538-8_7</a></td><td>UCT 選擇式：§3.5、§4.3</td></tr>
+    <tr><td>4</td><td>Rosin, C. D. “Multi-armed bandits with episode context.” <i>Annals of Mathematics and Artificial Intelligence</i> 61(3):203–218, 2011. <a href="https://doi.org/10.1007/s10472-011-9258-6">doi:10.1007/s10472-011-9258-6</a></td><td>PUCT：§4.3、§7.2、§8.3</td></tr>
+    <tr><td>5</td><td>Gelly, S., Silver, D. “Combining online and offline knowledge in UCT.” <i>ICML 2007</i>:273–280. <a href="https://doi.org/10.1145/1273496.1273531">doi:10.1145/1273496.1273531</a></td><td>RAVE／AMAF 統計：§3.5.3、§7.4</td></tr>
+    <tr><td>6</td><td>Gelly, S., Silver, D. “Monte-Carlo tree search and rapid action value estimation in computer Go.” <i>Artificial Intelligence</i> 175(11):1856–1875, 2011. <a href="https://doi.org/10.1016/j.artint.2011.03.007">doi:10.1016/j.artint.2011.03.007</a></td><td>RAVE 完整論述：§3.5.3、§7.6</td></tr>
+    <tr><td>7</td><td>Cazenave, T. “Generalized Rapid Action Value Estimation.” <i>IJCAI 2015</i>:2448–2454. <a href="https://www.ijcai.org/Proceedings/15/Papers/346.pdf">ijcai.org/Proceedings/15/Papers/346.pdf</a></td><td>GRAVE 參考節點共享：§3.5.3、§7.6、§8.3</td></tr>
+    <tr><td>8</td><td>Browne, C., et al. “A Survey of Monte Carlo Tree Search Methods.” <i>IEEE Transactions on Computational Intelligence and AI in Games</i> 4(1):1–43, 2012. <a href="https://doi.org/10.1109/TCIAIG.2012.2186810">doi:10.1109/TCIAIG.2012.2186810</a></td><td>MCTS 家族與變體分類：§3.5、§3.7</td></tr>
+    <tr><td>9</td><td>Chaslot, G. M. J.-B., Winands, M. H. M., van den Herik, H. J., Uiterwijk, J. W. H. M., Bouzy, B. “Progressive Strategies for Monte-Carlo Tree Search.” <i>New Mathematics and Natural Computation</i> 4(3):343–357, 2008. <a href="https://doi.org/10.1142/S1793005708001094">doi:10.1142/S1793005708001094</a></td><td>動態 UCT／progressive widening：A.1（D12）</td></tr>
+    <tr><td>10</td><td>Knuth, D. E., Moore, R. W. “An analysis of alpha-beta pruning.” <i>Artificial Intelligence</i> 6(4):293–326, 1975. <a href="https://doi.org/10.1016/0004-3702(75)90019-3">doi:10.1016/0004-3702(75)90019-3</a></td><td>Minimax／alpha-beta 剪枝：§3.2</td></tr>
+    <tr><td>11</td><td>He, K., Zhang, X., Ren, S., Sun, J. “Deep Residual Learning for Image Recognition.” <i>CVPR 2016</i>:770–778. <a href="https://doi.org/10.1109/CVPR.2016.90">doi:10.1109/CVPR.2016.90</a></td><td>殘差網路（AZNet）：§4.1、§5.1</td></tr>
+    <tr><td>12</td><td>Ioffe, S., Szegedy, C. “Batch Normalization: Accelerating Deep Network Training by Reducing Internal Covariate Shift.” <i>ICML 2015</i>, PMLR 37:448–456. <a href="https://proceedings.mlr.press/v37/ioffe15.html">proceedings.mlr.press/v37/ioffe15</a></td><td>BatchNorm 與其批次統計問題：§4.1、§6.3、A.1（D17）、§8.2</td></tr>
+    <tr><td>13</td><td>Loshchilov, I., Hutter, F. “Decoupled Weight Decay Regularization.” <i>ICLR 2019</i>. <a href="https://arxiv.org/abs/1711.05101">arXiv:1711.05101</a></td><td>AdamW 與權重衰減（D22 配方）</td></tr>
+    <tr><td>14</td><td>Schrittwieser, J., et al. “Mastering Atari, Go, chess and shogi by planning with a learned model.” <i>Nature</i> 588(7839):604–609, 2020. <a href="https://doi.org/10.1038/s41586-020-03051-4">doi:10.1038/s41586-020-03051-4</a></td><td>MuZero（未來方向）：§7.2</td></tr>
+    <tr><td>15</td><td>Niu, Y., et al. “LightZero: A Unified Benchmark for Monte Carlo Tree Search in General Sequential Decision Scenarios.” 2023. <a href="https://arxiv.org/abs/2310.08348">arXiv:2310.08348</a></td><td>LightZero 基準（未來方向）：§7.2</td></tr>
+    <tr><td>16</td><td>本專案內部文件：<span class="kbd">docs/Transformer-AZ-AMAF-Design.html</span>（GRAVE-PUCT 設計文件 v1.2；§18 β 更正與量測規範、§19 未來研究方向）、<span class="kbd">docs/decisions.md</span>（D1–D29）、<span class="kbd">docs/rocm-wsl2.md</span>、<span class="kbd">docs/research-directions-review.md</span>（方向評估與殺手條件）</td><td>研究線規格：§6.5、§7.2、§8、A.1；環境：§6.0、§6.3</td></tr>
+    <tr><td>17</td><td>Danihelka, J., et al. “Policy improvement by planning with Gumbel.” <i>ICLR 2022</i>. <a href="https://openreview.net/forum?id=bERaNdoegnO">OpenReview</a></td><td>Gumbel AlphaZero 與低預算 policy improvement：§7.2（設計文件 §18.5 另有順序減半的預算下限推導）</td></tr>
+  </tbody>
+</table>
+<p class="src-label">卷期頁碼以出版方頁面為準；第 19 項僅標 arXiv 編號，未標會議場次。</p>
+
+<h3>A.5 符號表</h3>
+<p class="tbl-cap" id="tbl11">表 11　符號表</p>
+<table>
+  <thead>
+    <tr><th>符號</th><th>意義</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>\(b_m,\ \mathrm{dec}(m)\)</td><td>第 \(m\) 個小盤（macro cell）與其判定（X／O／和／未定）</td></tr>
+    <tr><td>\(a,\ t\)</td><td>active macro（下一手被強制進入的小盤）；\(t\) 為輪到的一方</td></tr>
+    <tr><td>\(\mathcal L(s)\)</td><td>局面 \(s\) 的合法走法集合</td></tr>
+    <tr><td>\(\phi(s)\in\mathbb R^{4\times N\times N}\)</td><td>輸入平面編碼（X／O／輪誰／可用 macro）；\(N=9\)（終極）或 3（普通）</td></tr>
+    <tr><td>\(M,\ \rho,\ \pi\)</td><td>走法索引（macro-major）、空間索引，以及兩者之間的置換 \(\pi\)（§4.2）</td></tr>
+    <tr><td>\(\sigma\in G\)</td><td>8 個棋盤對稱之一（D4 群）</td></tr>
+    <tr><td>\(h,\ \mathrm{mover}(h)\)</td><td>搜尋節點，以及該節點輪到的一方（視角契約，§7.1）</td></tr>
+    <tr><td>\(N(h,a),\ P(h,a)\)</td><td>子節點訪問數與先驗機率</td></tr>
+    <tr><td>\(Q(h,a),\ Q_{\text{cur}}(h,a)=-Q(h,a)\)</td><td>子節點價值，以及「當前節點視角」的取號</td></tr>
+    <tr><td>\(A_h(a)=(n_h(a),w_h(a))\)</td><td>AMAF 統計：走法 \(a\) 在 \(h\) 的子樹中被同一方走過的次數與累積值</td></tr>
+    <tr><td>\(\beta,\ k,\ c_{\text{puct}}\)</td><td>RAVE 混合係數、AMAF 常數、PUCT 探索常數（1.5）</td></tr>
+    <tr><td>\(w,\ \varepsilon,\ \tau,\ \mathrm{VL}\)</td><td>rollout 混合權重（0.5）、Dirichlet 噪聲權重（0.25）、溫度、虛擬損失（2.0）</td></tr>
+    <tr><td>\(\sigma\approx 50\%/\sqrt{n}\)</td><td>得分率的保守誤差上界；\(n\) 為局數</td></tr>
+  </tbody>
+</table>
+
+<h3>A.6 指令速查</h3>
+<pre><code class="language-bash"># 測試（現況 75 passed，約 40 秒；CI 於 ubuntu + windows 矩陣執行）
+python -m pytest tests -q
+
+# 編譯原生 C 引擎（Windows 產出 native/sba_engine.dll；CI 同步建置）
+python native/build.py
+
+# 自測：勝負判定、Ultimate 路由與全流程終止
+python SBA.py --self-test
+
+# 對戰 benchmark（side 交替、固定 seed）
+python SBA.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 30 --iters 800
+
+# 訓練（現行 ResNet 配方）
+python alphazero.py train --games 600 --sims 80 --workers 8
+
+# 訓練（Transformer 版，設計新增；尚未寫入程式碼）
+python alphazero.py train --arch transformer --channels 128 --blocks 4 \
+  --heads 4 --ff 256 --amaf-k 150 --games 600 --sims 80 --workers 8
+
+# 評估（對隨機）
+python alphazero.py eval --games 30 --sims 200 --model-path models/az_tf_ultimate.pt
+
+# 靜態報告建置（零外部依賴）
+node docs/static-build/build-static.mjs docs/AlphaZero_UTTT_Technical_Report.html \
+  docs/static/AlphaZero_UTTT_Technical_Report.html
+
+# 報告一致性檢查（v1.2 新增：得分率、引用、圖表編號）
+python docs/static-build/check-report.py --check
+</code></pre>
+
+<h3>A.7 版本紀錄</h3>
+<p class="tbl-cap" id="tbl12">表 12　版本紀錄（v1.0–v1.4）</p>
+<table>
+  <thead>
+    <tr><th>版本</th><th>日期</th><th>變更</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>v1.0</td><td>2026-08-21</td><td>初版：§1–§7 與附錄 A.1–A.3</td></tr>
+    <tr><td>v1.1</td><td>2026-09-27</td><td>新增 §6.5 運算資源、§8 研究延伸（GRAVE-PUCT v1.1）與 A.4 參考文獻；套用 Endfield 主題與深／淺切換</td></tr>
+    <tr><td>v1.2</td><td>2026-09-27</td><td>§1 擴充為中英摘要／貢獻／非目標；新增 §8.7 缺陷影響評估（更正 v1.1 的「尚未影響產品線」宣稱）、§9–§12、A.5–A.7；圖表編號與清單；對戰表補 \(n\) 與 \(\pm\sigma\)；更正 A.2 的 20.0% → 23.3% 並補 D22 配方對照列</td></tr>
+    <tr><td>v1.3</td><td>2026-09-28</td><td>§7.2 未來研究補六項（β 排程理論化、共享統計收斂條件、共享類設計換遊戲、Gumbel 家族整合、量測儀器 artifact）；新增文獻 [21]（Gumbel AlphaZero）；文獻 [20] 更新為設計文件 v1.2 與 D1–D29；同步設計文件 §18（β 更正、量測規範）與 §19（未來研究方向）</td></tr>
+    <tr><td>v1.4</td><td>2026-11-07</td><td>新增 §3.8 原生 C 引擎後端（D25–D30）；§1、§3.5.4、§3.6、§5.5 同步 C 化現況；sba.toml 更名 config.toml（D28）；移除 §6.5 雲端資源雜談與 §8–§12 研究軌章節（內容以 docs/Transformer-AZ-AMAF-Design.html 為準）；表 8 對照延伸至 D35</td></tr>
+  </tbody>
+</table>
 </section>
 
 <footer>
-  本報告依專案原始碼（game.py / ai.py / alphazero.py，2026-08 現況）與 docs/decisions.md、docs/rocm-wsl2.md 撰寫；
+  本報告 v1.4：依專案原始碼（game.py / ai.py / alphazero.py 與 native/，2026-11 現況）與 docs/decisions.md、docs/rocm-wsl2.md 撰寫；
+  研究線（Transformer 版 AlphaZero + GRAVE-PUCT）的設計、實測與缺陷稽核另見 docs/Transformer-AZ-AMAF-Design.html（v1.2：§18 量測規範、§19 未來研究方向），不在本報告範圍。
   所有程式碼區塊逐字引用並標註檔名與行號。GPL-3.0-or-later © 2026 TofuShawn
 </footer>
+
+<a class="to-top" href="#">↑ 回到頂端</a>
 
 </div>
 
@@ -1887,8 +1860,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 <script>hljs.highlightAll();</script>
 <script>
 Chart.defaults.font.family = '"Noto Sans TC","Microsoft JhengHei","Segoe UI",sans-serif';
-Chart.defaults.color = '#475569';
-Chart.defaults.borderColor = '#e2e8f0';
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.borderColor = '#6b7280';
 
 new Chart(document.getElementById('chartLoss'), {
   type: 'line',
@@ -1898,18 +1871,18 @@ new Chart(document.getElementById('chartLoss'), {
       {
         label: '800 局訓練 (3.37 → 1.29)',
         data: [{x: 0, y: 3.37}, {x: 800, y: 1.29}],
-        borderColor: '#2563eb',
-        backgroundColor: '#2563eb',
+        borderColor: '#3b82f6',
+        backgroundColor: '#3b82f6',
         pointRadius: 4,
         borderDash: [7, 5],
         tension: 0,
         spanGaps: true
       },
       {
-        label: '6000 局訓練 (2.46 → 0.094)',
-        data: [{x: 0, y: 2.46}, {x: 6000, y: 0.094}],
-        borderColor: '#0d9488',
-        backgroundColor: '#0d9488',
+        label: '6000 局訓練 (2.846 → 0.094)',
+        data: [{x: 0, y: 2.846}, {x: 6000, y: 0.094}],
+        borderColor: '#14b8a6',
+        backgroundColor: '#14b8a6',
         pointRadius: 4,
         borderDash: [7, 5],
         tension: 0,
@@ -1934,9 +1907,9 @@ new Chart(document.getElementById('chartEval'), {
     labels: ['400 局', '800 局', '6000 局'],
     datasets: [{
       label: '對隨機勝率 %（含 rollout, w=0.5）',
-      data: [97.5, 90, 95],
-      borderColor: '#2563eb',
-      backgroundColor: '#2563eb',
+      data: [97.5, 90, 96.3],
+      borderColor: '#3b82f6',
+      backgroundColor: '#3b82f6',
       pointRadius: 5,
       borderDash: [7, 5],
       tension: 0.15
@@ -1959,7 +1932,7 @@ new Chart(document.getElementById('chartRollout'), {
     datasets: [{
       label: '對隨機勝率 %',
       data: [76, 76, 97.5],
-      backgroundColor: ['#94a3b8', '#94a3b8', '#0d9488'],
+      backgroundColor: ['#94a3b8', '#94a3b8', '#14b8a6'],
       borderRadius: 6
     }]
   },
@@ -1980,7 +1953,7 @@ new Chart(document.getElementById('chartSpeed'), {
     datasets: [{
       label: '加速比 ×',
       data: [1.00, 1.50, 2.43, 2.96],
-      backgroundColor: ['#94a3b8', '#60a5fa', '#2563eb', '#0d9488'],
+      backgroundColor: ['#94a3b8', '#93c5fd', '#3b82f6', '#14b8a6'],
       borderRadius: 6
     }]
   },
@@ -1993,6 +1966,7 @@ new Chart(document.getElementById('chartSpeed'), {
     plugins: { legend: { display: false } }
   }
 });
+
 </script>
 </body>
 </html>
