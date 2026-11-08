@@ -1,0 +1,104 @@
+name: Release
+
+# Push a v* tag to publish a release package: the tracked source tree
+# (git archive) plus the natively built sba_engine.dll and a start.bat
+# that bootstraps .venv on first launch — users only need Python, not a
+# compiler. workflow_dispatch runs the packaging steps alone and uploads
+# a test artifact without creating a GitHub Release.
+#
+# Linux/macOS users build from source: `pip install -r requirements.txt`
+# then `python native/build.py` (see README §2).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package (windows-x64)
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install MinGW gcc
+        shell: bash
+        run: |
+          choco install mingw -y --no-progress
+          echo "C:\ProgramData\mingw64\mingw64\bin" >> "$GITHUB_PATH"
+
+      - name: Build native engine (sba_engine.dll)
+        run: python native/build.py
+
+      - name: Smoke-load the engine
+        run: python -c "import ctypes; ctypes.CDLL('native/sba_engine.dll'); print('engine ok')"
+
+      - name: Package source + prebuilt engine
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          ZIP="dist/SBA-${TAG}-windows-x64.zip"
+          git archive --format=zip -o "$ZIP" HEAD
+          # ship the repo's own launcher when tracked; otherwise generate
+          # the venv-bootstrap start.bat (mirrors the SBA.py entry point)
+          if git cat-file -e HEAD:start.bat 2>/dev/null; then
+            python - "$ZIP" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
+              z.write('start.bat', 'start.bat')
+              z.write('native/sba_engine.dll', 'native/sba_engine.dll')
+          print('packed: tracked start.bat + engine')
+          PY
+          else
+            python - "$ZIP" <<'PY'
+          import sys, zipfile
+          lines = [
+              '@echo off',
+              'setlocal',
+              'cd /d "%~dp0"',
+              'set "PY=.venv\\Scripts\\python.exe"',
+              'if not exist "%PY%" (',
+              '    echo [SBA] Creating virtual environment ...',
+              '    python -m venv .venv',
+              '    if errorlevel 1 exit /b 1',
+              '    echo [SBA] Installing dependencies ...',
+              '    "%PY%" -m pip install -r requirements.txt',
+              '    if errorlevel 1 exit /b 1',
+              ')',
+              'echo [SBA] Starting ...',
+              '"%PY%" SBA.py %*',
+          ]
+          with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
+              z.writestr('start.bat', '\r\n'.join(lines) + '\r\n')
+              z.write('native/sba_engine.dll', 'native/sba_engine.dll')
+          print('packed: generated start.bat + engine')
+          PY
+          fi
+          sha256sum "$ZIP" > "$ZIP".sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SBA-windows-x64
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "SBA $GITHUB_REF_NAME" \
+            --generate-notes

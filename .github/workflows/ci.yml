@@ -5,9 +5,9 @@ name: CI
 # push used to queue two full matrix runs for the same commit).
 on:
   push:
-    branches: [Refactored]
+    branches: [main]
   pull_request:
-    branches: [Refactored]
+    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
