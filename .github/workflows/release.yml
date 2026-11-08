@@ -1,10 +1,13 @@
 name: Release
 
-# Push a v* tag to publish a release package: the tracked source tree
-# (git archive) plus the natively built sba_engine.dll and a start.bat
-# that bootstraps .venv on first launch — users only need Python, not a
-# compiler. workflow_dispatch runs the packaging steps alone and uploads
-# a test artifact without creating a GitHub Release.
+# Publish a release package: the tracked source tree (git archive) plus the
+# natively built sba_engine.dll and a start.bat that bootstraps .venv on
+# first launch — users only need Python, not a compiler.
+#
+# Triggers: push a v* tag, or run manually from the Actions tab. The manual
+# run publishes only when the `tag` input is filled (e.g. v0.1.0 — the tag
+# is created on the checked-out commit automatically); an empty input keeps
+# it artifact-only for testing the packaging.
 #
 # Linux/macOS users build from source: `pip install -r requirements.txt`
 # then `python native/build.py` (see README §2).
@@ -13,6 +16,11 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v0.1.0 (empty = package without publishing)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -49,10 +57,20 @@ jobs:
       - name: Smoke-load the engine
         run: python -c "import ctypes; ctypes.CDLL('native/sba_engine.dll'); print('engine ok')"
 
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Package source + prebuilt engine
         shell: bash
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.tag.outputs.tag || format('dev-{0}', github.run_number) }}
         run: |
           mkdir -p dist
           ZIP="dist/SBA-${TAG}-windows-x64.zip"
@@ -101,11 +119,12 @@ jobs:
           if-no-files-found: error
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.tag.outputs.tag != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "SBA $GITHUB_REF_NAME" \
+          gh release create "$TAG" dist/* \
+            --title "SBA $TAG" \
             --generate-notes
