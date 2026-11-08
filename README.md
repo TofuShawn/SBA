@@ -367,3 +367,12 @@ RAVE/GRAVE 偏差項，舊 D8/D12「GRAVE 領先」在 300 sims 下已不成立�
 
 This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
 
+### Third-party licenses / 第三方授權
+
+The bundled UI fonts are distributed under the **SIL Open Font License 1.1**; the full license texts ship in `static/fonts/` (`OFL-Inter.txt`, `OFL-JetBrainsMono.txt`) / 內嵌的 UI 字體以 **SIL Open Font License 1.1** 授權散布，許可證全文隨字體附於 `static/fonts/`：
+
+- [Inter](https://github.com/rsms/inter) — © 2020 The Inter Project Authors（`static/fonts/Inter-*.ttf`）
+- [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) — © 2020 The JetBrains Mono Project Authors（`static/fonts/JetBrainsMono-*.ttf`）
+
+Both families declare no Reserved Font Name, so the bundled static instances keep the original names / 兩者皆未宣告 Reserved Font Name，故內嵌的靜態實例沿用原名。Provenance notes: `static/fonts/README.md`.
+
