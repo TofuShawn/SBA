@@ -28,6 +28,7 @@ import argparse
 import math
 import os
 import random
+import sys
 import time
 
 # Windows + TheRock ROCm wheels: MIOpen (PyTorch's conv backend) keeps its
@@ -734,6 +735,32 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         csv_path = os.path.splitext(save_path)[0] + '.csv'
     csv_log = _TrainingCsv(csv_path, resume) if csv_path else None
     positions_total = 0
+    # rich progress on a real terminal; plain milestone prints elsewhere
+    # (CI logs, pipes, quiet runs). The CSV is the data record either way.
+    progress = None
+    task = None
+    if not quiet:
+        try:
+            import cli_output
+            con = cli_output.console()
+        except ImportError:
+            con = None
+        if con is not None and sys.stdout.isatty():
+            from rich.progress import (BarColumn, Progress, SpinnerColumn,
+                                       TaskProgressColumn, TextColumn,
+                                       TimeElapsedColumn, TimeRemainingColumn)
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn('[bold]{task.description}'),
+                BarColumn(bar_width=None),
+                TaskProgressColumn(),
+                TextColumn('{task.completed}/{task.total} games'),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                console=con)
+            progress.start()
+            task = progress.add_task(f'train {game_type} @ {sims} sims/move',
+                                     total=games)
 
     def evaluate():
         # in-training gauge: AZ@100 vs a classical MCTS opponent (C tree) —
@@ -760,94 +787,108 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         return wins, draws, losses
 
     replay = []
-    if workers > 1:
-        try:
+    try:
+        if workers > 1:
             return _train_multiprocess(
                 make_game_fn, model, optimizer, evaluate, replay, games, sims,
                 eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
                 channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
                 start, ROLLOUT_WEIGHT, value_target, use_network,
-                policy_loss, augment, save_path, csv_log)
-        finally:
+                policy_loss, augment, save_path, csv_log, progress, task)
+        for it in range(1, games + 1):
+            temp = max(0.05, 1.0 - it / games)
+            states, targets, zs = self_play_game(
+                make_game_fn, model, sims, temp, dirichlet_eps,
+                value_target=value_target, use_network=use_network)
+            positions_total += len(states)
+            replay.append((states, targets, zs))
+            if len(replay) > replay_cap:
+                replay.pop(0)
+            # Linear LR annealing: full rate early, a 5x drop by the final game.
+            optimizer.param_groups[0]['lr'] = lr * max(0.2, 1.0 - it / games)
+            model.train()
+            total_loss = 0.0
+            for _ in range(steps_per_game):
+                g_states, g_targets, g_zs = random.choice(replay)
+                n_pos = len(g_states)
+                # Fixed batch size (with replacement when a game is short) keeps
+                # one tensor shape per process: MIOpen only looks up kernels once.
+                idx = np.random.choice(n_pos, 128, replace=True)
+                states_batch = [g_states[i] for i in idx]
+                targets_batch = [g_targets[i] for i in idx]
+                if augment:
+                    for j in range(len(idx)):
+                        t = random.randrange(8)
+                        if t:
+                            states_batch[j], targets_batch[j] = _augment_sample(
+                                states_batch[j], targets_batch[j], t, size)
+                batch = torch.stack(states_batch).to(DEVICE)
+                target = torch.stack(
+                    [torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
+                z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32).to(DEVICE)
+                optimizer.zero_grad()
+                pred_p, pred_v = model(batch)
+                logp = F.log_softmax(pred_p, dim=1)
+                if policy_loss == 'kl':
+                    loss_p = (target * (target.clamp_min(1e-8).log() - logp)
+                              ).sum(dim=1).mean()
+                else:
+                    loss_p = -(logp * target).sum(dim=1).mean()
+                loss_v = F.mse_loss(pred_v[:, 0], z)
+                (loss_p + loss_v).backward()
+                optimizer.step()
+                total_loss += float(loss_p + loss_v)
+            model.eval()
+            ckpt_at = ''
+            if save and ckpt_every and it % ckpt_every == 0:
+                _save_model(model, size, channels, blocks, save_path)
+                ckpt_at = save_path
+                if not quiet:
+                    line = 'checkpoint %d/%d -> %s' % (it, games, save_path)
+                    if progress:
+                        progress.console.print('[yellow]' + line + '[/yellow]')
+                    else:
+                        print('[%s] checkpoint %d/%d -> %s'
+                              % (game_type, it, games, save_path), flush=True)
+            ev = None
+            # the gauge runs regardless of quiet — quiet mutes the PRINT, not
+            # the data: the CSV curve needs the win-rate column
+            if it % max(1, eval_every) == 0 or it == games:
+                el = time.time() - start
+                ev = evaluate()
+                w, d, l = ev
+                if not quiet:
+                    line = ('eval game %d/%d - win=%d draw=%d loss=%d - loss=%.3f'
+                            ' - %.0fs - AZ@100 vs %s@%d'
+                            % (it, games, w, d, l, total_loss / steps_per_game,
+                               el, eval_ai, eval_sims))
+                    if progress:
+                        progress.console.print(line)
+                    else:
+                        print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
+                              '  [eval: AZ@100 vs %s@%d]'
+                              % (game_type, it, games, w, d, l,
+                                 total_loss / steps_per_game, el, eval_ai, eval_sims),
+                              flush=True)
             if csv_log:
-                csv_log.close()
-    for it in range(1, games + 1):
-        temp = max(0.05, 1.0 - it / games)
-        states, targets, zs = self_play_game(
-            make_game_fn, model, sims, temp, dirichlet_eps,
-            value_target=value_target, use_network=use_network)
-        positions_total += len(states)
-        replay.append((states, targets, zs))
-        if len(replay) > replay_cap:
-            replay.pop(0)
-        # Linear LR annealing: full rate early, a 5x drop by the final game.
-        optimizer.param_groups[0]['lr'] = lr * max(0.2, 1.0 - it / games)
-        model.train()
-        total_loss = 0.0
-        for _ in range(steps_per_game):
-            g_states, g_targets, g_zs = random.choice(replay)
-            n_pos = len(g_states)
-            # Fixed batch size (with replacement when a game is short) keeps
-            # one tensor shape per process: MIOpen only looks up kernels once.
-            idx = np.random.choice(n_pos, 128, replace=True)
-            states_batch = [g_states[i] for i in idx]
-            targets_batch = [g_targets[i] for i in idx]
-            if augment:
-                for j in range(len(idx)):
-                    t = random.randrange(8)
-                    if t:
-                        states_batch[j], targets_batch[j] = _augment_sample(
-                            states_batch[j], targets_batch[j], t, size)
-            batch = torch.stack(states_batch).to(DEVICE)
-            target = torch.stack(
-                [torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
-            z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32).to(DEVICE)
-            optimizer.zero_grad()
-            pred_p, pred_v = model(batch)
-            logp = F.log_softmax(pred_p, dim=1)
-            if policy_loss == 'kl':
-                loss_p = (target * (target.clamp_min(1e-8).log() - logp)
-                          ).sum(dim=1).mean()
-            else:
-                loss_p = -(logp * target).sum(dim=1).mean()
-            loss_v = F.mse_loss(pred_v[:, 0], z)
-            (loss_p + loss_v).backward()
-            optimizer.step()
-            total_loss += float(loss_p + loss_v)
-        model.eval()
-        ckpt_at = ''
-        if save and ckpt_every and it % ckpt_every == 0:
-            _save_model(model, size, channels, blocks, save_path)
-            ckpt_at = save_path
-            if not quiet:
-                print('[%s] checkpoint game %d/%d -> %s'
-                      % (game_type, it, games, save_path), flush=True)
-        ev = None
-        # the gauge runs regardless of quiet — quiet mutes the PRINT, not
-        # the data: the CSV curve needs the win-rate column
-        if it % max(1, eval_every) == 0 or it == games:
-            el = time.time() - start
-            ev = evaluate()
-            w, d, l = ev
-            if not quiet:
-                print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
-                      '  [eval: AZ@100 vs %s@%d]'
-                      % (game_type, it, games, w, d, l,
-                         total_loss / steps_per_game, el, eval_ai, eval_sims),
-                      flush=True)
-        if csv_log:
-            csv_log.write(stage, it, time.time() - start,
-                          optimizer.param_groups[0]['lr'],
-                          total_loss / steps_per_game, positions_total,
-                          temp, ev, ckpt_at)
+                csv_log.write(stage, it, time.time() - start,
+                              optimizer.param_groups[0]['lr'],
+                              total_loss / steps_per_game, positions_total,
+                              temp, ev, ckpt_at)
 
-    if save:
-        _save_model(model, size, channels, blocks, save_path)
-        if not quiet:
-            print('saved', save_path)
-    if csv_log:
-        csv_log.close()
-    return model
+            if progress:
+                progress.advance(task)
+
+        if save:
+            _save_model(model, size, channels, blocks, save_path)
+            if not quiet:
+                print('saved', save_path)
+        return model
+    finally:
+        if csv_log:
+            csv_log.close()
+        if progress:
+            progress.stop()
 
 
 def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
@@ -855,7 +896,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                         replay_cap, size, channels, blocks, ckpt_every,
                         dirichlet_eps, workers, game_type, start,
                         rollout_weight, value_target, use_network,
-                        policy_loss, augment, save_path, csv_log=None):
+                        policy_loss, augment, save_path, csv_log=None,
+                        progress=None, task=None):
     """Multi-process self-play.
 
     A worker pool plays the games (each task carries the latest weights and
@@ -887,6 +929,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     while done < games:
         idx, data = results_q.get()
         done += 1
+        if progress:
+            progress.advance(task)
         if isinstance(data, Exception):
             print('[%s] self-play worker failed game %d: %s'
                   % (game_type, idx, data), flush=True)
@@ -936,8 +980,12 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                 _save_model(model, size, channels, blocks, save_path)
                 ckpt_at = save_path
                 if not quiet:
-                    print('[%s] checkpoint game %d/%d -> %s'
-                          % (game_type, done, games, save_path), flush=True)
+                    line = 'checkpoint %d/%d -> %s' % (done, games, save_path)
+                    if progress:
+                        progress.console.print('[yellow]' + line + '[/yellow]')
+                    else:
+                        print('[%s] checkpoint %d/%d -> %s'
+                              % (game_type, done, games, save_path), flush=True)
             ev = None
             # gauge runs regardless of quiet — quiet mutes the print only
             if done % max(1, eval_every) == 0 or done == games:
@@ -945,9 +993,16 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                 ev = evaluate()
                 w, d, l = ev
                 if not quiet:
-                    print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
-                          % (game_type, done, games, w, d, l,
-                             total_loss / steps_per_game, el), flush=True)
+                    line = ('eval game %d/%d - win=%d draw=%d loss=%d - '
+                            'loss=%.3f - %.0fs'
+                            % (done, games, w, d, l,
+                               total_loss / steps_per_game, el))
+                    if progress:
+                        progress.console.print(line)
+                    else:
+                        print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
+                              % (game_type, done, games, w, d, l,
+                                 total_loss / steps_per_game, el), flush=True)
             if csv_log:
                 # workers report the per-task index; its temperature schedule
                 # mirrors _mp_play_game's

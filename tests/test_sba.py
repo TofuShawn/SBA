@@ -96,3 +96,15 @@ def test_save_refuses_to_overwrite_broken_toml(tmp_path, monkeypatch, caplog):
     assert path.read_text(encoding='utf-8') == broken
     assert 'refusing to overwrite' in caplog.text
     assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_bench_smoke_table(capsys):
+    """--bench renders its results (rich table on a console, plain text
+    in capture) and the score line keeps the documented semantics."""
+    import SBA
+    rc = SBA.bench(games=2, iterations=4, game_type='normal',
+                   ai_a='Random', ai_b='Basic', depth=2)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert 'Benchmark' in out and 'Random' in out and 'Basic' in out
+    assert 'A score%' in out

@@ -192,14 +192,13 @@ def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
                     ('MCTS+RAVE', 'MCTS+GRAVE')]
     if len(matchups) == 1:
         a, b = matchups[0]
-        print(f'\nBenchmark — {a} vs {b} · {game_type} · {games} games · '
-              f'{iterations} sims/move · depth {depth}')
+        title = (f'Benchmark — {a} vs {b} · {game_type} · {games} games · '
+                 f'{iterations} sims/move · depth {depth}')
     else:
-        print(f'\nMCTS family benchmark — {game_type} · {games} games/pair · '
-              f'{iterations} sims/move')
-    header = f'{"A":<14}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}{"A score%":>9}'
-    print(header)
-    print('-' * len(header))
+        title = (f'MCTS family benchmark — {game_type} · {games} games/pair · '
+                 f'{iterations} sims/move')
+    header = ('A', 'B', 'A wins', 'draws', 'B wins', 'A score%')
+    rows = []
     for a, b in matchups:
         aw = dw = bw = 0
         for k in range(games):
@@ -213,7 +212,25 @@ def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
             else:
                 bw += 1
         pct = 100.0 * (aw + 0.5 * dw) / games
-        print(f'{a:<14}{b:<14}{aw:7d}{dw:6d}{bw:7d}{pct:8.1f}%')
+        pct_cell = (f'{pct:.1f}%', 'bold green' if pct > 55 else
+                    ('bold red' if pct < 45 else 'bold'))
+        rows.append([a, b, str(aw), str(dw), str(bw), pct_cell])
+    try:
+        import cli_output
+        con = cli_output.console()
+        table = cli_output.bench_table(title, header, rows)
+    except ImportError:
+        con, table = None, None
+    if table is not None and con is not None:
+        con.print(table)
+    else:
+        print(title)
+        print(f'{"A":<14}{"B":<14}{"A wins":>7}{"draws":>6}{"B wins":>7}'
+              f'{"A score%":>9}')
+        print('-' * 57)
+        for a, b, aw, dw, bw, pct_cell in rows:
+            print(f'{a:<14}{b:<14}{aw:7d}{dw:6d}{bw:7d}'
+                  f'{float(pct_cell[0][:-1]):8.1f}%')
     return 0
 
 
@@ -226,11 +243,31 @@ def _build_tables():
     with open(path, 'rb') as f:
         digest = hashlib.sha256(f.read()).hexdigest()
     empty = {0: 'draw (theoretical result)', 1: 'X win', -1: 'O loss'}
-    print(f'tablebase -> {path}')
-    print(f"  {stats['bytes']} bytes, {stats['reachable']} reachable "
-          f"positions ({stats['terminal']} terminal)")
-    print(f"  empty board: {empty.get(stats['empty_board'], '?')}")
-    print(f'  sha256  {digest}')
+    try:
+        import cli_output
+        con = cli_output.console()
+    except ImportError:
+        con = None
+    if con is not None:
+        from rich import box
+        from rich.table import Table
+        t = Table(title='Normal tablebase — data/tt_normal.bin',
+                  box=box.SIMPLE_HEAVY, title_justify='left', pad_edge=False)
+        t.add_column('field', justify='left')
+        t.add_column('value', justify='left')
+        t.add_row('file', str(path))
+        t.add_row('size', f"{stats['bytes']} bytes")
+        t.add_row('reachable', f"{stats['reachable']} positions "
+                               f"({stats['terminal']} terminal)")
+        t.add_row('empty board', empty.get(stats['empty_board'], '?'))
+        t.add_row('sha256', digest)
+        con.print(t)
+    else:
+        print(f'tablebase -> {path}')
+        print(f"  {stats['bytes']} bytes, {stats['reachable']} reachable "
+              f"positions ({stats['terminal']} terminal)")
+        print(f"  empty board: {empty.get(stats['empty_board'], '?')}")
+        print(f'  sha256  {digest}')
     return 0
 
 
