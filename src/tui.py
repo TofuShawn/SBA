@@ -793,15 +793,15 @@ class GameScreen(Screen):
     def compose(self) -> ComposeResult:
         with Horizontal(id='topbar'):
             yield Static('Ultimate Tic Tac Toe — 終極井字棋', id='game-title')
-            yield Button(t('New', '新'), id='btn-new')
-            yield Button(t('Again', '再玩'), id='btn-again')
-            yield Button(t('Menu', '選單'), id='btn-back')
+            yield Button('新遊戲', id='btn-new')
+            yield Button('再玩一次', id='btn-again')
+            yield Button('選單', id='btn-back')
         with Horizontal(id='split'):
             with Vertical(id='board-col'):
                 with Horizontal(id='ctrlbar'):
-                    yield Button(t('Revert', '悔棋'), id='btn-revert')
-                    yield Button(t('Pause', '暫停'), id='btn-pause')
-                    yield Button(t('Next', '前進'), id='btn-forward')
+                    yield Button('悔棋', id='btn-revert')
+                    yield Button('暫停', id='btn-pause')
+                    yield Button('前進', id='btn-forward')
                     yield Static('0 / 0', id='hist-label', classes='muted', markup=False)
                 yield Static('', id='status', markup=False)
                 yield Board(id='board')
@@ -1308,12 +1308,11 @@ class GameScreen(Screen):
         self.query_one('#btn-revert', Button).disabled = s['step'] == 0
         pause_btn = self.query_one('#btn-pause', Button)
         pause_btn.disabled = not cvc
-        pause_btn.label = (t('Resume', '繼續') if s.get('cvc_paused', False)
-                           else t('Pause', '暫停'))
+        pause_btn.label = '繼續' if s.get('cvc_paused', False) else '暫停'
         back = self.query_one('#btn-back', Button)
-        back.label = t('Menu', '選單')
+        back.label = '選單'
         again = self.query_one('#btn-again', Button)
-        again.label = t('Again', '再玩')
+        again.label = '再玩一次'
         again.set_class(game is not None and game.is_over(), 'show')
 
     def _show_result(self):
