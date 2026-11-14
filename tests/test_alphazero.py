@@ -14,7 +14,8 @@ from ai import get_ai_move
 
 
 def test_az_smoke_train_ultimate():
-    model = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False)
+    model = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False,
+                            eval_games=1)
     assert model is not None
     g = UltimateGame()
     assert alphazero.select_move(g, model, 20) in g.legal_moves()
@@ -128,3 +129,41 @@ def test_az_policy_priors_guards(monkeypatch):
     # no trained model in the repo (cached as None) -> "no heat"
     monkeypatch.setitem(ai._AZ_MODELS, 'ultimate', None)
     assert ai.az_policy_priors(UltimateGame()) is None
+
+
+def test_training_csv_curve(tmp_path):
+    """D41: one CSV row per completed game; a fresh run overwrites, a
+    resumed run appends without a second header; the eval gauge fills the
+    win/draw/loss columns even on quiet runs."""
+    import csv as _csv
+    csv_p = tmp_path / 'curve.csv'
+    model_p = tmp_path / 'm.pt'
+    alphazero.train('ultimate', games=2, sims=4, eval_every=1, eval_games=1,
+                    quiet=True, save=True, save_path=str(model_p),
+                    csv_path=str(csv_p), channels=32, blocks=2)
+    rows = list(_csv.reader(csv_p.read_text(encoding='utf-8').splitlines()))
+    assert rows[0][:2] == ['stage', 'game']
+    assert len(rows) == 3                       # header + 2 games
+    assert [r[1] for r in rows[1:]] == ['1', '2']
+    assert all(r[0] == '2' for r in rows[1:])   # stage 2 = neural
+    assert all(r[7:10] != ['', '', ''] for r in rows[1:])  # eval ran (quiet!)
+    assert rows[1][10] == ''                    # no checkpoint at game 1
+
+    # resume appends to the same curve, no duplicated header
+    alphazero.train('ultimate', games=1, sims=4, eval_every=99, eval_games=1,
+                    quiet=True, save=False, resume=str(model_p),
+                    csv_path=str(csv_p), channels=32, blocks=2)
+    rows2 = list(_csv.reader(csv_p.read_text(encoding='utf-8').splitlines()))
+    assert len(rows2) == 4                      # header + 2 + 1
+    assert rows2[3][1] == '1'                   # game numbering restarts
+
+
+def test_training_csv_disabled_without_save():
+    """save=False and no explicit --csv -> no file (smoke runs stay clean)."""
+    import os
+    import ai
+    default_csv = os.path.join(ai.ROOT, 'models', 'az_ultimate.csv')
+    existed = os.path.exists(default_csv)
+    alphazero.train('ultimate', games=1, sims=3, eval_every=99, eval_games=1,
+                    quiet=True, save=False)
+    assert os.path.exists(default_csv) == existed

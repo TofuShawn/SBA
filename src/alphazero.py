@@ -488,6 +488,41 @@ def _save_model(model, size, channels, blocks, path):
                 'channels': channels, 'blocks': blocks}, path)
 
 
+class _TrainingCsv:
+    """Per-iteration training-curve logger (D41): one CSV row per completed
+    game, flushed immediately so a killed run still leaves usable data.
+
+    One file = one run lineage: a fresh run overwrites, a resumed run
+    appends without a second header, so the report's single-run curve can
+    span both stages of the recipe."""
+
+    HEADER = ['stage', 'game', 'elapsed_s', 'lr', 'loss', 'positions',
+              'temp', 'eval_w', 'eval_d', 'eval_l', 'ckpt']
+
+    def __init__(self, path, resume=False):
+        import csv as _csv
+        self._append = bool(resume) and os.path.exists(path)
+        self._f = open(path, 'a' if self._append else 'w', newline='',
+                       encoding='utf-8')
+        self._w = _csv.writer(self._f)
+        if not self._append:
+            self._w.writerow(self.HEADER)
+
+    def write(self, stage, game, elapsed_s, lr, loss, positions, temp,
+              ev=None, ckpt=''):
+        self._w.writerow([stage, game, f'{elapsed_s:.1f}', f'{lr:.6f}',
+                          '' if loss is None else f'{loss:.4f}',
+                          positions, f'{temp:.3f}',
+                          ev[0] if ev else '', ev[1] if ev else '',
+                          ev[2] if ev else '', ckpt])
+        self._f.flush()
+
+    def close(self):
+        if self._f is not None:
+            self._f.close()
+            self._f = None
+
+
 # ---------------------------------------------------------------
 # Recipe helpers: D4 flip augmentation and root-mean value target
 # ---------------------------------------------------------------
@@ -668,7 +703,7 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           ckpt_every=None, dirichlet_eps=DIRICHLET_EPS, workers=1,
           weight_decay=1e-4, value_target='root_mean', policy_loss='kl',
           augment=True, stage=2, resume=None, save_path=None,
-          eval_ai='MCTS', eval_sims=800):
+          eval_ai='MCTS', eval_sims=800, csv_path=None):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
@@ -693,6 +728,12 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
     start = time.time()
     save_path = save_path or model_path(game_type)
     use_network = stage == 2
+    # D41: the training curve defaults to next to the model; explicit
+    # --csv wins, save=False without --csv means no file at all
+    if csv_path is None and save:
+        csv_path = os.path.splitext(save_path)[0] + '.csv'
+    csv_log = _TrainingCsv(csv_path, resume) if csv_path else None
+    positions_total = 0
 
     def evaluate():
         # in-training gauge: AZ@100 vs a classical MCTS opponent (C tree) —
@@ -720,17 +761,22 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
 
     replay = []
     if workers > 1:
-        return _train_multiprocess(
-            make_game_fn, model, optimizer, evaluate, replay, games, sims,
-            eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
-            channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
-            start, ROLLOUT_WEIGHT, value_target, use_network,
-            policy_loss, augment, save_path)
+        try:
+            return _train_multiprocess(
+                make_game_fn, model, optimizer, evaluate, replay, games, sims,
+                eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
+                channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
+                start, ROLLOUT_WEIGHT, value_target, use_network,
+                policy_loss, augment, save_path, csv_log)
+        finally:
+            if csv_log:
+                csv_log.close()
     for it in range(1, games + 1):
         temp = max(0.05, 1.0 - it / games)
         states, targets, zs = self_play_game(
             make_game_fn, model, sims, temp, dirichlet_eps,
             value_target=value_target, use_network=use_network)
+        positions_total += len(states)
         replay.append((states, targets, zs))
         if len(replay) > replay_cap:
             replay.pop(0)
@@ -769,24 +815,38 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             optimizer.step()
             total_loss += float(loss_p + loss_v)
         model.eval()
+        ckpt_at = ''
         if save and ckpt_every and it % ckpt_every == 0:
             _save_model(model, size, channels, blocks, save_path)
+            ckpt_at = save_path
             if not quiet:
                 print('[%s] checkpoint game %d/%d -> %s'
                       % (game_type, it, games, save_path), flush=True)
-        if not quiet and (it % max(1, eval_every) == 0 or it == games):
+        ev = None
+        # the gauge runs regardless of quiet — quiet mutes the PRINT, not
+        # the data: the CSV curve needs the win-rate column
+        if it % max(1, eval_every) == 0 or it == games:
             el = time.time() - start
-            w, d, l = evaluate()
-            print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
-                  '  [eval: AZ@100 vs %s@%d]'
-                  % (game_type, it, games, w, d, l,
-                     total_loss / steps_per_game, el, eval_ai, eval_sims),
-                  flush=True)
+            ev = evaluate()
+            w, d, l = ev
+            if not quiet:
+                print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
+                      '  [eval: AZ@100 vs %s@%d]'
+                      % (game_type, it, games, w, d, l,
+                         total_loss / steps_per_game, el, eval_ai, eval_sims),
+                      flush=True)
+        if csv_log:
+            csv_log.write(stage, it, time.time() - start,
+                          optimizer.param_groups[0]['lr'],
+                          total_loss / steps_per_game, positions_total,
+                          temp, ev, ckpt_at)
 
     if save:
         _save_model(model, size, channels, blocks, save_path)
         if not quiet:
             print('saved', save_path)
+    if csv_log:
+        csv_log.close()
     return model
 
 
@@ -795,7 +855,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                         replay_cap, size, channels, blocks, ckpt_every,
                         dirichlet_eps, workers, game_type, start,
                         rollout_weight, value_target, use_network,
-                        policy_loss, augment, save_path):
+                        policy_loss, augment, save_path, csv_log=None):
     """Multi-process self-play.
 
     A worker pool plays the games (each task carries the latest weights and
@@ -822,6 +882,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
         next_idx += 1
 
     done = 0
+    pos_total = 0
+    stage = 2 if use_network else 1
     while done < games:
         idx, data = results_q.get()
         done += 1
@@ -830,6 +892,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                   % (game_type, idx, data), flush=True)
         else:
             states, targets, zs = data
+            pos_total += len(states)
             replay.append((states, targets, zs))
             if len(replay) > replay_cap:
                 replay.pop(0)
@@ -868,17 +931,30 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                 optimizer.step()
                 total_loss += float(loss_p + loss_v)
             model.eval()
+            ckpt_at = ''
             if save and ckpt_every and done % ckpt_every == 0:
                 _save_model(model, size, channels, blocks, save_path)
+                ckpt_at = save_path
                 if not quiet:
                     print('[%s] checkpoint game %d/%d -> %s'
                           % (game_type, done, games, save_path), flush=True)
-            if not quiet and (done % max(1, eval_every) == 0 or done == games):
+            ev = None
+            # gauge runs regardless of quiet — quiet mutes the print only
+            if done % max(1, eval_every) == 0 or done == games:
                 el = time.time() - start
-                w, d, l = evaluate()
-                print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
-                      % (game_type, done, games, w, d, l,
-                         total_loss / steps_per_game, el), flush=True)
+                ev = evaluate()
+                w, d, l = ev
+                if not quiet:
+                    print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
+                          % (game_type, done, games, w, d, l,
+                             total_loss / steps_per_game, el), flush=True)
+            if csv_log:
+                # workers report the per-task index; its temperature schedule
+                # mirrors _mp_play_game's
+                csv_log.write(stage, done, time.time() - start,
+                              optimizer.param_groups[0]['lr'],
+                              total_loss / steps_per_game, pos_total,
+                              max(0.05, 1.0 - idx / games), ev, ckpt_at)
         if next_idx <= games:
             submit(next_idx)
             next_idx += 1
@@ -921,6 +997,10 @@ def main(argv=None):
                     help='in-training eval opponent (default: MCTS via the C tree)')
     tr.add_argument('--eval-sims', type=int, default=800,
                     help='sim budget of the in-training eval opponent (default: 800)')
+    tr.add_argument('--csv', type=str, default=None,
+                    help='training-curve CSV (one row per game; default: '
+                         'next to the model, <model>.csv; fresh run '
+                         'overwrites, resume appends)')
     tr.add_argument('--lr', type=float, default=1e-3)
     tr.add_argument('--seed', type=int, default=None)
     tr.add_argument('--rollout-weight', type=float, default=ROLLOUT_WEIGHT,
@@ -970,7 +1050,8 @@ def main(argv=None):
               value_target=args.value_target, policy_loss=args.policy_loss,
               augment=not args.no_augment, stage=args.stage,
               resume=args.resume, save_path=args.model_path,
-              eval_ai=args.eval_ai, eval_sims=args.eval_sims)
+              eval_ai=args.eval_ai, eval_sims=args.eval_sims,
+              csv_path=args.csv)
     else:
         model = load_model('ultimate')
         if model is None:
