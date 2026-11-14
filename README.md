@@ -231,25 +231,7 @@ Reading-route highlights, condensed from the retired
 - **[3] `src/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
 - **[4] `src/SBA.py`**：總覽地圖，最後讀。
 - **[5] UI**：兩端共用 [1]–[4]；`src/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
-
----
-
-## History / 歷史
-
-185 commits, 2026-08-18 → 2026-11-08 / 185 個提交。Full "why" per decision
-in [`docs/decisions.md`](docs/decisions.md) (D1–D36) / 每個決定的完整理由見決策日誌。
-
-| Date / 日期 | Milestone / 里程碑 |
-|---|---|
-| 08-18 | Born as a NiceGUI web app; AlphaZero wired in the **same day**; engine family (Solver / Minimax Pro / MCTS+RAVE) and the module split (`game` / `ai` / `SBA` / `webui`) / 誕生即全家桶：網頁版與 AlphaZero 同日進場；引擎家族與模組拆分 |
-| 08-19 | Qt desktop branch (PySide6 + SiliconUI dark glass); relicensed **GPLv3** (SiliconUI vendoring); MCTS+GRAVE + `--bench`; decision log opened / Qt 桌面版進場；因隨附 SiliconUI 重授權 GPLv3；GRAVE 與對戰測試；決策日誌開張 |
-| 08-20 | **Five-phase engine optimization in one day** (Phase 0–4): `sba.toml` config layer → opening book + micro tablebase → MCTS quality (heuristic rollout, tree reuse, dynamic UCT) → Minimax refinements → bitboard & parallelism / 五階段引擎優化一日衝完 |
-| 08-21 | Evidence day (D19–D21): Minimax Pro root-ordering fix (32.5% → 45%), MCTS-vs-Minimax budget crossover (~1200–1600 sims), MCTS family statistically tied; README benchmarks + bilingual tutorials / 實證日：引擎修正與交叉點證據、MCTS 家族統計持平；基準表與雙語教程 |
-| 08-22 | AlphaZero recipe overhaul (D22: two-stage self-play — a **600-game** model reaches 50% vs MCTS@800, where the old recipe needed 6000 games); `tui.py` terminal UI; **Qt desktop locked as the default entry**; Endfield UI theme experiment (side branch) / AlphaZero 配方改造（600 局打平基線 6000 局）；TUI 終端版；Qt 定為預設入口；Endfield 主題實驗（分支） |
-| 11-05 | Endfield field-console theme (D23) + AI thinking liveness display (D24); History card replaces the timeline scrubber; win accent orange; **native C rollout kernel (D25)** — 12.4x full-search speedup; the pattern-rollout negative result recorded (D26) / Endfield 主題＋AI 思考顯示；歷史卡；勝方改橘；原生 C rollout 核心 12.4 倍；pattern rollout 負結果入冊 |
-| 11-06 | **Full C engine backends (D27–D30)**: full MCTS tree / rollouts / minimax family sink into `sba_engine.dll` (~37x), `sba.toml` → `config.toml`, per-call arenas fix the concurrent-search hang, **CI on GitHub Actions** (ubuntu+windows); D31 animations (Reduce-Motion gated); AlphaZero taps the C rollout (D32); **Go-style clock** (D33); suite reaches 75 / C 引擎後端全量下沉、CI 上線、動畫、AZ 接 C 核心、圍棋式計時 |
-| 11-07 | **Front-end consolidation (D35)**: the NiceGUI web UI and vendored SiliconUI are removed — Qt + TUI remain; PR #5 merged; decision log rewritten to one voice; technical report trimmed to v1.4 (§1–§7 + appendix); the D34 command-bar overhaul lands (chamfer pairs only, 30-step chart window, full-outcome readout) / 前端收斂成兩端；PR #5 併入；決策日誌統一文風；技術報告瘦成純技術報告；指揮欄改造 |
-| 11-08 | D35 review pass: role typography (Inter display + JetBrains Mono labels), timeout/clock fixes, true static font instances with OFL provenance notes; **Python modules move into `src/` (D36)**; v*-tag release workflow; bench defaults unified with the recorded convention (20 games × 1600 sims) / 排版角色系、時鐘修復、真靜態字體＋OFL 溯源；模組遷入 `src/`；打標籤自動出 Release；基準預設與慣例統一 |
+- Decision log with the full "why" per entry / 每個決定的完整理由見決策日誌：[`docs/decisions.md`](docs/decisions.md)
 
 ---
 
