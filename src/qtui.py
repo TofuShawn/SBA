@@ -2559,11 +2559,26 @@ class MainWindow(QMainWindow):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='SBA desktop app (PySide6)')
+    parser = argparse.ArgumentParser(
+        description='SBA desktop app (PySide6). The tooling flags below are '
+                    'dispatched by SBA.main() before the UI starts — they '
+                    'are listed here so --help documents every flag.')
     parser.add_argument('--debug', action='store_true',
                         help='verbose backend logs')
     parser.add_argument('--qt', action='store_true',
                         help='start the desktop app (it is the default entry)')
+    # tooling flags: handled by SBA.main() before this parser ever runs;
+    # declared here so --help shows the full surface
+    parser.add_argument('--bench', action='store_true',
+                        help='engine win-rate benchmark (default: MCTS family '
+                             'round-robin)')
+    parser.add_argument('--build-tables', action='store_true',
+                        help='rebuild data/tt_normal.bin (the perfect-play '
+                             'table for Normal mode)')
+    parser.add_argument('--self-test', action='store_true',
+                        help='run the pytest suite headlessly and exit')
+    parser.add_argument('--train-az', action='store_true',
+                        help='alias for: alphazero.py train')
     args = parser.parse_args(argv)
     if args.debug:
         log.setLevel(logging.DEBUG)
