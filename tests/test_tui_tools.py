@@ -60,3 +60,47 @@ def test_train_tui_event_updates():
             assert 'checkpoint -> m.pt' in log_text
             assert 'eval game 2: win=2 draw=1 loss=1 (62%)' in log_text
     asyncio.run(_run())
+
+
+def test_bench_tui_entry_parses_flags(monkeypatch):
+    """--bench-tui routes through run_bench with the flags parsed from the
+    forwarded argv (this path is what the user's traceback missed)."""
+    import SBA
+    import tui_tools
+    seen = {}
+
+    class FakeApp:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def run(self):
+            seen['ran'] = True
+
+    monkeypatch.setattr(tui_tools, 'BenchTUI', FakeApp)
+    with pytest.raises(SystemExit):
+        SBA.main(['--bench-tui', '--games', '3', '--iters', '10',
+                  '--normal', '--ai-a', 'Random', '--ai-b', 'Basic'])
+    assert seen['games'] == 3 and seen['iterations'] == 10
+    assert seen['game_type'] == 'normal'
+    assert seen['ai_a'] == 'Random' and seen['ai_b'] == 'Basic'
+    assert seen['ran'] is True
+
+
+def test_train_tui_entry_parses_flags(monkeypatch):
+    import SBA
+    import tui_tools
+    seen = {}
+
+    class FakeApp:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def run(self):
+            seen['ran'] = True
+
+    monkeypatch.setattr(tui_tools, 'TrainTUI', FakeApp)
+    with pytest.raises(SystemExit):
+        SBA.main(['--train-tui', '--games', '5', '--sims', '10',
+                  '--eval-every', '99'])
+    assert seen['games'] == 5 and seen['sims'] == 10
+    assert seen['eval_every'] == 99 and seen['ran'] is True
