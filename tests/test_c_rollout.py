@@ -122,13 +122,26 @@ def test_kernel_search_faster_than_python(monkeypatch=None):
         set_engine_config()
 
 
-def test_normal_board_uses_python_path():
-    """Normal 3x3 stays on the Python rollout (too shallow to bother)."""
+def test_normal_board_uses_python_path(monkeypatch):
+    """Normal 3x3 stays on the Python rollout (too shallow to bother): no C
+    backend symbol may be consulted for the whole move. The DLL is present
+    (asserted first) so the proof is real — the gates must skip it."""
     set_engine_config()
     assert _get_c_rollout() is not None
+    touched = []
+
+    class _NoC:
+        def __getattr__(self, name):
+            def _deny(*args, **kwargs):
+                touched.append(name)
+                raise AssertionError(f'Normal path touched the C backend: {name}')
+            return _deny
+
+    monkeypatch.setattr(ai, '_ce', _NoC())
     g = NormalGame()
     mv = get_ai_move(g, 'MCTS', 200, 3)
     assert mv in g.legal_moves()
+    assert touched == []
 
 
 def test_pattern_kernel_smoke():
@@ -197,6 +210,32 @@ def test_concurrent_mcts_searches_are_safe():
         for r in outs:
             assert r is not None and r[0] is not None
             assert (r[0] // 9, r[0] % 9) in g.legal_moves()
+    finally:
+        set_engine_config()
+
+
+def test_c_mcts_thread_count_scales_with_budget(monkeypatch):
+    """_c_mcts_move: the multithreaded switch gates C root parallelization
+    with threads = min(workers, budget // 400). Budget 200 must stay
+    single-threaded; 800 spawns 2 threads splitting the budget (the review
+    found no test pinned either number)."""
+    set_engine_config({'engine': {'c_mcts': True, 'opening_book': False,
+                                  'multithreaded': True, 'workers': 8}})
+    calls = []
+    real = _ce.mcts_search
+
+    def spy(state, iterations, **kw):
+        calls.append(iterations)
+        return real(state, iterations, **kw)
+
+    monkeypatch.setattr(_ce, 'mcts_search', spy)
+    try:
+        g = _out_of_book_position()
+        assert get_ai_move(g, 'MCTS', 200, 3) in g.legal_moves()
+        assert calls == [200]              # below the 400-sims-per-thread floor
+        calls.clear()
+        assert get_ai_move(g, 'MCTS', 800, 3) in g.legal_moves()
+        assert calls == [400, 400]         # 2 threads, budget split
     finally:
         set_engine_config()
 

@@ -60,10 +60,13 @@ def test_trace_has_top_candidates_and_pick():
 
 
 def test_trace_on_parallel_mcts():
-    # actually enable root parallelization — cfg_engine is a getter, and the
-    # old cfg_engine('multithreaded', True) calls never configured anything
+    # the PYTHON root-parallel merge path (c_mcts off — with the default the
+    # C tree answers first and the parallel code never runs). workers=2 at
+    # budget=200 -> two chunked searches; D24 reports once per finished
+    # thread, so the counter jumps (100 -> 200), not smoothly.
     from ai import set_engine_config
-    set_engine_config({'engine': {'multithreaded': True}})
+    set_engine_config({'engine': {'multithreaded': True, 'workers': 2,
+                                  'c_mcts': False, 'opening_book': False}})
     try:
         g = _out_of_book_position()
         trace = {}
@@ -73,7 +76,8 @@ def test_trace_on_parallel_mcts():
         assert move in g.legal_moves()
         assert trace['engine'] == 'MCTS'
         assert trace['top']  # merged root stats fill the candidates
-        assert events  # one coarse report per finished thread
+        assert len(events) == 2  # one coarse report per finished thread
+        assert [e['it'] for e in events] == [100, 200]  # chunk boundaries
     finally:
         set_engine_config()
 

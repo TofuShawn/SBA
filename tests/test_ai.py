@@ -228,11 +228,30 @@ def test_multithreaded_mcts_legal():
     assert mcts_move_parallel(gu, 100, 2) in gu.legal_moves()
 
 
-def test_multithreaded_enabled_via_config():
-    from ai import set_engine_config
-    set_engine_config({'engine': {'multithreaded': True, 'bitboard': True}})
-    gu = UltimateGame()
-    assert get_ai_move(gu, 'MCTS', 200) in gu.legal_moves()
+def test_multithreaded_enabled_via_config(monkeypatch):
+    """The multithreaded switch must actually route MCTS to the parallel
+    merge path: c_mcts off (the C tree would take it first) and the opening
+    book off (an empty board would return a book move without searching).
+    Two workers at budget 200 -> two chunked searches, 100 sims each."""
+    set_engine_config({'engine': {'multithreaded': True, 'workers': 2,
+                                  'c_mcts': False, 'opening_book': False}})
+    calls = []
+    real = ai.mcts_search
+
+    def spy(state, iterations, **kw):
+        calls.append(iterations)
+        return real(state, iterations, **kw)
+
+    monkeypatch.setattr(ai, 'mcts_search', spy)
+    try:
+        gu = UltimateGame()
+        apply_move(gu, (0, 0))
+        apply_move(gu, (0, 4))
+        assert get_ai_move(gu, 'MCTS', 200) in gu.legal_moves()
+        assert len(calls) == 2, calls    # one search per worker thread
+        assert sum(calls) == 200         # the budget split across threads
+    finally:
+        set_engine_config()
 
 
 def test_win_rates():
@@ -251,18 +270,22 @@ def test_win_rates():
 
 
 def test_thread_local_tt():
-    ok = []
+    ok, errors = [], []
 
     def worker():
-        g = UltimateGame()
-        ok.append(minimax_pro_move(g, depth=3) in g.legal_moves())
+        try:
+            g = UltimateGame()
+            ok.append(minimax_pro_move(g, depth=3) in g.legal_moves())
+        except Exception as exc:  # re-raised below so failures cannot hide
+            errors.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(2)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert all(ok)
+    assert not errors, errors            # thread failures propagate here
+    assert len(ok) == 2 and all(ok)      # all(...) on an empty list is True
 
 
 def test_ultimate_game_winning_moves():
@@ -394,9 +417,23 @@ def test_tt_max_is_dynamic():
     assert len(ai._get_tt()) <= 10
 
 
-def test_analyze_ultimate_bitboard_path():
-    set_engine_config({'engine': {'bitboard': True}})
+def test_analyze_ultimate_bitboard_path(monkeypatch):
+    """bitboard=True must actually build a BitUltimateGame for the Python
+    search. With the default c_mcts=True the C analysis answers first and
+    from_game is never called, so the switch must disable it here."""
+    set_engine_config({'engine': {'bitboard': True, 'c_mcts': False}})
+    built = []
+    real_from = BitUltimateGame.from_game.__func__
+
+    class _SpyBit(BitUltimateGame):
+        @classmethod
+        def from_game(cls, game):
+            built.append(True)
+            return real_from(BitUltimateGame, game)
+
+    monkeypatch.setattr(ai, 'BitUltimateGame', _SpyBit)
     gu = UltimateGame()
     items, rates = analyze_position(gu, 200)
+    assert built, 'bitboard=True never constructed a BitUltimateGame'
     assert abs(sum(rates) - 1.0) < 1e-6
     assert items and all(0.0 <= it['pct'] <= 1.0 for it in items)
