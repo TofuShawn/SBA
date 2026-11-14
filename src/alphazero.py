@@ -682,6 +682,19 @@ _MP_RESULTS_Q = None
 def _mp_worker_init(results_q):
     global _MP_RESULTS_Q
     _MP_RESULTS_Q = results_q
+    # spawn children inherit the parent's console; 8 of them spamming
+    # MIOpen/torch warnings tears apart a fullscreen TUI - divert to a file
+    try:
+        import atexit
+        log_path = os.path.join(MODEL_DIR, '..', 'logs',
+                                'mp-worker-%d.log' % os.getpid())
+        os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+        sink = open(os.path.abspath(log_path), 'w', buffering=1)
+        sys.stdout = sink
+        sys.stderr = sink
+        atexit.register(sink.close)
+    except Exception:
+        pass
 
 
 def _mp_play_game(idx, weights, size, channels, blocks, sims,
@@ -939,7 +952,14 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
              value_target, use_network))
 
     next_idx = 1
-    for _ in range(min(workers * 2, games)):
+    first_wave = min(workers, games)
+    for k in range(min(workers * 2, games)):
+        if 0 < k < first_wave:
+            # every first task makes its worker build a HIP/CUDA context;
+            # 8 simultaneous inits crashed the whole GPU stack (explorer
+            # died with python) - stagger them so contexts come up one by
+            # one; later tasks reuse warm workers
+            time.sleep(1.5)
         submit(next_idx)
         next_idx += 1
 
@@ -952,8 +972,12 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
         if progress:
             progress.advance(task)
         if isinstance(data, Exception):
-            print('[%s] self-play worker failed game %d: %s'
-                  % (game_type, idx, data), flush=True)
+            if on_event:
+                on_event({'type': 'worker_failed', 'game': idx,
+                          'error': str(data)})
+            else:
+                print('[%s] self-play worker failed game %d: %s'
+                      % (game_type, idx, data), flush=True)
         else:
             states, targets, zs = data
             pos_total += len(states)

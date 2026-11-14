@@ -13,7 +13,10 @@ flow works on a bare SSH session with no mouse. Auto-exit is a test hook:
 the Pilot smoke needs the app to leave after the work lands.
 """
 
+import os
 import sys
+import time
+import traceback
 
 from textual import work
 from textual.app import App, ComposeResult
@@ -30,6 +33,23 @@ HINT_RUN = ('[2] 進度頁 · [1] 回參數頁（可調整後重跑） · [Q] �
 
 def _hint(text):
     return Static(text, classes='hint')
+
+
+def _crash_log(where, tb):
+    """Persist a worker traceback next to the other run artifacts - a
+    fullscreen TUI cannot show a scrolling traceback, so the file is the
+    durable copy and the RichLog gets a one-line pointer."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(os.path.dirname(here), 'logs',
+                            'tui-crash.log')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write('=== %s %s ===\n' % (where, time.strftime('%F %T')))
+            f.write(tb)
+        return path
+    except Exception:
+        return None
 
 
 def _field(label, widget):
@@ -138,13 +158,19 @@ class BenchTUI(App):
 
     @work(exclusive=True, thread=True)
     def _start_bench(self, cfg):
-        from SBA import bench
-        bench(games=cfg['games'], iterations=cfg['iterations'],
-              game_type=cfg['game_type'], ai_a=cfg['ai_a'], ai_b=cfg['ai_b'],
-              depth=cfg['depth'], seed=12345, quiet=True,
-              on_progress=lambda ev: self.call_from_thread(
-                  self._on_game, ev))
-        self.call_from_thread(self._finish)
+        try:
+            from SBA import bench
+            bench(games=cfg['games'], iterations=cfg['iterations'],
+                  game_type=cfg['game_type'], ai_a=cfg['ai_a'],
+                  ai_b=cfg['ai_b'], depth=cfg['depth'], seed=12345,
+                  quiet=True,
+                  on_progress=lambda ev: self.call_from_thread(
+                      self._on_game, ev))
+        except Exception:
+            self.call_from_thread(self._worker_error, 'bench',
+                                  traceback.format_exc())
+        else:
+            self.call_from_thread(self._finish)
 
     def _on_game(self, ev):
         self.action_show_run()
@@ -161,6 +187,16 @@ class BenchTUI(App):
         log = self.query_one('#log', RichLog)
         log.write(f"game {ev['game']}/{ev['total']}: "
                   f"{ev['a']} {ev['aw']} - {ev['dw']} - {ev['bw']} {ev['b']}")
+
+    def _worker_error(self, where, tb):
+        self._busy = False
+        path = _crash_log(where, tb)
+        log = self.query_one('#log', RichLog)
+        log.write('[bold red]worker crashed — details in %s[/bold red]'
+                  % (path or 'the terminal'))
+        log.write(tb)
+        if self._auto_exit:
+            self.exit()
 
     def _finish(self):
         self._busy = False
@@ -239,7 +275,7 @@ class TrainTUI(App):
             yield from _field('每步模擬數 / sims（stage 1 通常 800）',
                               Input(value=str(self._cfg['sims']),
                                     type='integer', id='sims'))
-            yield from _field('平行進程數 / workers（各持一份 GPU 模型）',
+            yield from _field('平行進程數 / workers（各持一份 GPU 模型；>4 可能觸發 GPU 驅動重置）',
                               Input(value=str(self._cfg['workers']),
                                     type='integer', id='workers'))
             yield from _field('eval 頻率 / eval every N games（長跑建議調高）',
@@ -295,16 +331,24 @@ class TrainTUI(App):
 
     @work(exclusive=True, thread=True)
     def _start_train(self, cfg):
-        import alphazero
-        alphazero.train('ultimate', games=cfg['games'], sims=cfg['sims'],
-                        workers=cfg['workers'], eval_every=cfg['eval_every'],
-                        channels=cfg['channels'], blocks=cfg['blocks'],
-                        stage=cfg['stage'], resume=cfg['resume'],
-                        save_path=cfg['model_path'], csv_path=cfg['csv_path'],
-                        ckpt_every=cfg['ckpt_every'],
-                        quiet=True, on_event=lambda ev: self.call_from_thread(
-                            self._on_event, ev))
-        self.call_from_thread(self._finish)
+        try:
+            import alphazero
+            alphazero.train('ultimate', games=cfg['games'],
+                            sims=cfg['sims'], workers=cfg['workers'],
+                            eval_every=cfg['eval_every'],
+                            channels=cfg['channels'], blocks=cfg['blocks'],
+                            stage=cfg['stage'], resume=cfg['resume'],
+                            save_path=cfg['model_path'],
+                            csv_path=cfg['csv_path'],
+                            ckpt_every=cfg['ckpt_every'],
+                            quiet=True,
+                            on_event=lambda ev: self.call_from_thread(
+                                self._on_event, ev))
+        except Exception:
+            self.call_from_thread(self._worker_error, 'train',
+                                  traceback.format_exc())
+        else:
+            self.call_from_thread(self._finish)
 
     def _on_event(self, ev):
         if ev['type'] == 'eval_start':
@@ -343,6 +387,16 @@ class TrainTUI(App):
         elif ev['type'] == 'saved':
             self.query_one('#log', RichLog).write(
                 f"[bold green]saved -> {ev['path']}[/bold green]")
+
+    def _worker_error(self, where, tb):
+        self._busy = False
+        path = _crash_log(where, tb)
+        log = self.query_one('#log', RichLog)
+        log.write('[bold red]worker crashed — details in %s[/bold red]'
+                  % (path or 'the terminal'))
+        log.write(tb)
+        if self._auto_exit:
+            self.exit()
 
     def _finish(self):
         self._busy = False
