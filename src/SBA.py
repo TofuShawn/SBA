@@ -132,19 +132,19 @@ REASON_TEXT = {
 # Self-test
 # ============================================================
 
-def _flag_arg(name, default=None):
+def _flag_arg(name, args, default=None):
     """Return the string following --name, or default when absent."""
-    if name not in sys.argv:
+    if name not in args:
         return default
-    i = sys.argv.index(name)
-    if i + 1 < len(sys.argv):
-        return sys.argv[i + 1]
+    i = args.index(name)
+    if i + 1 < len(args):
+        return args[i + 1]
     return default
 
 
-def _flag_value(name, default):
+def _flag_value(name, default, args):
     """Return the integer following --name, or default."""
-    raw = _flag_arg(name)
+    raw = _flag_arg(name, args)
     if raw is None:
         return default
     try:
@@ -271,10 +271,18 @@ def _build_tables():
     return 0
 
 
-def main():
-    if '--build-tables' in sys.argv:
+def main(argv=None):
+    """Unified CLI entry: every command starts here.
+
+    argv defaults to sys.argv[1:]; the root sba.py shim forwards its own
+    argv, so `python sba.py ...` and `python src/SBA.py ...` are the same
+    surface: --tui / --bench / --build-tables / --self-test /
+    --train-az / --eval-az, default = PySide6 desktop app.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+    if '--build-tables' in args:
         return _build_tables()
-    if '--self-test' in sys.argv:
+    if '--self-test' in args:
         try:
             import pytest
         except ImportError:
@@ -283,18 +291,23 @@ def main():
         tests = os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), 'tests')
         sys.exit(pytest.main(['-q', tests]))
-    if '--train-az' in sys.argv:
+    if '--train-az' in args:
         import alphazero
-        rest = [a for a in sys.argv[1:] if a != '--train-az']
-        sys.exit(alphazero.main(['train'] + rest))
-    if '--bench' in sys.argv:
+        sys.exit(alphazero.main(['train'] + [a for a in args if a != '--train-az']))
+    if '--eval-az' in args:
+        import alphazero
+        sys.exit(alphazero.main(['eval'] + [a for a in args if a != '--eval-az']))
+    if '--tui' in args:
+        import tui
+        sys.exit(tui.main())
+    if '--bench' in args:
         sys.exit(bench(
-            games=_flag_value('--games', 20),
-            iterations=_flag_value('--iters', 1600),
-            game_type='normal' if '--normal' in sys.argv else 'ultimate',
-            ai_a=_flag_arg('--ai-a'),
-            ai_b=_flag_arg('--ai-b'),
-            depth=_flag_value('--depth', 4),
+            games=_flag_value('--games', 20, args),
+            iterations=_flag_value('--iters', 1600, args),
+            game_type='normal' if '--normal' in args else 'ultimate',
+            ai_a=_flag_arg('--ai-a', args),
+            ai_b=_flag_arg('--ai-b', args),
+            depth=_flag_value('--depth', 4, args),
         ))
     # When SBA.py is the entry script it is '__main__'; register it under the
     # canonical name so qtui.py / tui.py reuse this module instead of
@@ -302,7 +315,7 @@ def main():
     sys.modules.setdefault('SBA', sys.modules['__main__'])
     # Default entry (also explicit via --qt): PySide6 desktop app.
     import qtui
-    qtui.main()
+    qtui.main(args)
 
 
 if __name__ == '__main__':

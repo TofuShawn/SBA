@@ -77,11 +77,12 @@ AlphaZero 訓練方法與效能分析見
 ### 1. Desktop app (default) / 桌面版（預設）
 
 ```bash
-# PySide6 desktop UI / PySide6 桌面版
+# Unified entry: every command starts at the root shim / 統一入口：全部命令從根目錄出
+python sba.py
+
+# equivalent module paths / 等同的模組路徑（相容保留）
 python src/SBA.py
-# or explicitly / 或明確指定
 python src/SBA.py --qt
-# same as: / 等同於
 python src/qtui.py
 ```
 
@@ -91,21 +92,25 @@ python src/qtui.py
 ### 2. Terminal UI (TUI) / 終端機版
 
 ```bash
+python sba.py --tui
+# or / 或
 python src/tui.py
 ```
 
 Textual 終端機介面，同一套引擎與設定；適合 SSH／無 GUI 環境。
 
-CLI flags / 指令參數：
+CLI flags / 指令參數（`python sba.py` 與 `python src/SBA.py` 同一組）：
 
 | Flag / 參數 | Description / 說明 |
 | --- | --- |
 | `--qt` | Start the PySide6 desktop app (default) / 啟動 PySide6 桌面版（預設） |
+| `--tui` | Start the Textual terminal app instead / 改啟動 Textual 終端機版 |
 | `--debug` | Verbose backend logging / 後端詳細日誌 |
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
 | `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
 | `--build-tables` | Rebuild `data/tt_normal.bin` — the persisted perfect-play table for Normal mode (all 5,478 reachable positions) / 重建 Normal 模式持久化完美解表（全部 5,478 個可達局面） |
 | `--train-az` | Alias for `src/alphazero.py train` / 等同執行 `src/alphazero.py train` |
+| `--eval-az` | Alias for `src/alphazero.py eval` / 等同執行 `src/alphazero.py eval` |
 
 ### 3. Self-test / 自測
 
@@ -138,10 +143,12 @@ per game and per-match scores (win = 1, draw = 0.5) are printed /
 
 ```bash
 # train a neural net for Ultimate (Normal is solved and not supported) / 訓練終極模式神經網路（普通模式已破解，不支援）
+python sba.py --train-az --games 400 --sims 80
+# or via the module directly / 或直接走模組
 python src/alphazero.py train --games 400 --sims 80
 
 # evaluate a trained model vs MCTS / 評估模型對戰 MCTS
-python src/alphazero.py eval --games 30 --sims 200
+python sba.py --eval-az --games 30 --sims 200
 ```
 
 Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoint）、
@@ -183,7 +190,7 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
   +------------------------------------------------------+
   | src/SBA.py  [4]                                      |
   | CLI entry · session state · t() bilingual strings    |
-  | --self-test / --bench / --train-az                   |
+  | --tui / --bench / --build-tables / --train-az         |
   | ~250 lines                                           |
   +---------------------------+--------------------------+
                               |

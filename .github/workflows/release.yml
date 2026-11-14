@@ -102,7 +102,7 @@ jobs:
               '    if errorlevel 1 exit /b 1',
               ')',
               'echo [SBA] Starting ...',
-              '"%PY%" src\\SBA.py %*',
+              '"%PY%" sba.py %*',
           ]
           with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
               z.writestr('start.bat', '\r\n'.join(lines) + '\r\n')

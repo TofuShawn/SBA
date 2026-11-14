@@ -108,3 +108,48 @@ def test_bench_smoke_table(capsys):
     out = capsys.readouterr().out
     assert 'Benchmark' in out and 'Random' in out and 'Basic' in out
     assert 'A score%' in out
+
+
+def test_main_routes_tui(monkeypatch):
+    """The unified entry forwards --tui to the terminal app without
+    touching the desktop stack (fake tui module, no QApplication)."""
+    import types
+    import sys as _sys
+    import pytest
+    import SBA
+    calls = []
+    monkeypatch.setitem(_sys.modules, 'tui', types.SimpleNamespace(
+        main=lambda: calls.append('tui') or 0))
+    with pytest.raises(SystemExit) as ei:
+        SBA.main(['--tui'])
+    assert calls == ['tui'] and ei.value.code == 0
+
+
+def test_main_forwards_az_subcommands(monkeypatch):
+    """--train-az / --eval-az forward the remaining argv to
+    alphazero.main with the right subcommand; the trigger flag is
+    stripped, everything else passes through."""
+    import types
+    import sys as _sys
+    import pytest
+    import SBA
+    seen = []
+    monkeypatch.setitem(_sys.modules, 'alphazero', types.SimpleNamespace(
+        main=lambda argv: seen.append(argv) or 7))
+    with pytest.raises(SystemExit) as ei:
+        SBA.main(['--train-az', '--games', '5'])
+    assert seen == [['train', '--games', '5']] and ei.value.code == 7
+    seen.clear()
+    with pytest.raises(SystemExit):
+        SBA.main(['--eval-az', '--games', '30', '--sims', '200'])
+    assert seen == [['eval', '--games', '30', '--sims', '200']]
+
+
+def test_main_bench_flags_read_argv(monkeypatch):
+    """bench() reads its flags from the argv LIST passed to main() —
+    the root shim forwards them; a wrong-engine error still exits 2."""
+    import pytest
+    import SBA
+    with pytest.raises(SystemExit) as ei:
+        SBA.main(['--bench', '--ai-a', 'Nope'])
+    assert ei.value.code == 2

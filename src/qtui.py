@@ -2579,6 +2579,10 @@ def main(argv=None):
                         help='run the pytest suite headlessly and exit')
     parser.add_argument('--train-az', action='store_true',
                         help='alias for: alphazero.py train')
+    parser.add_argument('--eval-az', action='store_true',
+                        help='alias for: alphazero.py eval')
+    parser.add_argument('--tui', action='store_true',
+                        help='start the Textual terminal app instead')
     args = parser.parse_args(argv)
     if args.debug:
         log.setLevel(logging.DEBUG)
