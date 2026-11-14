@@ -212,12 +212,16 @@ class TrainTUI(App):
 
     def __init__(self, games=300, sims=80, workers=1, eval_every=25,
                  eval_games=20, channels=128, blocks=5, stage=2,
-                 resume=None, model_path=None, csv_path=None, auto_exit=False):
+                 ckpt_every=25, resume=None, model_path=None, csv_path=None,
+                 auto_exit=False):
         super().__init__()
+        # model_path defaults to a DASHBOARD-ONLY slot: a stray TUI run must
+        # never checkpoint over the campaign's canonical model file
         self._cfg = {'games': games, 'sims': sims, 'workers': workers,
                      'eval_every': eval_every, 'eval_games': eval_games,
                      'channels': channels, 'blocks': blocks, 'stage': stage,
-                     'resume': resume, 'model_path': model_path,
+                     'ckpt_every': ckpt_every, 'resume': resume,
+                     'model_path': model_path or 'models/az_ult_tui.pt',
                      'csv_path': csv_path}
         self._auto_exit = auto_exit
         self._busy = False
@@ -250,6 +254,9 @@ class TrainTUI(App):
                         'ckpt path (optional)', id='resume')
             yield Input(value=self._cfg['model_path'] or '',
                         placeholder='model path (optional)', id='model')
+            yield from _field('checkpoint 頻率 / ckpt every N games',
+                              Input(value=str(self._cfg['ckpt_every']),
+                                    type='integer', id='ckpt-every'))
             yield Input(value=self._cfg['csv_path'] or '',
                         placeholder='csv path (optional)', id='csv')
             yield Button('開始 (ENTER)', id='start', variant='primary')
@@ -294,11 +301,17 @@ class TrainTUI(App):
                         channels=cfg['channels'], blocks=cfg['blocks'],
                         stage=cfg['stage'], resume=cfg['resume'],
                         save_path=cfg['model_path'], csv_path=cfg['csv_path'],
+                        ckpt_every=cfg['ckpt_every'],
                         quiet=True, on_event=lambda ev: self.call_from_thread(
                             self._on_event, ev))
         self.call_from_thread(self._finish)
 
     def _on_event(self, ev):
+        if ev['type'] == 'eval_start':
+            self.query_one('#stats', Static).update(
+                f"eval gauge running since game {ev['game']} — "
+                "the progress bar waits for it")
+            return
         if ev['type'] == 'game':
             self.action_show_run()
             bar = self.query_one('#bar', ProgressBar)
@@ -352,6 +365,8 @@ class TrainTUI(App):
             cfg['workers'] = int(self.query_one('#workers', Input).value or 1)
             cfg['eval_every'] = int(self.query_one('#eval-every', Input).value
                                     or 99)
+            cfg['ckpt_every'] = int(self.query_one('#ckpt-every',
+                                                   Input).value or 25)
             cfg['stage'] = int(self.query_one('#stage', Select).value or 2)
             cfg['resume'] = self.query_one('#resume', Input).value or None
             cfg['model_path'] = self.query_one('#model', Input).value or None

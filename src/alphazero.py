@@ -475,6 +475,10 @@ def model_path(game_type):
     return os.path.join(MODEL_DIR, 'az_%s.pt' % game_type)
 
 
+def alphazero_model_dir():
+    return MODEL_DIR
+
+
 def make_game(game_type):
     if game_type == 'normal':
         from game import NormalGame
@@ -854,6 +858,9 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
                     else:
                         print('[%s] checkpoint %d/%d -> %s'
                               % (game_type, it, games, save_path), flush=True)
+            if it % max(1, eval_every) == 0 or it == games:
+                if on_event:
+                    on_event({'type': 'eval_start', 'game': it})
             ev = None
             # the gauge runs regardless of quiet — quiet mutes the PRINT, not
             # the data: the CSV curve needs the win-rate column
@@ -1005,6 +1012,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
             ev = None
             # gauge runs regardless of quiet — quiet mutes the print only
             if done % max(1, eval_every) == 0 or done == games:
+                if on_event:
+                    on_event({'type': 'eval_start', 'game': done})
                 el = time.time() - start
                 ev = evaluate()
                 w, d, l = ev
