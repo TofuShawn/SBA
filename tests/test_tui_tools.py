@@ -20,10 +20,14 @@ def test_bench_tui_runs_and_reports():
     """Pilot: Start on Random-vs-Basic, 2 quick games; the score row and
     the log fill, and auto-exit leaves the app."""
     async def _run():
+        # auto_exit=False: the app must stay alive for the log read (an
+        # exited app unmounts its widgets and RichLog.lines resets)
         app = BenchTUI(games=2, iterations=4, game_type='normal',
-                       ai_a='Random', ai_b='Basic', depth=2, auto_exit=True)
+                       ai_a='Random', ai_b='Basic', depth=2)
         async with app.run_test(size=(120, 40)) as pilot:
-            await pilot.click('#start')
+            await pilot.click('#start')          # two-page flow
+            await pilot.pause()
+            assert app.query_one('#page-run').has_class('page-visible')
             deadline = 30.0
             while app._busy and deadline > 0:
                 await asyncio.sleep(0.1)
@@ -41,7 +45,7 @@ def test_train_tui_event_updates():
     both sparklines, stats and the log react without any torch."""
     async def _run():
         app = TrainTUI(games=3, sims=4, channels=32, blocks=2)
-        async with app.run_test(size=(120, 40)):
+        async with app.run_test(size=(120, 40)) as pilot:
             app._on_event({'type': 'game', 'game': 1, 'games': 3,
                            'stage': 2, 'lr': 1e-3, 'loss': 1.7,
                            'positions': 38, 'temp': 0.9, 'eval': None,
@@ -51,6 +55,7 @@ def test_train_tui_event_updates():
                            'stage': 2, 'lr': 9e-4, 'loss': 1.1,
                            'positions': 80, 'temp': 0.8,
                            'eval': (2, 1, 1), 'elapsed': 2.5})
+            await pilot.pause()          # let RichLog flush its pending writes
             assert app.query_one('#bar').progress == 2
             assert app.query_one('#loss-spark').data[-1] == 1.1
             assert app.query_one('#wr-spark').data[-1] == 62.5

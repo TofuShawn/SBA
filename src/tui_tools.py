@@ -1,14 +1,16 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Textual dashboards for the CLI tools (D44): --bench-tui and --train-tui.
+"""Two-page Textual dashboards for the CLI tools (D44/D45): --bench-tui
+and --train-tui.
 
-Both apps follow the same shape: a config panel prefilled from the command
-line, a Start button that hands the blocking work to a thread worker, and
-live widgets fed by the structured callbacks (bench(on_progress=...) /
-train(on_event=...)) — the CLI tools keep their rich/CSV output, these
-apps are an alternative VIEW, not a second implementation. Auto-exit is a
-test hook: the Pilot smoke needs the app to leave after the work lands.
+Page 1 (press `1`) is the parameter form; page 2 (press `2`) is the live
+monitor. Start hands the blocking work to a thread worker fed by the
+structured callbacks (bench(on_progress=...) / train(on_event=...)) — the
+CLI tools keep their rich/CSV output, these apps are a VIEW, not a second
+implementation. The footer always shows the key bindings, so the whole
+flow works on a bare SSH session with no mouse. Auto-exit is a test hook:
+the Pilot smoke needs the app to leave after the work lands.
 """
 
 import sys
@@ -16,42 +18,50 @@ import sys
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import (Button, DataTable, Input, ProgressBar, RichLog,
-                             Select, Sparkline, Static)
+from textual.containers import Horizontal, Vertical
+from textual.widgets import (Button, DataTable, Footer, Input, ProgressBar,
+                             RichLog, Select, Sparkline, Static)
 
 from SBA import BENCH_AI_NAMES
 
+HINT_PARAMS = ('[TAB] 下一欄 · [ENTER] 開始 · [1] 參數頁 · [2] 進度頁 · [Q] 離開')
+HINT_RUN = ('[2] 進度頁 · [1] 回參數頁（可調整後重跑） · [Q] 離開')
 
-class _ConfigPanel(Vertical):
-    """Left-hand form column shared by both dashboards."""
+
+def _hint(text):
+    return Static(text, classes='hint')
+
+
+class _Page(Vertical):
+    """One full-width page; visibility toggles via the page-visible class."""
 
     DEFAULT_CSS = """
-    _ConfigPanel { width: 44; padding: 1; }
-    _ConfigPanel Input { margin-bottom: 1; }
-    _ConfigPanel Select { margin-bottom: 1; }
-    _ConfigPanel Button { margin-top: 1; }
-    """
-
-
-class _RunPanel(Vertical):
-    DEFAULT_CSS = """
-    _RunPanel { padding: 1; }
-    _RunPanel ProgressBar { margin-bottom: 1; }
-    _RunPanel Horizontal.spark { height: 6; }
-    _RunPanel Sparkline { width: 1fr; height: 100%; }
-    _RunPanel #stats { margin-bottom: 1; color: $text-muted; }
-    _RunPanel RichLog { height: 1fr; border: round $primary; }
+    _Page { width: 1fr; height: 1fr; padding: 1 2; display: none; }
+    _Page.page-visible { display: block; }
+    _Page Input { margin-bottom: 1; max-width: 60; }
+    _Page Select { margin-bottom: 1; max-width: 60; }
+    _Page Button { margin-top: 1; max-width: 30; }
+    _Page .hint { color: $text-muted; margin-top: 1; }
+    _Page ProgressBar { margin-bottom: 1; }
+    _Page Horizontal.spark { height: 6; }
+    _Page Sparkline { width: 1fr; height: 100%; }
+    _Page #stats { margin-bottom: 1; color: $text-muted; }
+    _Page RichLog { height: 1fr; border: round $primary; }
     """
 
 
 class BenchTUI(App):
-    """Interactive --bench: pick two engines, watch every game land."""
+    """Interactive --bench-tui: page 1 = parameters, page 2 = live scores."""
 
     CSS = """
-    Screen { layout: horizontal; }
+    Screen { layout: vertical; }
     """
-    BINDINGS = [Binding('q', 'quit', 'Quit')]
+    BINDINGS = [
+        Binding('1', 'show_params', '參數頁'),
+        Binding('2', 'show_run', '進度頁'),
+        Binding('enter', 'start_run', '開始', show=False),
+        Binding('q', 'quit', '離開'),
+    ]
     TITLE = 'SBA bench'
 
     def __init__(self, games=20, iterations=1600, game_type='ultimate',
@@ -62,34 +72,36 @@ class BenchTUI(App):
                      'depth': depth}
         self._auto_exit = auto_exit
         self._busy = False
-        self._row_key = 0
-        print('DBG BenchTUI.__init__ set _running False, id(self)=',
-              id(self), file=sys.stderr, flush=True)
+        self._worker = None
         self._col_keys = None
 
     def compose(self) -> ComposeResult:
         engines = [(n, n) for n in BENCH_AI_NAMES]
-        with _ConfigPanel():
+        with _Page(id='page-params', classes='page-visible'):
             yield Static('[bold]BENCH // 引擎對戰[/bold]')
             yield Select(engines, value=self._cfg['ai_a'] or 'MCTS',
-                         prompt='Engine A', id='ai-a')
+                         prompt='引擎 A / Engine A', id='ai-a')
             yield Select(engines, value=self._cfg['ai_b'] or 'MCTS+GRAVE',
-                         prompt='Engine B', id='ai-b')
+                         prompt='引擎 B / Engine B', id='ai-b')
             yield Input(value=str(self._cfg['games']), type='integer',
                         id='games')
             yield Input(value=str(self._cfg['iterations']), type='integer',
                         id='iters')
             yield Select([('ultimate', 'ultimate'), ('normal', 'normal')],
-                         value=self._cfg['game_type'], prompt='Board',
+                         value=self._cfg['game_type'], prompt='棋盤 / Board',
                          id='board')
             yield Select([('2', '2'), ('4', '4'), ('6', '6'), ('8', '8')],
-                         value=str(self._cfg['depth']), prompt='Minimax depth',
-                         id='depth')
-            yield Button('Start', id='start', variant='primary')
-        with _RunPanel():
+                         value=str(self._cfg['depth']),
+                         prompt='Minimax 深度 / depth', id='depth')
+            yield Button('開始 (ENTER)', id='start', variant='primary')
+            yield _hint(HINT_PARAMS)
+        with _Page(id='page-run'):
+            yield Static('', id='run-title')
             yield ProgressBar(id='bar', show_eta=False)
             yield DataTable(id='scores')
             yield RichLog(id='log', markup=True, wrap=True)
+            yield _hint(HINT_RUN)
+        yield Footer()
 
     def on_mount(self):
         table = self.query_one('#scores', DataTable)
@@ -97,6 +109,22 @@ class BenchTUI(App):
                           ('A', 'B', 'game', 'A wins', 'draws', 'B wins',
                            'A score%')]
         table.add_row('', '', '', '', '', '', '', key='bench')
+        self.action_show_params()
+
+    def action_show_params(self):
+        self.query_one('#page-params', _Page).add_class('page-visible')
+        self.query_one('#page-run', _Page).remove_class('page-visible')
+        self.query_one('#ai-a', Select).focus()
+
+    def action_show_run(self):
+        self.query_one('#page-run', _Page).add_class('page-visible')
+        self.query_one('#page-params', _Page).remove_class('page-visible')
+
+    def action_start_run(self):
+        # ENTER starts only from the params page (on the run page the key
+        # stays free); the _busy guard blocks double-starts
+        if self.query_one('#page-params', _Page).has_class('page-visible'):
+            self._press_start()
 
     @work(exclusive=True, thread=True)
     def _start_bench(self, cfg):
@@ -109,6 +137,7 @@ class BenchTUI(App):
         self.call_from_thread(self._finish)
 
     def _on_game(self, ev):
+        self.action_show_run()
         bar = self.query_one('#bar', ProgressBar)
         if bar.total != ev['total']:
             bar.total = ev['total']
@@ -130,11 +159,13 @@ class BenchTUI(App):
             self.exit()
 
     def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id != 'start' or self._busy:
-            return
-        self._press_start_bench()
+        if event.button.id == 'start':
+            self._press_start()
 
-    def _press_start_bench(self):
+    def _press_start(self):
+        if self._busy:
+            return
+        self._busy = True
         try:
             cfg = dict(self._cfg)
             cfg['games'] = int(self.query_one('#games', Input).value or 1)
@@ -143,21 +174,30 @@ class BenchTUI(App):
             cfg['depth'] = int(self.query_one('#depth', Select).value)
             cfg['ai_a'] = self.query_one('#ai-a', Select).value
             cfg['ai_b'] = self.query_one('#ai-b', Select).value
+            self.query_one('#run-title', Static).update(
+                f"{cfg['ai_a']} vs {cfg['ai_b']} · {cfg['game_type']} · "
+                f"{cfg['games']} 局 · {cfg['iterations']} sims/move")
+            self.query_one('#log', RichLog).clear()
+            self.action_show_run()
             self._worker = self._start_bench(cfg)
         except Exception:
-            import sys
-            import traceback
-            traceback.print_exc(file=sys.stderr)
+            self._busy = False
             raise
 
+
 class TrainTUI(App):
-    """Interactive --train-az dashboard: progress, loss/win-rate sparklines
-    and the milestone log, fed by train(on_event=...)."""
+    """Interactive --train-tui: page 1 = parameters, page 2 = the live run
+    (progress, loss/win-rate sparklines, milestones)."""
 
     CSS = """
-    Screen { layout: horizontal; }
+    Screen { layout: vertical; }
     """
-    BINDINGS = [Binding('q', 'quit', 'Quit')]
+    BINDINGS = [
+        Binding('1', 'show_params', '參數頁'),
+        Binding('2', 'show_run', '進度頁'),
+        Binding('enter', 'start_run', '開始', show=False),
+        Binding('q', 'quit', '離開'),
+    ]
     TITLE = 'SBA train'
 
     def __init__(self, games=300, sims=80, workers=1, eval_every=25,
@@ -171,12 +211,13 @@ class TrainTUI(App):
                      'csv_path': csv_path}
         self._auto_exit = auto_exit
         self._busy = False
+        self._worker = None
         self._loss_hist = []
         self._wr_hist = []
         self._stats_text = ''
 
     def compose(self) -> ComposeResult:
-        with _ConfigPanel():
+        with _Page(id='page-params', classes='page-visible'):
             yield Static('[bold]TRAIN // 兩階段配方[/bold]')
             yield Input(value=str(self._cfg['games']), type='integer',
                         id='games')
@@ -195,15 +236,39 @@ class TrainTUI(App):
                         placeholder='model path (optional)', id='model')
             yield Input(value=self._cfg['csv_path'] or '',
                         placeholder='csv path (optional)', id='csv')
-            yield Button('Start', id='start', variant='primary')
-        with _RunPanel():
+            yield Button('開始 (ENTER)', id='start', variant='primary')
+            yield _hint(HINT_PARAMS)
+        with _Page(id='page-run'):
+            yield Static('', id='run-title')
             yield ProgressBar(id='bar', show_eta=False)
             yield Horizontal(
+                Static('[bold]loss[/bold]'),
                 Sparkline(id='loss-spark'),
+                Static('[bold]win%[/bold]'),
                 Sparkline(id='wr-spark'),
-                classes='spark')
+            )
             yield Static('', id='stats')
             yield RichLog(id='log', markup=True, wrap=True)
+            yield _hint(HINT_RUN)
+        yield Footer()
+
+    def on_mount(self):
+        self.action_show_params()
+
+    def action_show_params(self):
+        self.query_one('#page-params', _Page).add_class('page-visible')
+        self.query_one('#page-run', _Page).remove_class('page-visible')
+        self.query_one('#games', Input).focus()
+
+    def action_show_run(self):
+        self.query_one('#page-run', _Page).add_class('page-visible')
+        self.query_one('#page-params', _Page).remove_class('page-visible')
+
+    def action_start_run(self):
+        # ENTER starts only from the params page (on the run page the key
+        # stays free); the _busy guard blocks double-starts
+        if self.query_one('#page-params', _Page).has_class('page-visible'):
+            self._press_start()
 
     @work(exclusive=True, thread=True)
     def _start_train(self, cfg):
@@ -218,8 +283,9 @@ class TrainTUI(App):
         self.call_from_thread(self._finish)
 
     def _on_event(self, ev):
-        bar = self.query_one('#bar', ProgressBar)
         if ev['type'] == 'game':
+            self.action_show_run()
+            bar = self.query_one('#bar', ProgressBar)
             if bar.total != ev['games']:
                 bar.total = ev['games']
             bar.progress = ev['game']
@@ -256,23 +322,33 @@ class TrainTUI(App):
             self.exit()
 
     def on_button_pressed(self, event: Button.Pressed):
-        if event.button.id != 'start' or self._busy:
-            return
-        self._press_start_train()
+        if event.button.id == 'start':
+            self._press_start()
 
-    def _press_start_train(self):
-        cfg = dict(self._cfg)
-        cfg['games'] = int(self.query_one('#games', Input).value or 1)
-        cfg['sims'] = int(self.query_one('#sims', Input).value or 1)
-        cfg['workers'] = int(self.query_one('#workers', Input).value or 1)
-        cfg['eval_every'] = int(self.query_one('#eval-every', Input).value
-                                or 99)
-        cfg['stage'] = int(self.query_one('#stage', Select).value or 2)
-        cfg['resume'] = self.query_one('#resume', Input).value or None
-        cfg['model_path'] = self.query_one('#model', Input).value or None
-        cfg['csv_path'] = self.query_one('#csv', Input).value or None
-        self._running = True
-        self._worker = self._start_train(cfg)
+    def _press_start(self):
+        if self._busy:
+            return
+        self._busy = True
+        try:
+            cfg = dict(self._cfg)
+            cfg['games'] = int(self.query_one('#games', Input).value or 1)
+            cfg['sims'] = int(self.query_one('#sims', Input).value or 1)
+            cfg['workers'] = int(self.query_one('#workers', Input).value or 1)
+            cfg['eval_every'] = int(self.query_one('#eval-every', Input).value
+                                    or 99)
+            cfg['stage'] = int(self.query_one('#stage', Select).value or 2)
+            cfg['resume'] = self.query_one('#resume', Input).value or None
+            cfg['model_path'] = self.query_one('#model', Input).value or None
+            cfg['csv_path'] = self.query_one('#csv', Input).value or None
+            self.query_one('#run-title', Static).update(
+                f"stage {cfg['stage']} · {cfg['games']} 局 · "
+                f"{cfg['sims']} sims/move · workers {cfg['workers']}")
+            self.query_one('#log', RichLog).clear()
+            self.action_show_run()
+            self._worker = self._start_train(cfg)
+        except Exception:
+            self._busy = False
+            raise
 
 
 def run_bench(args):
