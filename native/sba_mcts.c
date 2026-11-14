@@ -1,19 +1,19 @@
 /*
- * sba_mcts.c — full plain MCTS in C (D27): arena tree, UCT selection with
- * the Python dynamic-uct annealing, expansion, in-process rollout (plain or
- * pattern), backprop, and root stats export so analyze_position /
- * position_win_rates can reuse one search exactly like the Python path.
+ * sba_mcts.c — full plain MCTS in C (D27/D37).
  *
- * Node semantics mirror ai.py's MCTSNode:
- *   - wins are counted from the mover's perspective (1 win / 0.5 draw)
- *   - expansion pops a random untried move
- *   - best move = highest win-rate among sufficiently visited children,
- *     preferring an immediate game-winning move (parity with
- *     _best_mcts_move).
+ * D37 changes:
+ *   - the node arena is owned by the DLL (malloc/calloc), so the caller no
+ *     longer passes a byte buffer that gets cast to MctsNode*; a tree is
+ *     handed back as an opaque SbaTreeHandle and released with sba_tree_free.
+ *   - SbaSearchOpts carries every switch that used to be Python-only:
+ *     uct_c, dynamic_uct, rollout_heuristic, symmetry, use_pattern
+ *     (micro_tablebase belongs to the minimax evaluator, see sba_minimax.c).
+ *   - root symmetry dedup compares the CANONICAL RESULTING POSITION (cells +
+ *     macro + active routing + side to move) under the 8 D4 transforms, not
+ *     the move's cell orbit — the orbit key merged non-equivalent moves.
  *
- * Tree reuse: the Python tree is not transferable, but a previous C arena
- * can be passed back (D30) — the search walks it down to the current
- * position and copies the matching subtree.
+ * Node semantics still mirror ai.py's MCTSNode (wins from the mover's view,
+ * draws counted separately) and the best-move tie-break checks a GAME win.
  */
 
 #include "sba_ultt.h"
@@ -34,80 +34,162 @@ typedef struct {
     int32_t active;
 } MctsNode;
 
-static double uct_scale(int32_t c_times_100, double root_visits,
+/* A C-owned search tree. malloc() gives suitably aligned storage, so the
+ * uint8_t* -> MctsNode* cast (and its alignment assumption) is gone. */
+typedef struct {
+    MctsNode *arena;
+    int32_t cap;
+    int32_t n;
+} SbaTree;
+
+/* Same 8 D4 permutations as ai.py's _D4 (verified against it). */
+static const int32_t SBA_D4[8][9] = {
+    {0, 1, 2, 3, 4, 5, 6, 7, 8},
+    {2, 5, 8, 1, 4, 7, 0, 3, 6},
+    {8, 7, 6, 5, 4, 3, 2, 1, 0},
+    {6, 3, 0, 7, 4, 1, 8, 5, 2},
+    {6, 7, 8, 3, 4, 5, 0, 1, 2},
+    {8, 5, 2, 7, 4, 1, 6, 3, 0},
+    {2, 1, 0, 5, 4, 3, 8, 7, 6},
+    {0, 3, 6, 1, 4, 7, 2, 5, 8},
+};
+
+static const SbaSearchOpts SBA_DEFAULT_OPTS = {
+    1.4,  /* uct_c */
+    1,    /* dynamic_uct */
+    1,    /* rollout_heuristic */
+    1,    /* micro_tablebase */
+    1,    /* symmetry */
+    0,    /* use_pattern */
+};
+
+static double uct_scale(double c, int32_t dynamic, double root_visits,
                         int32_t iterations) {
-    double c = c_times_100 / 100.0;
     /* ai.py _uct_scale: c * (0.6 + 0.4 * (1 - root_visits / iterations)) */
-    return c * (0.6 + 0.4 * (1.0 - root_visits / (iterations > 0 ? iterations : 1)));
+    if (!dynamic) return c;
+    double limit = iterations > 0 ? (double)iterations : 1.0;
+    return c * (0.6 + 0.4 * (1.0 - root_visits / limit));
 }
 
-/* Recursively copy the subtree rooted at src into dst arena (remapping
- * parent/child/next indices). Returns the new index, or -1 when the arena
- * capacity is exceeded (caller then starts from a fresh root). */
-static int32_t copy_subtree(MctsNode *dst, int32_t *dn, int32_t cap,
-                            const MctsNode *src_arena, int32_t src,
+/* Two resulting positions are equivalent iff some D4 transform maps one to
+ * the other, including macro statuses, the forced next macro and the side to
+ * move. Exact comparison (no hashing), so no collision risk. */
+static int32_t d4_equivalent(const MctsNode *a, const MctsNode *b) {
+    for (int32_t t = 0; t < 8; t++) {
+        const int32_t *p = SBA_D4[t];
+        int32_t ok = 1;
+        for (int32_t m = 0; m < SBA_N_MACROS && ok; m++) {
+            for (int32_t i = 0; i < 9 && ok; i++) {
+                if (a->cells[m * 9 + i] != b->cells[p[m] * 9 + p[i]]) ok = 0;
+            }
+        }
+        for (int32_t m = 0; m < SBA_N_MACROS && ok; m++) {
+            if (a->macro[m] != b->macro[p[m]]) ok = 0;
+        }
+        if (ok) {
+            int32_t active_b = (b->active >= 0) ? p[b->active] : -1;
+            if (a->active != active_b || a->player != b->player) ok = 0;
+        }
+        if (ok) return 1;
+    }
+    return 0;
+}
+
+static SbaTree *tree_alloc(int32_t cap) {
+    SbaTree *t = (SbaTree *)calloc(1, sizeof(SbaTree));
+    if (!t) return NULL;
+    t->arena = (MctsNode *)calloc((size_t)cap, sizeof(MctsNode));
+    if (!t->arena) { free(t); return NULL; }
+    t->cap = cap;
+    t->n = 0;
+    return t;
+}
+
+int32_t __stdcall sba_tree_free(SbaTreeHandle handle) {
+    SbaTree *t = (SbaTree *)handle;
+    if (!t) return 0;
+    free(t->arena);
+    free(t);
+    return 0;
+}
+
+/* Recursively copy the subtree rooted at src_idx into dst (remapping
+ * parent/child/next indices). Returns the new index, or -1 on overflow. */
+static int32_t copy_subtree(SbaTree *dst, const SbaTree *src, int32_t src_idx,
                             int32_t dst_parent) {
-    if (*dn >= cap) return -1;
-    int32_t d = (*dn)++;
-    MctsNode *n = &dst[d];
-    const MctsNode *s = &src_arena[src];
+    if (dst->n >= dst->cap) return -1;
+    int32_t d = dst->n++;
+    MctsNode *n = &dst->arena[d];
+    const MctsNode *s = &src->arena[src_idx];
+    *n = *s;
     n->parent = dst_parent;
     n->child = n->next = -1;
-    n->move = s->move;
-    n->mover = s->mover;
-    n->visits = s->visits;
-    n->wins = s->wins;
-    n->draws = s->draws;
-    n->untried[0] = s->untried[0];
-    n->untried[1] = s->untried[1];
-    for (int32_t i = 0; i < 81; i++) n->cells[i] = s->cells[i];
-    for (int32_t m = 0; m < SBA_N_MACROS; m++) n->macro[m] = s->macro[m];
-    n->player = s->player;
-    n->active = s->active;
-    for (int32_t ch = s->child; ch != -1; ch = src_arena[ch].next) {
-        int32_t c = copy_subtree(dst, dn, cap, src_arena, ch, d);
+    for (int32_t ch = s->child; ch != -1; ch = src->arena[ch].next) {
+        int32_t c = copy_subtree(dst, src, ch, d);
         if (c < 0) return -1;
-        dst[c].next = n->child;
+        dst->arena[c].next = n->child;
         n->child = c;
     }
     return d;
 }
 
-int32_t __stdcall sba_node_size(void) {
-    /* the Python arena allocates this many bytes per node — always ask,
-     * never hardcode (the struct has grown before) */
-    return (int32_t)sizeof(MctsNode);
+static void legal_mask_into(uint64_t out[2], const SbaState *st) {
+    out[0] = out[1] = 0;
+    if (sba_result(st) != 0) return;
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) {
+        if (st->active >= 0 && m != st->active) continue;
+        if (st->macro[m] != 0) continue;
+        for (int32_t i = 0; i < 9; i++) {
+            if (st->cells[m * 9 + i] == 0) {
+                int32_t b = m * 9 + i;
+                if (b < 64) out[0] |= (uint64_t)1 << b;
+                else out[1] |= (uint64_t)1 << (b - 64);
+            }
+        }
+    }
+}
+
+static void state_from_node(SbaState *st, const MctsNode *n) {
+    for (int32_t i = 0; i < 81; i++) st->cells[i] = n->cells[i];
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) st->macro[m] = n->macro[m];
+    st->player = n->player;
+    st->active = n->active;
+}
+
+static void node_from_state(MctsNode *n, const SbaState *st) {
+    for (int32_t i = 0; i < 81; i++) n->cells[i] = st->cells[i];
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) n->macro[m] = st->macro[m];
+    n->player = st->player;
+    n->active = st->active;
 }
 
 int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   int32_t player, int32_t active,
                                   int32_t iterations, uint64_t seed,
-                                  int32_t use_pattern, int32_t *out_best,
-                                  int32_t *out_count, int32_t *out_moves,
-                                  double *out_visits, double *out_wins,
-                                  int32_t *out_mover, int32_t *out_draws,
-                                  uint8_t *buf,
-                                  int32_t buf_bytes,
-                                  const uint8_t *prev_buf,
-                                  int32_t prev_bytes) {
+                                  const SbaSearchOpts *opts_in,
+                                  int32_t *out_best, int32_t *out_count,
+                                  int32_t *out_moves, double *out_visits,
+                                  double *out_wins, int32_t *out_mover,
+                                  int32_t *out_draws,
+                                  SbaTreeHandle *out_tree,
+                                  const SbaTreeHandle prev_tree) {
+    const SbaSearchOpts *opts = opts_in ? opts_in : &SBA_DEFAULT_OPTS;
     uint64_t rng = seed ? seed : 0x9E3779B97F4A7C15ULL;
-    /* No CRT in this DLL (mingw cross builds lack a working one here): the
-     * caller supplies the node arena. Capacity check -> -2 when too small. */
-    int32_t max_nodes = (int32_t)(buf_bytes / sizeof(MctsNode));
-    if (max_nodes < iterations + 64) return -2;
-    MctsNode *arena = (MctsNode *)buf;
-    int32_t n_nodes = 0;
+    if (out_tree) *out_tree = NULL;
+    if (iterations <= 0) return -2;
+
+    /* 2x headroom: a reused subtree plus this search's new nodes. */
+    SbaTree *tree = tree_alloc(iterations * 2 + 64);
+    if (!tree) return -2;
+    MctsNode *arena = tree->arena;
+    int32_t max_nodes = tree->cap;
     MctsNode *root = NULL;
 
-    /* --- tree reuse (D30): walk the previous tree down to the current
-     * position (one differing cell per ply), then copy the matched subtree
-     * in as the new root. Falls back to a fresh root on any mismatch, and
-     * bails (-> -3) when the subtree does not fit the arena. --- */
-    if (prev_buf != NULL && prev_bytes >= (int32_t)sizeof(MctsNode)) {
-        const MctsNode *par = (const MctsNode *)prev_buf;
-        int32_t prev_cap = prev_bytes / (int32_t)sizeof(MctsNode);
-        int32_t cur = 0;
-        int32_t matched = 0;
+    /* --- tree reuse (D30) --- */
+    if (prev_tree != NULL) {
+        const SbaTree *prev = (const SbaTree *)prev_tree;
+        const MctsNode *par = prev->arena;
+        int32_t cur = 0, matched = 0;
         for (int32_t guard = 0; guard < 128; guard++) {
             int32_t diffs = 0, diff_idx = -1;
             for (int32_t i = 0; i < 81; i++) {
@@ -123,18 +205,18 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
             cur = c;
         }
         if (matched && par[cur].player == player) {
-            int32_t dn = 0;
-            int32_t new_root = copy_subtree(arena, &dn, max_nodes, par, cur, -1);
-            if (new_root >= 0 && dn + iterations + 8 <= max_nodes) {
-                n_nodes = dn;
+            int32_t new_root = copy_subtree(tree, prev, cur, -1);
+            if (new_root >= 0 && tree->n + iterations + 8 <= max_nodes) {
                 root = &arena[new_root];
                 root->parent = -1;
+            } else {
+                tree->n = 0;   /* overflow: start from a fresh root */
             }
         }
     }
 
     if (root == NULL) {
-        root = &arena[n_nodes++];
+        root = &arena[tree->n++];
         root->parent = root->child = root->next = -1;
         root->move = -1;
         root->mover = 0;   /* nobody moved into the root: Python parity (None) */
@@ -146,38 +228,23 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
         root->active = active;
         for (int32_t i = 0; i < 81; i++) root->cells[i] = cells[i];
         for (int32_t m = 0; m < SBA_N_MACROS; m++) root->macro[m] = macro[m];
-        /* root untried mask = legal moves */
-        {
-            SbaState st;
-            for (int32_t i = 0; i < 81; i++) st.cells[i] = cells[i];
-            for (int32_t m = 0; m < SBA_N_MACROS; m++) st.macro[m] = macro[m];
-            st.player = player;
-            st.active = active;
-            uint64_t mask[2] = {0, 0};
-            for (int32_t m = 0; m < SBA_N_MACROS; m++) {
-                if (active >= 0 && m != active) continue;
-                if (macro[m] != 0) continue;
-                for (int32_t i = 0; i < 9; i++) {
-                    if (cells[m * 9 + i] == 0) {
-                        int32_t idx = m * 9 + i;
-                        if (idx < 64) mask[0] |= (uint64_t)1 << idx;
-                        else mask[1] |= (uint64_t)1 << (idx - 64);
-                    }
-                }
-            }
-            root->untried[0] = mask[0];
-            root->untried[1] = mask[1];
-        }
+        SbaState st;
+        state_from_node(&st, root);
+        uint64_t mask[2];
+        legal_mask_into(mask, &st);
+        root->untried[0] = mask[0];
+        root->untried[1] = mask[1];
     }
 
     for (int32_t it = 0; it < iterations; it++) {
-        /* --- selection: walk down fully-expanded nodes by UCT --- */
+        /* --- selection --- */
         MctsNode *node = root;
         while (1) {
             if ((node->untried[0] | node->untried[1]) != 0) break;
             if (node->child == -1) break;
             double log_n = log((double)(node->visits > 0 ? node->visits : 1));
-            double scale = uct_scale(140, (double)root->visits, iterations);
+            double scale = uct_scale(opts->uct_c, opts->dynamic_uct,
+                                     (double)root->visits, iterations);
             int32_t best = -1;
             double best_val = -1e300;
             for (int32_t ch = node->child; ch != -1; ch = arena[ch].next) {
@@ -187,102 +254,106 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                            + scale * sqrt(log_n / arena[ch].visits);
                 if (val > best_val) { best_val = val; best = ch; }
             }
+            if (best < 0) break;
             node = &arena[best];
         }
 
-        /* --- expansion: pop a random untried move --- */
-        if ((node->untried[0] | node->untried[1]) != 0 && n_nodes < max_nodes) {
-            uint64_t un0 = node->untried[0], un1 = node->untried[1];
-            int32_t total = 0;
-            {
-                uint64_t t0 = un0, t1 = un1;
-                while (t0) { t0 &= t0 - 1; total++; }
-                while (t1) { t1 &= t1 - 1; total++; }
-            }
-            int32_t pick = (int32_t)sba_rng_below(&rng, (uint32_t)total);
-            int32_t idx = -1;
-            int32_t seen = 0;
-            for (int32_t b = 0; b < 81; b++) {
-                uint64_t *w = b < 64 ? &un0 : &un1;
-                int32_t sh = b < 64 ? b : b - 64;
-                if ((*w >> sh) & 1) {
-                    if (seen == pick) {
-                        idx = b;
-                        *w &= ~((uint64_t)1 << sh);
-                        break;
-                    }
-                    seen++;
+        /* --- expansion: pop random untried moves until one is accepted --- */
+        if ((node->untried[0] | node->untried[1]) != 0 && tree->n < max_nodes) {
+            int32_t accepted = 0;
+            while (!accepted && (node->untried[0] | node->untried[1]) != 0
+                   && tree->n < max_nodes) {
+                uint64_t un0 = node->untried[0], un1 = node->untried[1];
+                int32_t total = 0;
+                {
+                    uint64_t t0 = un0, t1 = un1;
+                    while (t0) { t0 &= t0 - 1; total++; }
+                    while (t1) { t1 &= t1 - 1; total++; }
                 }
-            }
-            node->untried[0] = un0;
-            node->untried[1] = un1;
+                int32_t pick = (int32_t)sba_rng_below(&rng, (uint32_t)total);
+                int32_t idx = -1, seen = 0;
+                for (int32_t b = 0; b < 81; b++) {
+                    uint64_t *w = b < 64 ? &un0 : &un1;
+                    int32_t sh = b < 64 ? b : b - 64;
+                    if ((*w >> sh) & 1) {
+                        if (seen == pick) {
+                            idx = b;
+                            *w &= ~((uint64_t)1 << sh);
+                            break;
+                        }
+                        seen++;
+                    }
+                }
+                node->untried[0] = un0;
+                node->untried[1] = un1;
+                if (idx < 0) break;
 
-            MctsNode *child = &arena[n_nodes++];
-            child->parent = (int32_t)(node - arena);
-            child->child = child->next = -1;
-            child->move = idx;
-            child->mover = node->player;
-            child->visits = 0;
-            child->wins = 0.0;
-            child->draws = 0;
-            child->untried[0] = child->untried[1] = 0;
-            for (int32_t i = 0; i < 81; i++) child->cells[i] = node->cells[i];
-            for (int32_t m = 0; m < SBA_N_MACROS; m++)
-                child->macro[m] = node->macro[m];
-            child->player = node->player;
-            child->active = node->active;
-            SbaState st;
-            for (int32_t i = 0; i < 81; i++) st.cells[i] = child->cells[i];
-            for (int32_t m = 0; m < SBA_N_MACROS; m++)
-                st.macro[m] = child->macro[m];
-            st.player = child->player;
-            st.active = child->active;
-            sba_apply(&st, idx / 9, idx % 9);
-            for (int32_t i = 0; i < 81; i++) child->cells[i] = st.cells[i];
-            for (int32_t m = 0; m < SBA_N_MACROS; m++)
-                child->macro[m] = st.macro[m];
-            child->player = st.player;
-            child->active = st.active;
-            uint64_t cmask[2] = {0, 0};
-            if (sba_result(&st) == 0) {
-                for (int32_t m = 0; m < SBA_N_MACROS; m++) {
-                    if (st.active >= 0 && m != st.active) continue;
-                    if (st.macro[m] != 0) continue;
-                    for (int32_t i = 0; i < 9; i++) {
-                        if (st.cells[m * 9 + i] == 0) {
-                            int32_t b = m * 9 + i;
-                            if (b < 64) cmask[0] |= (uint64_t)1 << b;
-                            else cmask[1] |= (uint64_t)1 << (b - 64);
+                MctsNode *child = &arena[tree->n++];
+                child->parent = (int32_t)(node - arena);
+                child->child = child->next = -1;
+                child->move = idx;
+                child->mover = node->player;
+                child->visits = 0;
+                child->wins = 0.0;
+                child->draws = 0;
+                child->untried[0] = child->untried[1] = 0;
+                for (int32_t i = 0; i < 81; i++) child->cells[i] = node->cells[i];
+                for (int32_t m = 0; m < SBA_N_MACROS; m++)
+                    child->macro[m] = node->macro[m];
+                child->player = node->player;
+                child->active = node->active;
+                SbaState st;
+                state_from_node(&st, child);
+                sba_apply(&st, idx / 9, idx % 9);
+                node_from_state(child, &st);
+                uint64_t cmask[2];
+                legal_mask_into(cmask, &st);
+                child->untried[0] = cmask[0];
+                child->untried[1] = cmask[1];
+                child->next = node->child;
+                node->child = (int32_t)(child - arena);
+
+                if (opts->symmetry && node == root) {
+                    int32_t duplicate = 0;
+                    for (int32_t ch = child->next; ch != -1; ch = arena[ch].next) {
+                        if (d4_equivalent(&arena[ch], child)) {
+                            duplicate = 1;
+                            break;
                         }
                     }
+                    if (duplicate) {
+                        node->child = child->next;   /* unlink */
+                        tree->n--;                    /* roll back the slot */
+                        continue;                     /* try another move */
+                    }
                 }
+                node = child;
+                accepted = 1;
             }
-            child->untried[0] = cmask[0];
-            child->untried[1] = cmask[1];
-            child->next = node->child;
-            node->child = (int32_t)(child - arena);
-            node = child;
         }
 
-        /* --- rollout: one terminal playout from the node state --- */
+        /* --- rollout --- */
         int32_t result;
         {
             SbaState st;
-            for (int32_t i = 0; i < 81; i++) st.cells[i] = node->cells[i];
-            for (int32_t m = 0; m < SBA_N_MACROS; m++) st.macro[m] = node->macro[m];
-            st.player = node->player;
-            st.active = node->active;
+            state_from_node(&st, node);
             result = sba_result(&st);
         }
         if (result == 0) {
-            result = use_pattern
-                ? sba_rollout_pattern(node->cells, node->macro, node->player,
-                                      node->active, sba_rng_next(&rng))
-                : sba_rollout(node->cells, node->macro, node->player,
-                              node->active, sba_rng_next(&rng));
+            uint64_t rseed = sba_rng_next(&rng);
+            if (!opts->rollout_heuristic) {
+                result = sba_rollout_random(node->cells, node->macro,
+                                            node->player, node->active, rseed);
+            } else if (opts->use_pattern) {
+                result = sba_rollout_pattern(node->cells, node->macro,
+                                             node->player, node->active, rseed);
+            } else {
+                result = sba_rollout(node->cells, node->macro,
+                                     node->player, node->active, rseed);
+            }
         }
 
-        /* --- backprop (wins from the mover's perspective) --- */
+        /* --- backprop --- */
         MctsNode *bn = node;
         while (bn != NULL) {
             bn->visits++;
@@ -292,7 +363,7 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
         }
     }
 
-    /* --- pick the best move (parity with _best_mcts_move) --- */
+    /* --- best move (parity with _best_mcts_move) --- */
     int32_t min_visits = iterations / 100 > 5 ? iterations / 100 : 5;
     double best_wr = -1.0;
     int32_t best_idx = -1;
@@ -301,7 +372,6 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
         double wr = arena[ch].wins / arena[ch].visits;
         if (wr > best_wr) { best_wr = wr; best_idx = arena[ch].move; }
     }
-    /* prefer an immediate game-winning move among the visited children */
     for (int32_t ch = root->child; ch != -1; ch = arena[ch].next) {
         if (arena[ch].visits < min_visits) continue;
         int32_t m = arena[ch].move / 9, i = arena[ch].move % 9;
@@ -333,6 +403,6 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
     }
     if (out_count) *out_count = cnt;
     if (out_best) *out_best = best_idx;
-
+    if (out_tree) *out_tree = (SbaTreeHandle)tree;
     return 0;
 }

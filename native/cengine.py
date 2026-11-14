@@ -2,19 +2,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """ctypes interop with native/sba_engine.dll — the single boundary between
-the Python AI layer and the C backends (D27).
+the Python AI layer and the C backends (D27/D37).
 
 Owns: DLL discovery/loading, the ABI signatures, state serialization
 (UltimateGame / BitUltimateGame -> the flat C encoding) and thin wrappers:
 rollout, full MCTS (with root stats), minimax (normal/ultimate), flat MCTS.
 Every wrapper returns None when the DLL is unavailable so ai.py can fall
 back to the pure-Python engines.
+
+D37: SbaSearchOpts carries the search switches into C, and the MCTS arena
+is owned by the DLL. _CTree wraps the opaque handle and releases it on GC,
+so tree reuse (D30) still works without Python ever touching C memory.
 """
 
 import ctypes
 import os
 import random
 import threading
+import weakref
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ENGINE_DLL = os.path.join(_ROOT, 'native', 'sba_engine.dll')
@@ -25,6 +30,69 @@ _has_engine = False
 _load_lock = threading.Lock()
 
 _XO = {1: 'X', 2: 'O', 3: 'D'}
+
+
+class SearchOpts(ctypes.Structure):
+    """Mirror of SbaSearchOpts in sba_ultt.h. Keep the field order in sync."""
+    _fields_ = [
+        ('uct_c', ctypes.c_double),
+        ('dynamic_uct', ctypes.c_int32),
+        ('rollout_heuristic', ctypes.c_int32),
+        ('micro_tablebase', ctypes.c_int32),
+        ('symmetry', ctypes.c_int32),
+        ('use_pattern', ctypes.c_int32),
+    ]
+
+
+DEFAULT_OPTS = {
+    'uct_c': 1.4,
+    'dynamic_uct': True,
+    'rollout_heuristic': True,
+    'micro_tablebase': True,
+    'symmetry': True,
+    'use_pattern': False,
+}
+
+
+def make_opts(values=None, **overrides):
+    """Build a SearchOpts from a dict; unknown keys are ignored."""
+    merged = dict(DEFAULT_OPTS)
+    if values:
+        merged.update({k: v for k, v in values.items() if k in merged})
+    merged.update({k: v for k, v in overrides.items() if k in merged})
+    return SearchOpts(
+        float(merged['uct_c']),
+        int(bool(merged['dynamic_uct'])),
+        int(bool(merged['rollout_heuristic'])),
+        int(bool(merged['micro_tablebase'])),
+        int(bool(merged['symmetry'])),
+        int(bool(merged['use_pattern'])),
+    )
+
+
+def _free_tree(handle):
+    lib = _lib
+    if lib is None or not handle:
+        return
+    try:
+        lib.sba_tree_free(ctypes.c_void_p(handle))
+    except (AttributeError, OSError):
+        pass
+
+
+class _CTree:
+    """Owner of one C-allocated search tree. The handle is released when the
+    wrapper is garbage-collected, so analysis searches that discard their
+    tree do not leak the arena."""
+
+    __slots__ = ('_handle', '_finalizer', '__weakref__')
+
+    def __init__(self, handle):
+        self._handle = ctypes.c_void_p(handle)
+        self._finalizer = weakref.finalize(self, _free_tree, handle)
+
+    def close(self):
+        self._finalizer()
 
 
 def _bind(lib, name, restype, argtypes):
@@ -53,41 +121,33 @@ def _load():
         try:
             lib = ctypes.CDLL(path)
             ptr = ctypes.POINTER(ctypes.c_int32)
+            dbl = ctypes.POINTER(ctypes.c_double)
+            void = ctypes.c_void_p
+            opts_ptr = ctypes.POINTER(SearchOpts)
             rollout_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32,
                             ctypes.c_uint64]
+            state_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32]
             _bind(lib, 'sba_rollout', ctypes.c_int32, rollout_args)
             _bind(lib, 'sba_rollout_pattern', ctypes.c_int32, rollout_args)
-            state_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32]
             if os.path.basename(path) == 'sba_engine.dll':
+                _bind(lib, 'sba_rollout_random', ctypes.c_int32, rollout_args)
                 _bind(lib, 'sba_rollout_trace', ctypes.c_int32,
-                      state_args + [ctypes.c_uint64,
-                                    ctypes.POINTER(ctypes.c_int32),
-                                    ctypes.POINTER(ctypes.c_int32),
-                                    ctypes.c_int32])
+                      state_args + [ctypes.c_uint64, ptr, ptr, opts_ptr])
+                # cells, macro, player, active, iterations, seed, opts,
+                # out_best, out_count, out_moves, out_visits, out_wins,
+                # out_mover, out_draws, out_tree, prev_tree   (16 args)
                 _bind(lib, 'sba_mcts_search', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                    ctypes.c_int32,
-                                    ctypes.POINTER(ctypes.c_int32),
-                                    ctypes.POINTER(ctypes.c_int32),
-                                    ptr, ctypes.POINTER(ctypes.c_double),
-                                    ctypes.POINTER(ctypes.c_double),
-                                    ctypes.POINTER(ctypes.c_int32),
-                                    ctypes.POINTER(ctypes.c_int32),
-                                    ctypes.c_void_p, ctypes.c_int32,
-                                    ctypes.c_void_p, ctypes.c_int32])
+                      state_args + [ctypes.c_int32, ctypes.c_uint64, opts_ptr,
+                                    ptr, ptr, ptr, dbl, dbl, ptr, ptr,
+                                    ctypes.POINTER(void), void])
+                _bind(lib, 'sba_tree_free', ctypes.c_int32, [void])
                 _bind(lib, 'sba_minimax_normal', ctypes.c_int32,
-                      [ptr, ctypes.c_int32, ctypes.POINTER(ctypes.c_int32),
-                       ctypes.POINTER(ctypes.c_double)])
+                      [ptr, ctypes.c_int32, ptr, dbl])
                 _bind(lib, 'sba_minimax_ultimate', ctypes.c_int32,
-                      state_args + [ctypes.c_int32,
-                                    ctypes.POINTER(ctypes.c_int32)])
-                # ABI (8 args): cells, macro, player, active,
-                # per_move, seed, use_pattern, out_best
+                      state_args + [ctypes.c_int32, opts_ptr, ptr])
                 _bind(lib, 'sba_flat_mcts', ctypes.c_int32,
                       state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                    ctypes.c_int32,
-                                    ctypes.POINTER(ctypes.c_int32)])
-                _bind(lib, 'sba_node_size', ctypes.c_int32, [])
+                                    opts_ptr, ptr])
                 _has_engine = True
             _lib = lib
         except OSError:
@@ -147,28 +207,44 @@ def _arrays(cells, macro):
     return (ctypes.c_int32 * 81)(*cells), (ctypes.c_int32 * 9)(*macro)
 
 
-def rollout_state(state, pattern=False, rng_seed=None):
+def rollout_state(state, pattern=False, rng_seed=None, opts=None):
     """One native rollout to terminal; returns 'X' / 'O' / 'D' (None if the
-    DLL is missing)."""
+    DLL is missing, or when a legacy DLL cannot serve an opts-driven policy:
+    ai.py then falls back to the Python rollout)."""
     lib = _load()
     if lib is None:
         return None
-    fn = lib.sba_rollout_pattern if pattern else lib.sba_rollout
+    cfg = dict(DEFAULT_OPTS)
+    if opts:
+        cfg.update({k: v for k, v in opts.items() if k in cfg})
+    if pattern:
+        cfg['use_pattern'] = True
+    if not cfg['rollout_heuristic']:
+        if not _has_engine:
+            return None
+        fn = lib.sba_rollout_random
+    else:
+        fn = lib.sba_rollout_pattern if cfg['use_pattern'] else lib.sba_rollout
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     return _XO[fn(ca, ma, player, active, seed)]
 
 
-def rollout_trace(state, rng_seed=None, pattern=False):
+def rollout_trace(state, rng_seed=None, pattern=False, opts=None):
     """Native rollout that also returns the move sequence (for the RAVE/GRAVE
-    AMAF statistics). Policy follows the plain heuristic kernel, or the D26
-    pattern kernel when `pattern` is set — the same switch the C MCTS tree
-    takes, so the whole family shares one playout policy. Returns
+    AMAF statistics). The playout policy comes from opts: uniform random when
+    rollout_heuristic is off, else plain / D26 pattern. Returns
     (result, [moves]) or (None, [])."""
     lib = _load()
     if lib is None or not _has_engine:
         return None, []
+    cfg = dict(DEFAULT_OPTS)
+    if opts:
+        cfg.update({k: v for k, v in opts.items() if k in cfg})
+    if pattern:
+        cfg['use_pattern'] = True
+    c_opts = make_opts(cfg)
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
     out_moves = (ctypes.c_int32 * 256)()
@@ -176,31 +252,32 @@ def rollout_trace(state, rng_seed=None, pattern=False):
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     res = lib.sba_rollout_trace(ca, ma, player, active, seed,
                                 out_moves, ctypes.byref(out_len),
-                                1 if pattern else 0)
+                                ctypes.byref(c_opts))
     seq = [(out_moves[k] // 9, out_moves[k] % 9) for k in range(out_len.value)]
     return _XO[res], seq
 
 
-def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None):
+def mcts_search(state, iterations, use_pattern=False, rng_seed=None,
+                prev=None, opts=None):
     """Full native MCTS. Returns (best_move, stats, tree) where stats is a
-    list of (move, visits, wins, mover, draws) for the root children — wins
-    counted from the mover's perspective (draw = 0.5) plus the raw draw
-    counter, matching ai.py's MCTSNode; tree is the
-    ctypes arena buffer holding the finished tree (pass it back as `prev` on
-    the next search to reuse it, D30). Returns (None, [], None) when the full
-    engine DLL is unavailable.
+    list of (move, visits, wins, mover, draws) for the root children, and
+    tree is a _CTree owning the C-allocated arena (pass it back as `prev`
+    on the next search to reuse it, D30). Returns (None, [], None) when the
+    full engine DLL is unavailable.
 
-    Concurrency: the node arena is allocated PER CALL — the UI runs the
-    assistant analysis (AnalysisWorker) and the AI move search (AIWorker)
-    concurrently, and a shared buffer made them stomp each other into an
-    infinite loop (the "stuck on move 3" bug). Allocation is ~1 MB and
-    cheap. With `prev`, the C side walks the previous tree down to the
-    current position and reuses the matching subtree (single-threaded
-    searches only: concurrent writers must not share the prev buffer).
+    The arena lives inside the DLL and is allocated per call, so the
+    assistant analysis and the AI move search can run concurrently without
+    sharing writable memory. Handles are released by _CTree's finalizer.
     """
     lib = _load()
     if lib is None or not _has_engine:
         return None, [], None
+    cfg = dict(DEFAULT_OPTS)
+    if opts:
+        cfg.update({k: v for k, v in opts.items() if k in cfg})
+    if use_pattern:
+        cfg['use_pattern'] = True
+    c_opts = make_opts(cfg)
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
     best = ctypes.c_int32(-1)
@@ -210,35 +287,22 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None):
     wins = (ctypes.c_double * 81)()
     mover = (ctypes.c_int32 * 81)()
     draws = (ctypes.c_int32 * 81)()
+    out_tree = ctypes.c_void_p()
+    prev_handle = prev._handle if prev is not None else None
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    # per-call arena, sizeof(MctsNode) per node (queried from the DLL). With
-    # tree reuse the kept
-    # subtree (<= previous iterations) is copied in first, hence the 2x.
-    factor = 2 if prev is not None else 1
-    node_size = _lib.sba_node_size()
-    buf = (ctypes.c_uint8 * ((iterations * factor + 64) * node_size))()
-    prev_buf = None
-    prev_bytes = 0
-    if prev is not None:
-        prev_buf, prev_bytes = prev
     r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
-                            1 if use_pattern else 0,
+                            ctypes.byref(c_opts),
                             ctypes.byref(best), ctypes.byref(count),
                             moves, visits, wins, mover, draws,
-                            buf, len(buf), prev_buf, prev_bytes)
-    if r == -3 and prev is not None:
-        # reused subtree didn't fit: retry from a fresh root
-        r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
-                                1 if use_pattern else 0,
-                                ctypes.byref(best), ctypes.byref(count),
-                                moves, visits, wins, mover, draws,
-                                buf, len(buf), None, 0)
+                            ctypes.byref(out_tree), prev_handle)
     if r < 0:
+        if out_tree.value:
+            _free_tree(out_tree.value)
         return None, [], None
     stats = [(moves[k], visits[k], wins[k], mover[k], draws[k])
              for k in range(count.value)]
     mv = best.value if best.value >= 0 else None
-    tree = (buf, len(buf)) if mv is not None else None
+    tree = _CTree(out_tree.value) if out_tree.value else None
     return mv, stats, tree
 
 
@@ -256,32 +320,40 @@ def minimax_normal(board9, player):
     return (best.value if best.value >= 0 else None), score.value
 
 
-def minimax_ultimate(state, depth):
+def minimax_ultimate(state, depth, opts=None):
     """Depth-limited alpha-beta; returns the best move or None."""
     lib = _load()
     if lib is None or not _has_engine:
         return None
+    c_opts = make_opts(opts)
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
     best = ctypes.c_int32(-1)
-    lib.sba_minimax_ultimate(ca, ma, player, active, depth, ctypes.byref(best))
+    lib.sba_minimax_ultimate(ca, ma, player, active, depth,
+                             ctypes.byref(c_opts), ctypes.byref(best))
     mv = best.value
     if mv < 0:
         return None
     return (mv // 9, mv % 9)
 
 
-def flat_mcts(state, per_move, use_pattern=False, rng_seed=None):
+def flat_mcts(state, per_move, use_pattern=False, rng_seed=None, opts=None):
     """Root-level playouts per legal move; returns the best move or None."""
     lib = _load()
     if lib is None or not _has_engine:
         return None
+    cfg = dict(DEFAULT_OPTS)
+    if opts:
+        cfg.update({k: v for k, v in opts.items() if k in cfg})
+    if use_pattern:
+        cfg['use_pattern'] = True
+    c_opts = make_opts(cfg)
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
     best = ctypes.c_int32(-1)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     lib.sba_flat_mcts(ca, ma, player, active, per_move, seed,
-                      1 if use_pattern else 0, ctypes.byref(best))
+                      ctypes.byref(c_opts), ctypes.byref(best))
     mv = best.value
     if mv < 0:
         return None

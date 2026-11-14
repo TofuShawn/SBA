@@ -289,3 +289,141 @@ def test_c_kernels_report_terminal_boards_without_playing_on():
         assert _ce.rollout_state(w, pattern=True, rng_seed=1) == X
         res, seq = _ce.rollout_trace(w, rng_seed=1)
         assert res == X and seq == []
+
+
+# ---------------------------------------------------------------------------
+# D37 — the config switches are honoured by the native C backends, not just
+# by the Python fallback. Each test below fails if a switch stops reaching C.
+# ---------------------------------------------------------------------------
+
+def _opts(**kw):
+    merged = dict(_ce.DEFAULT_OPTS)
+    merged.update(kw)
+    return merged
+
+
+def test_search_opts_reach_every_c_backend(monkeypatch):
+    """Wiring guard: ai._c_search_opts() must be handed to all four C entry
+    points, otherwise config.toml promises behaviour the C path ignores."""
+    seen = {}
+    for name in ('mcts_search', 'rollout_state', 'minimax_ultimate', 'flat_mcts'):
+        original = getattr(_ce, name)
+
+        def spy(*args, _original=original, _name=name, **kwargs):
+            seen[_name] = dict(kwargs.get('opts') or {})
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(_ce, name, spy)
+
+    set_engine_config({'engine': {
+        'uct_c': 3.25, 'dynamic_uct': False, 'rollout_heuristic': False,
+        'micro_tablebase': False, 'symmetry': False,
+        'c_rollout_pattern': True, 'opening_book': False, 'c_mcts': True,
+    }})
+    try:
+        g = _out_of_book_position()
+        get_ai_move(g, 'MCTS', 200, 3)
+        get_ai_move(g, 'Minimax', 200, 3)
+        get_ai_move(g, 'Flat MCTS', 200, 3)
+        ai._c_rollout_state(g)
+    finally:
+        set_engine_config()
+
+    for name in ('mcts_search', 'rollout_state', 'minimax_ultimate', 'flat_mcts'):
+        assert seen.get(name), f'{name} never received opts'
+        assert seen[name]['uct_c'] == 3.25
+        assert seen[name]['dynamic_uct'] is False
+        assert seen[name]['rollout_heuristic'] is False
+        assert seen[name]['micro_tablebase'] is False
+        assert seen[name]['symmetry'] is False
+        assert seen[name]['use_pattern'] is True
+
+
+def test_c_tree_symmetry_dedups_root():
+    """D4 dedup must now happen inside the C tree (81 -> 21 root children
+    from an empty Ultimate board), using the canonical resulting position."""
+    g = UltimateGame()
+    _, off_stats, off_tree = _ce.mcts_search(
+        g, 1500, rng_seed=42, opts=_opts(symmetry=0))
+    _, on_stats, on_tree = _ce.mcts_search(
+        g, 1500, rng_seed=42, opts=_opts(symmetry=1))
+    try:
+        assert len(off_stats) == 81
+        assert 0 < len(on_stats) < len(off_stats) // 2
+    finally:
+        if off_tree: off_tree.close()
+        if on_tree: on_tree.close()
+
+
+def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
+    """uct_c used to be hardcoded to 1.4 (140) and dynamic_uct could not be
+    turned off in C. Both must change the visit distribution / best move."""
+    g = UltimateGame()
+    top = []
+    for c in (0.2, 5.0):
+        _, stats, tree = _ce.mcts_search(
+            g, 1000, rng_seed=7,
+            opts=_opts(uct_c=c, dynamic_uct=0, symmetry=0))
+        top.append(sorted((s[1] for s in stats), reverse=True)[:3])
+        if tree: tree.close()
+    assert top[0] != top[1]
+
+    g2 = UltimateGame()
+    apply_move(g2, (4, 4))
+    apply_move(g2, (4, 0))
+    best = []
+    for dynamic in (0, 1):
+        mv, _, tree = _ce.mcts_search(
+            g2, 1200, rng_seed=99, opts=_opts(dynamic_uct=dynamic, symmetry=0))
+        best.append(mv)
+        if tree: tree.close()
+    assert best[0] != best[1]
+
+
+def test_c_rollout_heuristic_switch_is_honoured_by_trace():
+    """With the win/block heuristic the first playout move is always the
+    immediate game win; with it off the move is drawn uniformly."""
+    g = UltimateGame()
+    g.macro = [X, X, EMPTY] + [EMPTY] * 6
+    g.micro[2] = [EMPTY, EMPTY, EMPTY, EMPTY, X, EMPTY, X, EMPTY, EMPTY]
+    g.current = X
+    g.active_macro = 2
+    on = {_ce.rollout_trace(g, rng_seed=s, opts=_opts(rollout_heuristic=1))[1][0]
+          for s in range(1, 31)}
+    off = {_ce.rollout_trace(g, rng_seed=s, opts=_opts(rollout_heuristic=0))[1][0]
+           for s in range(1, 31)}
+    assert on == {(2, 2)}
+    assert len(off) > 1
+
+
+def test_c_micro_tablebase_changes_minimax_choice():
+    """The C minimax evaluator must use the exact 3x3 tablebase when a micro
+    has <= 2 empty cells; on this board it changes the chosen move."""
+    rows = ['X..XX.X..', 'O.OX.O..O', 'X..XOO.XO',
+            '.XOO..XX.', 'OX..OXO.X', '.XX.X.XOO',
+            'XO.XOXOO.', '.O.OXOOOX', '.X.XOXOX.']
+    macro_states = ['X', 'O', '.', '.', '.', 'X', 'O', '.', '.']
+    g = UltimateGame()
+    g.current = X
+    g.active_macro = None
+    for m, row in enumerate(rows):
+        g.micro[m] = [EMPTY if c == '.' else c for c in row]
+        g.macro[m] = EMPTY if macro_states[m] == '.' else macro_states[m]
+    with_tb = _ce.minimax_ultimate(g, 2, opts=_opts(micro_tablebase=1))
+    without_tb = _ce.minimax_ultimate(g, 2, opts=_opts(micro_tablebase=0))
+    assert with_tb != without_tb
+    assert with_tb in g.legal_moves() and without_tb in g.legal_moves()
+
+
+def test_c_tree_is_owned_by_the_dll_and_still_reusable():
+    """D37: no Python-owned uint8_t arena. The opaque handle must survive a
+    second search as `prev`, and releasing it twice must be harmless."""
+    g = UltimateGame()
+    mv1, s1, t1 = _ce.mcts_search(g, 200, rng_seed=1)
+    assert t1 is not None and t1._handle.value
+    mv2, s2, t2 = _ce.mcts_search(g, 200, rng_seed=2, prev=t1)
+    assert mv1 is not None and mv2 is not None
+    assert sum(r[1] for r in s2) >= sum(r[1] for r in s1)
+    t1.close()
+    t2.close()
+    t1.close()  # idempotent

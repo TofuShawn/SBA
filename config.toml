@@ -3,6 +3,9 @@
 # Point $SBA_CONFIG at another file to use a different configuration.
 
 [engine]
+# D37: uct_c / dynamic_uct / rollout_heuristic / symmetry / c_rollout_pattern
+# are passed to the native C backends through SbaSearchOpts; micro_tablebase
+# drives the C minimax evaluator. These are no longer Python-path-only.
 # --- search switches / 搜尋開關 ---
 rollout_heuristic = true    # win/block biased MCTS rollouts (A1) / 啟發式 rollout
 c_mcts = true              # full tree search in C (D27; needs sba_engine.dll, built via native/build.py) / 完整 MCTS 樹下沉 C
@@ -24,7 +27,7 @@ use_aspiration = true       # aspiration window at the root (B3) / Aspiration Wi
 use_eval_ordering = true    # eval-based root move ordering in Minimax Pro (root only) / Minimax Pro 根節點用靜態評估排序
 
 # --- performance / 效能 ---
-symmetry = true            # D4 dedup at the PYTHON MCTS root (C1; the C tree has none) — the key is the canonical resulting position / 對稱性消除（僅 Python MCTS 根節點；C 樹無此 dedup）——key 為落子後盤面的正則形
+symmetry = true            # D4 root dedup on the canonical resulting position (C1) — both the C tree and the Python MCTS root (D37) / 對稱性消除：C 樹與 Python MCTS 根節點皆生效（D37），key 為落子後盤面的正則形
 object_pool = true          # reuse MCTSNode objects (C2; skipped while tree_reuse) / 物件池
 bitboard = false             # MCTS searches on bitboards (C3) / Bitboard（MCTS 搜尋用 bit 版）
 multithreaded = false        # parallel MCTS (C4) / 多執行緒 MCTS

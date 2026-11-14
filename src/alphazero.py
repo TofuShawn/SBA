@@ -550,7 +550,9 @@ def self_play_game(make_game_fn, model, sims, temp,
             # native C tree search (D30) runs it ~37x faster; root stats
             # carry (move, visits, wins, mover) exactly like MCTSNode.
             from native import cengine as _ce
-            root_mv, stats, _tree = _ce.mcts_search(game, sims)
+            from ai import _c_search_opts
+            root_mv, stats, _tree = _ce.mcts_search(
+                game, sims, opts=_c_search_opts())
             if stats:
                 counts = {(m // 9, m % 9): int(v)
                           for m, v, w, _mo, _d in stats}

@@ -293,18 +293,20 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells_in,
     }
 }
 
-/* Trace variant (D27): records every move so the RAVE/GRAVE backends can
- * maintain their AMAF statistics. Policy follows sba_rollout (use_pattern=0)
- * or sba_rollout_pattern (use_pattern=1) — the flag keeps the whole MCTS
- * family on the same playout policy when c_rollout_pattern is on. */
+/* Trace variant (D27/D37): records every move so the RAVE/GRAVE backends can
+ * maintain their AMAF statistics. The playout policy is driven by
+ * SbaSearchOpts: uniform random when rollout_heuristic is off, otherwise the
+ * plain heuristic or the D26 pattern kernel (use_pattern). */
 int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
                                     const int32_t *macro_in, int32_t player,
                                     int32_t active, uint64_t seed,
                                     int32_t *out_moves, int32_t *out_len,
-                                    int32_t use_pattern) {
+                                    const SbaSearchOpts *opts) {
     int32_t cells[81];
     int32_t macro[SBA_N_MACROS];
     uint64_t rng = seed ? seed : 0x9E3779B97F4A7C15ULL;
+    int32_t use_pattern = opts ? opts->use_pattern : 0;
+    int32_t random_policy = opts ? !opts->rollout_heuristic : 0;
 
     for (int32_t i = 0; i < 81; i++) cells[i] = cells_in[i];
     for (int32_t i = 0; i < SBA_N_MACROS; i++) macro[i] = macro_in[i];
@@ -339,7 +341,10 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
             }
         }
         int32_t pick;
-        if (use_pattern) {
+        if (random_policy) {
+            int32_t r = sba_rng_below(&rng, (uint32_t)n_legal);
+            pick = legal_m[r] * 9 + legal_i[r];
+        } else if (use_pattern) {
             /* D26 policy, mirroring sba_rollout_pattern (tier 0/1/2) */
             int32_t opp = player == 1 ? 2 : 1;
             int32_t win_m = -1, win_i = -1, game_win_m = -1, game_win_i = -1;
@@ -450,4 +455,64 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
     }
     if (out_len) *out_len = n_out;
     return 3;
+}
+
+/* ---------------------------------------------------------------------------
+ * Uniform-random playout (D37): rollout_heuristic = false. Same rules and
+ * terminal bookkeeping as sba_rollout, but the move is drawn uniformly from
+ * the legal list instead of preferring an immediate win / blocking a single
+ * threat. Kept as a separate exported kernel so the ABI of the two benched
+ * kernels (D26) stays untouched.
+ * ------------------------------------------------------------------------- */
+int32_t __stdcall sba_rollout_random(const int32_t *cells_in,
+                                     const int32_t *macro_in, int32_t player,
+                                     int32_t active, uint64_t seed) {
+    int32_t cells[81];
+    int32_t macro[SBA_N_MACROS];
+    uint64_t rng = seed ? seed : 0x9E3779B97F4A7C15ULL;
+
+    for (int32_t i = 0; i < 81; i++) cells[i] = cells_in[i];
+    for (int32_t i = 0; i < SBA_N_MACROS; i++) macro[i] = macro_in[i];
+    {
+        int32_t terminal = terminal_result(cells, macro);
+        if (terminal) return terminal;
+    }
+
+    for (;;) {
+        int32_t legal_m[81], legal_i[81];
+        int32_t n_legal = 0;
+        for (int32_t m = 0; m < SBA_N_MACROS; m++) {
+            if (active >= 0 && m != active) continue;
+            if (macro[m] != 0) continue;
+            for (int32_t i = 0; i < 9; i++) {
+                if (cells[m * 9 + i] == 0) {
+                    legal_m[n_legal] = m;
+                    legal_i[n_legal] = i;
+                    n_legal++;
+                }
+            }
+        }
+        if (n_legal == 0) return 3;
+
+        int32_t r = (int32_t)sba_rng_below(&rng, (uint32_t)n_legal);
+        int32_t m = legal_m[r], i = legal_i[r];
+        cells[m * 9 + i] = player;
+        if (sba_wins_micro(cells, m, i, player)) {
+            macro[m] = player;
+        } else {
+            int32_t full = 1;
+            for (int32_t k = 0; k < 9; k++) {
+                if (cells[m * 9 + k] == 0) { full = 0; break; }
+            }
+            if (full) macro[m] = 3;
+        }
+        if (sba_macro_line(macro, player)) return player;
+        int32_t any_open = 0;
+        for (int32_t k = 0; k < SBA_N_MACROS; k++) {
+            if (macro[k] == 0) { any_open = 1; break; }
+        }
+        if (!any_open) return 3;
+        active = macro[i] == 0 ? i : -1;
+        player = player == 1 ? 2 : 1;
+    }
 }

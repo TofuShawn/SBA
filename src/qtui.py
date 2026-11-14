@@ -2291,7 +2291,7 @@ class SettingsPage(EndfieldPage):
          '哪些演算法走原生 C 實作；關閉後自動回退純 Python（較慢）。',
          ['c_mcts', 'c_minimax', 'c_rollout_pattern']),
         ('MCTS SEARCH', 'MCTS 搜尋行為',
-         '影響 MCTS 搜尋策略與棋力（對 MCTS / MCTS+GRAVE / 助手分析生效）。',
+         '影響 MCTS 搜尋策略與棋力（C 樹與 Python 路徑皆生效，D37）。',
          ['rollout_heuristic', 'tree_reuse', 'dynamic_uct', 'early_stop',
           'progressive_widening', 'multithreaded', 'object_pool']),
         ('SEARCH AIDS', '搜尋輔助結構',

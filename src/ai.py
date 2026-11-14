@@ -97,8 +97,7 @@ def _c_rollout_state(state):
     """One native rollout to terminal; returns X / O / 'D'. Uses the pattern
     kernel when c_rollout_pattern is on; falls back to Python when the DLL
     is missing."""
-    pattern = bool(cfg_engine('c_rollout_pattern', False))
-    r = _ce.rollout_state(state, pattern=pattern)
+    r = _ce.rollout_state(state, opts=_c_search_opts())
     return r if r is not None else _py_rollout_state(state)
 
 
@@ -157,6 +156,21 @@ def cfg_engine(name, default=None):
 
 def cfg_session(name, default=None):
     return CONFIG.get('session', {}).get(name, _CFG_DEFAULTS['session'].get(name, default))
+
+
+def _c_search_opts():
+    """Snapshot of every switch the C backends consume (D37). Built once per
+    search rather than per simulation, so it stays off the hot path. Keeping
+    this the single source of truth is what stops a switch from being
+    "promised" in config.toml but ignored by the C tree."""
+    return {
+        'uct_c': float(cfg_engine('uct_c')),
+        'dynamic_uct': bool(cfg_engine('dynamic_uct')),
+        'rollout_heuristic': bool(cfg_engine('rollout_heuristic')),
+        'micro_tablebase': bool(cfg_engine('micro_tablebase')),
+        'symmetry': bool(cfg_engine('symmetry')),
+        'use_pattern': bool(cfg_engine('c_rollout_pattern')),
+    }
 
 
 def save_engine_config(overrides=None):
@@ -532,6 +546,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
     root_sym = set()
     c_roll = (None if isinstance(game, NormalGame)
               else (_ce if _ce.available() else None))
+    c_opts = _c_search_opts() if c_roll is not None else None
     report_at = max(1, iterations // 10) if on_progress else 0
     for it in range(iterations):
         node = root
@@ -558,7 +573,8 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
             # must not go to the C kernel: it only stops for a win it plays
             # itself and would keep emitting moves on a finished board.
             if c_roll is not None:
-                result = _ce.rollout_state(state) or _py_rollout_state(state)
+                result = (_ce.rollout_state(state, opts=c_opts)
+                          or _py_rollout_state(state))
             else:
                 while result is None:
                     moves = state.legal_moves()
@@ -1072,6 +1088,7 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
         root = RAVENode(root_state, None, None, None)
     start_visits = root.visits
     root_sym = set()
+    c_opts = _c_search_opts()
     for it in range(iterations):
         node = root
         state = root_state.clone()
@@ -1094,8 +1111,7 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 rollout_moves.append(m)
         if (_ce.available() and not isinstance(state, NormalGame)
                 and state.result() is None):
-            result, seq = _ce.rollout_trace(
-                state, pattern=bool(cfg_engine('c_rollout_pattern', False)))
+            result, seq = _ce.rollout_trace(state, opts=c_opts)
             if result is None:
                 result = _py_rollout_state(state)
             for m in seq:
@@ -1205,6 +1221,7 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
         root.ref = root
     start_visits = root.visits
     root_sym = set()
+    c_opts = _c_search_opts()
     for it in range(iterations):
         node = root
         state = root_state.clone()
@@ -1229,8 +1246,7 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                 rollout_moves.append(m)
         if (_ce.available() and not isinstance(state, NormalGame)
                 and state.result() is None):
-            result, seq = _ce.rollout_trace(
-                state, pattern=bool(cfg_engine('c_rollout_pattern', False)))
+            result, seq = _ce.rollout_trace(state, opts=c_opts)
             if result is None:
                 result = _py_rollout_state(state)
             for m in seq:
@@ -1571,7 +1587,7 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     - thread 0 carries the reused subtree from the previous search; the
       other threads start fresh. Merging therefore never double-counts.
     """
-    pattern = bool(cfg_engine('c_rollout_pattern', False))
+    c_opts = _c_search_opts()
     # the multithreaded switch gates root parallelization; workers caps it
     threads = (int(cfg_engine('workers', 8) or 1)
                if cfg_engine('multithreaded', False) else 1)
@@ -1580,15 +1596,14 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
 
     results = [None]
     if threads <= 1:
-        results[0] = _ce.mcts_search(game, budget, use_pattern=pattern,
-                                     prev=prev)
+        results[0] = _ce.mcts_search(game, budget, opts=c_opts, prev=prev)
     else:
         per = max(100, budget // threads)
         results = [None] * threads
 
         def _work(k):
             results[k] = _ce.mcts_search(
-                game, per, use_pattern=pattern,
+                game, per, opts=c_opts,
                 prev=prev if k == 0 else None)
 
         workers = [threading.Thread(target=_work, args=(k,))
@@ -1810,7 +1825,8 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
                     return r[0]
             return minimax_move_normal(game)[0]
         if cfg_engine('c_minimax', True) and _ce.available(engine=True):
-            mv = _ce.minimax_ultimate(game, minimax_depth)
+            mv = _ce.minimax_ultimate(game, minimax_depth,
+                                      opts=_c_search_opts())
             if mv is not None:
                 return mv
         return minimax_move_ultimate(game, depth=minimax_depth)
@@ -1824,7 +1840,8 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
                 and cfg_engine('c_mcts', True) and _ce.available(engine=True)):
             moves = game.legal_moves()
             if moves:
-                mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)))
+                mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)),
+                                   opts=_c_search_opts())
                 if mv is not None:
                     return mv
         return flat_mcts_move(game, mcts_budget)
@@ -1959,7 +1976,7 @@ def _c_ultt_analysis(game, mcts_budget):
     if not (_ce.available(engine=True) and cfg_engine('c_mcts', True)):
         return None
     _mv, stats, _tree = _ce.mcts_search(
-        game, mcts_budget, use_pattern=bool(cfg_engine('c_rollout_pattern', False)),
+        game, mcts_budget, opts=_c_search_opts(),
         prev=_C_PREV.get('MCTS'))
     if not stats:
         return None
