@@ -169,13 +169,17 @@ def _play_match(x_ai, o_ai, game_type, iterations, depth):
 
 
 def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
-          ai_a=None, ai_b=None, depth=4):
+          ai_a=None, ai_b=None, depth=4, on_progress=None, quiet=False):
     """Head-to-head score comparison: win = 1, draw = 0.5.
 
     ``A score%`` = (A wins + draws/2) / games, so draws are not ignored like a
     plain win rate would. Useful for ranking engines that mostly draw.
     / 對戰得分比較：勝 = 1、和 = 0.5。``A score%`` =（勝場 + 和局/2）/ 總局數，
     和局不會被當作無效樣本，適合比較「多半和棋」的引擎強度。
+
+    ``on_progress(dict)`` fires after every game with the running score
+    (a, b, game, total, aw, dw, bw, pct) — the TUI dashboard consumes it;
+    the plain CLI ignores it.
     """
     random.seed(seed)
     if (ai_a is None) != (ai_b is None):
@@ -212,6 +216,9 @@ def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
             else:
                 bw += 1
         pct = 100.0 * (aw + 0.5 * dw) / games
+        if on_progress:
+            on_progress({'a': a, 'b': b, 'game': k + 1, 'total': games,
+                         'aw': aw, 'dw': dw, 'bw': bw, 'pct': pct})
         pct_cell = (f'{pct:.1f}%', 'bold green' if pct > 55 else
                     ('bold red' if pct < 45 else 'bold'))
         rows.append([a, b, str(aw), str(dw), str(bw), pct_cell])
@@ -221,6 +228,8 @@ def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
         table = cli_output.bench_table(title, header, rows)
     except ImportError:
         con, table = None, None
+    if quiet:
+        return 0               # the TUI consumes on_progress instead
     if table is not None and con is not None:
         con.print(table)
     else:
@@ -277,7 +286,8 @@ def main(argv=None):
     argv defaults to sys.argv[1:]; the root sba.py shim forwards its own
     argv, so `python sba.py ...` and `python src/SBA.py ...` are the same
     surface: --tui / --bench / --build-tables / --self-test /
-    --train-az / --eval-az, default = PySide6 desktop app.
+    --train-az / --eval-az / --bench-tui / --train-tui, default = the
+    PySide6 desktop app.
     """
     args = list(sys.argv[1:] if argv is None else argv)
     if '--build-tables' in args:
@@ -300,6 +310,12 @@ def main(argv=None):
     if '--tui' in args:
         import tui
         sys.exit(tui.main())
+    if '--bench-tui' in args:
+        import tui_tools
+        sys.exit(tui_tools.run_bench(args))
+    if '--train-tui' in args:
+        import tui_tools
+        sys.exit(tui_tools.run_train(args))
     if '--bench' in args:
         sys.exit(bench(
             games=_flag_value('--games', 20, args),

@@ -2583,6 +2583,10 @@ def main(argv=None):
                         help='alias for: alphazero.py eval')
     parser.add_argument('--tui', action='store_true',
                         help='start the Textual terminal app instead')
+    parser.add_argument('--bench-tui', action='store_true',
+                        help='interactive benchmark dashboard')
+    parser.add_argument('--train-tui', action='store_true',
+                        help='interactive training dashboard')
     args = parser.parse_args(argv)
     if args.debug:
         log.setLevel(logging.DEBUG)

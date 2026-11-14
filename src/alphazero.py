@@ -704,7 +704,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
           ckpt_every=None, dirichlet_eps=DIRICHLET_EPS, workers=1,
           weight_decay=1e-4, value_target='root_mean', policy_loss='kl',
           augment=True, stage=2, resume=None, save_path=None,
-          eval_ai='MCTS', eval_sims=800, csv_path=None):
+          eval_ai='MCTS', eval_sims=800, csv_path=None,
+          on_event=None):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
@@ -794,7 +795,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
                 eval_every, lr, save, quiet, steps_per_game, replay_cap, size,
                 channels, blocks, ckpt_every, dirichlet_eps, workers, game_type,
                 start, ROLLOUT_WEIGHT, value_target, use_network,
-                policy_loss, augment, save_path, csv_log, progress, task)
+                policy_loss, augment, save_path, csv_log, progress, task,
+                on_event)
         for it in range(1, games + 1):
             temp = max(0.05, 1.0 - it / games)
             states, targets, zs = self_play_game(
@@ -843,6 +845,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             if save and ckpt_every and it % ckpt_every == 0:
                 _save_model(model, size, channels, blocks, save_path)
                 ckpt_at = save_path
+                if on_event:
+                    on_event({'type': 'ckpt', 'game': it, 'path': save_path})
                 if not quiet:
                     line = 'checkpoint %d/%d -> %s' % (it, games, save_path)
                     if progress:
@@ -878,11 +882,20 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
 
             if progress:
                 progress.advance(task)
+            if on_event:
+                on_event({'type': 'game', 'game': it, 'games': games,
+                          'stage': stage,
+                          'lr': optimizer.param_groups[0]['lr'],
+                          'loss': total_loss / steps_per_game,
+                          'positions': positions_total, 'temp': temp,
+                          'eval': ev, 'elapsed': time.time() - start})
 
         if save:
             _save_model(model, size, channels, blocks, save_path)
             if not quiet:
                 print('saved', save_path)
+            if on_event:
+                on_event({'type': 'saved', 'path': save_path})
         return model
     finally:
         if csv_log:
@@ -897,7 +910,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                         dirichlet_eps, workers, game_type, start,
                         rollout_weight, value_target, use_network,
                         policy_loss, augment, save_path, csv_log=None,
-                        progress=None, task=None):
+                        progress=None, task=None, on_event=None):
     """Multi-process self-play.
 
     A worker pool plays the games (each task carries the latest weights and
@@ -979,6 +992,9 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
             if save and ckpt_every and done % ckpt_every == 0:
                 _save_model(model, size, channels, blocks, save_path)
                 ckpt_at = save_path
+                if on_event:
+                    on_event({'type': 'ckpt', 'game': done,
+                              'path': save_path})
                 if not quiet:
                     line = 'checkpoint %d/%d -> %s' % (done, games, save_path)
                     if progress:
@@ -1010,6 +1026,14 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                               optimizer.param_groups[0]['lr'],
                               total_loss / steps_per_game, pos_total,
                               max(0.05, 1.0 - idx / games), ev, ckpt_at)
+            if on_event:
+                on_event({'type': 'game', 'game': done, 'games': games,
+                          'stage': stage,
+                          'lr': optimizer.param_groups[0]['lr'],
+                          'loss': total_loss / steps_per_game,
+                          'positions': pos_total,
+                          'temp': max(0.05, 1.0 - idx / games),
+                          'eval': ev, 'elapsed': time.time() - start})
         if next_idx <= games:
             submit(next_idx)
             next_idx += 1
@@ -1018,6 +1042,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
     pool.join()
     if save:
         _save_model(model, size, channels, blocks, save_path)
+        if on_event:
+            on_event({'type': 'saved', 'path': save_path})
         if not quiet:
             print('saved', save_path)
     return model

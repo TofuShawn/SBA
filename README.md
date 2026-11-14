@@ -111,6 +111,8 @@ CLI flags / 指令參數（`python sba.py` 與 `python src/SBA.py` 同一組）�
 | `--build-tables` | Rebuild `data/tt_normal.bin` — the persisted perfect-play table for Normal mode (all 5,478 reachable positions) / 重建 Normal 模式持久化完美解表（全部 5,478 個可達局面） |
 | `--train-az` | Alias for `src/alphazero.py train` / 等同執行 `src/alphazero.py train` |
 | `--eval-az` | Alias for `src/alphazero.py eval` / 等同執行 `src/alphazero.py eval` |
+| `--bench-tui` | Interactive benchmark dashboard (pick engines, live per-game scores) / 互動對戰儀表板（選引擎、即時比分） |
+| `--train-tui` | Interactive training dashboard (progress, loss/win-rate sparklines, milestone log) / 互動訓練儀表板（進度、loss／勝率曲線、里程碑日誌） |
 
 ### 3. Self-test / 自測
 
@@ -190,7 +192,7 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
   +------------------------------------------------------+
   | src/SBA.py  [4]                                      |
   | CLI entry · session state · t() bilingual strings    |
-  | --tui / --bench / --build-tables / --train-az         |
+  | --tui / --bench-tui / --train-tui / --train-az        |
   | ~250 lines                                           |
   +---------------------------+--------------------------+
                               |
