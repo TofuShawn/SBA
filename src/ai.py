@@ -13,7 +13,8 @@ Maintenance notes:
   (decision D8: MCTS+GRAVE supersedes it).
 - Flat MCTS is hidden from the menus too; it is a research/learning
   baseline (root-level playouts, no tree).
-- Solver is menu-disabled but still used by the analysis panel (D3).
+- Solver is menu-selectable (D39): Normal play reads the persisted
+  tablebase (data/tt_normal.bin); Ultimate stays an MCTS fallback.
 - AlphaZero falls back to MCTS when no trained model exists (see models/).
 """
 
@@ -1829,10 +1830,10 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
         return flat_mcts_move(game, mcts_budget)
     if ai_type == 'Solver':
         if isinstance(game, NormalGame):
-            if cfg_engine('c_minimax', True) and _ce.available(engine=True):
-                r = _ce.minimax_normal(game.board, game.current)
-                if r and r[0] is not None:
-                    return r[0]
+            # D39: Normal Solver is a pure table lookup — the persisted
+            # tablebase (data/tt_normal.bin, rebuilt by --build-tables)
+            # answers every query; the C on-the-fly solve stays with the
+            # Minimax engine (both are perfect play)
             return solver_move(game, mcts_budget)
         # Ultimate: Solver is a plain MCTS fallback -> the C tree wins
         if cfg_engine('c_mcts', True) and _ce.available(engine=True):

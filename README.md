@@ -11,7 +11,7 @@
 
 - **Two game types / 兩種棋盤**：classic 3x3 Tic Tac Toe（經典井字棋）和 9x9 Ultimate Tic Tac Toe（終極井字棋）
 - **Three modes / 三種模式**：Player vs Player（玩家對戰）、Player vs Computer（人機對戰）、Computer vs Computer（電腦對戰）
-- **8 selectable AI engines / 八種可選 AI 引擎**：
+- **9 selectable AI engines / 九種可選 AI 引擎**：
   - `Random` - random legal move / 隨機走棋
   - `Basic` - win if possible, block, prefer center/corners / 能贏就贏、會擋棋、偏好中心與角落
   - `Minimax` - classic alpha-beta search / 經典極小化極大搜尋（普通模式完美、終極模式限深度）
@@ -20,7 +20,7 @@
   - `MCTS+GRAVE` - Generalized RAVE (Cazenave 2015): shares RAVE stats through reference nodes, lower memory / 廣義 RAVE：透過 reference node 共享 RAVE 統計，省記憶體
   - ~~`MCTS+RAVE`~~ - hidden in the menu (superseded by MCTS+GRAVE; engine kept for tests and `--bench`) / 已停用（選單不可選，由 MCTS+GRAVE 取代；引擎保留供測試與 `--bench`）
   - ~~`Flat MCTS`~~ - hidden in the menu (research/learning baseline: root-level playouts, no tree) / 已停用（選單不可選，研究/學習用基準：只做根層 rollout，無樹搜尋）
-  - ~~`Solver`~~ - disabled in the menu (engine kept for the analysis panel) / 已停用（選單不可選，引擎保留供分析面板使用）
+  - `Solver` - perfect Normal play from the persisted tablebase (`data/tt_normal.bin`, rebuilt by `--build-tables`); MCTS fallback on Ultimate / 完美解：普通模式讀持久化解表，終極模式為 MCTS fallback
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
 - **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
 - **Adjustable AI strength / 可調 AI 強度**：MCTS 迭代數（200-3000）與 Minimax 深度（2-6）

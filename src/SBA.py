@@ -93,6 +93,7 @@ AI_OPTIONS = {
     'Basic': 'Basic — 基礎',
     'Minimax': 'Minimax — 極小化極大',
     'Minimax Pro': 'Minimax Pro — 進階極小化極大（置換表加速）',
+    'Solver': 'Solver — 完美解（Normal 讀持久化解表，Ultimate 為 MCTS）',
     'MCTS': 'MCTS — 蒙地卡羅',
     'MCTS+GRAVE': 'MCTS+GRAVE — 蒙地卡羅+GRAVE',
     # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its

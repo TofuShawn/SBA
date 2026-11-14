@@ -1089,7 +1089,7 @@ class MenuPage(EndfieldPage):
         root.addWidget(title)
         # real numbers only (endfield-ui rule): engines from AI_OPTIONS
         root.addWidget(deck_label(
-            f'{len(AI_OPTIONS)} ENGINES │ NATIVE C ENGINE │ 75 TESTS', size=12))
+            f'{len(AI_OPTIONS)} ENGINES │ NATIVE C ENGINE │ 90 TESTS', size=12))
         root.addSpacing(2)
         root.addWidget(deck_label('// GAME SETUP — 遊戲設定', size=11, accent=True))
         card = QFrame()

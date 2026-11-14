@@ -13,8 +13,8 @@ import pytest
 
 import ai
 from ai import (_TABLEBASE_PATH, _board_key, _build_tablebase_dfs,
-                _read_tablebase_file, build_tablebase, solver_move,
-                write_tablebase_file)
+                _read_tablebase_file, build_tablebase, get_ai_move,
+                set_engine_config, solver_move, write_tablebase_file)
 from game import NormalGame, apply_move
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,3 +95,22 @@ def test_solver_move_is_optimal_on_random_positions(dfs_table):
         assert -table[_board_key(_child_board(g, mv))] == best, g.board
         checked += 1
     assert checked > 50
+
+
+def test_menu_solver_path_is_table_only(dfs_table, monkeypatch):
+    """D39: get_ai_move('Solver') on Normal must be a pure table lookup —
+    perfect play even with the C minimax switch off (the menu path runs on
+    any install, no DLL required)."""
+    set_engine_config({'engine': {'c_minimax': False}})
+    try:
+        g = NormalGame()
+        apply_move(g, 4)
+        apply_move(g, 0)
+        mv = get_ai_move(g, 'Solver', 300)
+        table = _read_tablebase_file()
+        lm = g.legal_moves()
+        best = max(-table[_board_key(_child_board(g, m))] for m in lm)
+        assert mv in lm
+        assert -table[_board_key(_child_board(g, mv))] == best
+    finally:
+        set_engine_config()
