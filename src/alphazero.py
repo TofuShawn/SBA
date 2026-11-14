@@ -101,7 +101,7 @@ def encode(game):
             planes[3, mr * 3:(mr + 1) * 3, mc * 3:(mc + 1) * 3] = 1.0
     if game.current == X:
         planes[2, :, :] = 1.0
-    return torch.tensor(planes, dtype=torch.float32)
+    return torch.as_tensor(planes)  # zero-copy: planes is float32 & contiguous
 
 
 def apply_move(game, move):
@@ -343,17 +343,30 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
 
         # Network: one batched forward for every selected leaf. The batch is
         # padded to a fixed size so MIOpen sees one tensor shape per process
-        # (one kernel lookup instead of a find pass per round size), and the
-        # two outputs are copied with a single sync each. Padded duplicates
-        # are evaluated but discarded.
+        # (one kernel lookup instead of a find pass per round size). Padded
+        # rows are GPU-side tiles of the real batch — encode runs once per
+        # real leaf (the old code re-encoded a duplicate state 256x per
+        # round), and the padded outputs are discarded either way. Policies
+        # and values ride home in ONE .cpu() sync instead of two.
         if leaves:
-            pad = batch_size - len(leaves)
-            padded = leaves + [leaves[0]] * pad
+            n_real = len(leaves)
+            pad = batch_size - n_real
             states = torch.stack(
-                [encode(node.state) for _, node in padded]).to(DEVICE)
+                [encode(node.state) for _, node in leaves]).to(DEVICE)
+            if pad:
+                # tile whole copies up to EXACTLY batch_size rows: a clamp
+                # (states[:pad] with pad > n_real, or a floor-div rep count)
+                # would yield a per-round variable shape, and MIOpen picks a
+                # pathological kernel for odd shapes (252 rows ran 12x slower
+                # than 256 in isolation on this ROCm build)
+                reps = -(-batch_size // n_real)   # ceil
+                states = states.repeat((reps,) + (1,) * (states.dim() - 1))
+                states = states[:batch_size]
             policies, values = model(states)
-            probs_batch = F.softmax(policies, dim=1).cpu().numpy()[:len(leaves)]
-            values_batch = values.squeeze(1).cpu().numpy()[:len(leaves)]
+            joined = torch.cat(
+                (F.softmax(policies, dim=1), values), dim=1).cpu().numpy()
+            probs_batch = joined[:n_real, :-1]
+            values_batch = joined[:n_real, -1]
             for (path, node), probs, value in zip(leaves, probs_batch, values_batch):
                 value = float(value)
                 if rollout_weight > 0:
