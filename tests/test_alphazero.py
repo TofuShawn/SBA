@@ -97,3 +97,34 @@ def test_train_parallel_workers(monkeypatch):
     assert model is not None
     g = UltimateGame()
     assert alphazero.select_move(g, model, 10) in g.legal_moves()
+
+
+def test_policy_vector_masks_and_renormalises():
+    """D40: the raw priors are masked to legal moves and renormalised —
+    zero mass outside the legal set, one forward pass, no search."""
+    model = alphazero.AZNet(9, 8, 1).to(alphazero.DEVICE)
+    from game import apply_move
+    g = UltimateGame()
+    apply_move(g, (0, 0))
+    apply_move(g, (0, 4))
+    vec = alphazero.policy_vector(g, model)
+    assert vec is not None
+    assert abs(float(vec.sum()) - 1.0) < 1e-5
+    legal = np.zeros(81, dtype=bool)
+    for m, i in g.legal_moves():
+        legal[m * 9 + i] = True
+    assert (vec[~legal] == 0).all()
+    assert (vec > 0).any()
+
+
+def test_az_policy_priors_guards(monkeypatch):
+    """No heat for Normal boards, decided boards, or without a model."""
+    import ai
+    assert ai.az_policy_priors(NormalGame()) is None
+    gu = UltimateGame()
+    gu.macro = [X, X, X] + [EMPTY] * 6
+    gu.current = X
+    assert gu.is_over() and ai.az_policy_priors(gu) is None
+    # no trained model in the repo (cached as None) -> "no heat"
+    monkeypatch.setitem(ai._AZ_MODELS, 'ultimate', None)
+    assert ai.az_policy_priors(UltimateGame()) is None

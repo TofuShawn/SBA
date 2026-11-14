@@ -22,7 +22,7 @@
   - ~~`Flat MCTS`~~ - hidden in the menu (research/learning baseline: root-level playouts, no tree) / 已停用（選單不可選，研究/學習用基準：只做根層 rollout，無樹搜尋）
   - `Solver` - perfect Normal play from the persisted tablebase (`data/tt_normal.bin`, rebuilt by `--build-tables`); MCTS fallback on Ultimate / 完美解：普通模式讀持久化解表，終極模式為 MCTS fallback
   - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
-- **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示
+- **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示；可開啟**策略熱圖**（AZ policy 以色塊疊在空格上，需已訓練模型）
 - **Adjustable AI strength / 可調 AI 強度**：MCTS 迭代數（200-3000）與 Minimax 深度（2-6）
 - **Engine optimizations / 引擎優化**（`config.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
 - **CvC controls / 電腦對戰控制**：速度（0.1-2.0s）、自動播放、手動「下一步」

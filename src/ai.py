@@ -1513,6 +1513,23 @@ def alphazero_move(game, budget=800):
     return alphazero.alphazero_move(game, model, budget)
 
 
+def az_policy_priors(game):
+    """AZNet policy priors over the legal moves of the current position:
+    {(m, i): p} renormalised across legal moves (mover's view). None when
+    the board is Normal, the game is over, or no trained model exists —
+    callers treat that as "no heat" (D40: the assistant board overlay)."""
+    if isinstance(game, NormalGame) or game.is_over():
+        return None
+    import alphazero
+    model = load_az_model(game)
+    if model is None:
+        return None
+    vec = alphazero.policy_vector(game, model)
+    if vec is None:
+        return None
+    return {(k // 9, k % 9): float(v) for k, v in enumerate(vec) if v > 0.0}
+
+
 _BOOK_ENGINES = {'Basic', 'Minimax', 'Minimax Pro', 'MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'}
 
 # Curated Ultimate openers: X's first move -> O's response (a cell in the

@@ -41,11 +41,12 @@ except ImportError:
     raise SystemExit(1)
 
 from game import (
-    X, O,
+    X, O, EMPTY,
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
 from ai import (get_ai_move, analyze_position, position_win_rates, move_text,
-                cfg_engine, cfg_session, save_engine_config, _CFG_DEFAULTS as AI_DEFAULTS)
+                az_policy_priors, cfg_engine, cfg_session, save_engine_config,
+                _CFG_DEFAULTS as AI_DEFAULTS)
 from SBA import (
     AI_OPTIONS, REASON_TEXT, current_side_type, is_ai_turn, log,
     new_session, side_label, side_types, t,
@@ -482,6 +483,9 @@ class BoardWidget(QWidget):
         self._mask_blend = {}
         self._mask_anims = {}
         self._won_cache = set()
+        # D40: AZNet policy heat {(m, i): p} over the empty cells; cleared on
+        # every position change, re-applied by a fresh analysis
+        self._heat = {}
         # D31: stone "stamp" press + progressive win-line draw
         self._stamp_cell = None
         self._stamp_t = 1.0
@@ -534,12 +538,20 @@ class BoardWidget(QWidget):
         self._win_t = float(v)
         self.update()
 
+    def set_policy_heat(self, priors):
+        """D40: AZNet policy priors over the legal moves, painted as a tint
+        on the empty cells (None/{} clears). Pure display state — neither
+        the rules nor the engines read it."""
+        self._heat = dict(priors) if priors else {}
+        self.update()
+
     def set_game(self, game):
         prev_won = self._won_cache
         self.game = game
         self.legal = set(game.legal_moves())
         self.flash_cell = None
         self._stamp_cell = None   # a new position invalidates a running stamp
+        self._heat = {}           # stale priors never outlive their position
         if isinstance(game, UltimateGame):
             won = {m for m in range(9) if game.macro[m] in (X, O)}
             fresh = won - prev_won
@@ -850,6 +862,23 @@ class BoardWidget(QWidget):
                 micro_centers[m].append(rect.center())
                 self._paint_cell(painter, rect, self.game.micro[m][i],
                                  self.flash_cell == (m, i), cell_id=(m, i))
+        # D40: AZNet policy heat — the empty cells tinted by prior mass, the
+        # brightest cell being the net's top move (spatial view of the same
+        # ranking the Best Moves list shows as text). Under the grid lines,
+        # over the cell fills.
+        if self._heat:
+            pmax = max(self._heat.values()) or 1.0
+            painter.setPen(Qt.NoPen)
+            for (m, i), p in self._heat.items():
+                if p <= 0 or self.game.micro[m][i] != EMPTY:
+                    continue
+                mr, mc = divmod(m, 3)
+                rect = self._cell_rect(mr * 3 + i // 3, mc * 3 + i % 3,
+                                       cell, ox, oy)
+                c = QColor(PAL['active_outline'])
+                c.setAlpha(int(30 + 110 * (p / pmax)))
+                painter.setBrush(c)
+                painter.drawRect(rect)
         # grid lines
         painter.setPen(QPen(QColor(PAL['grid_line']), 1))
         for i in range(1, 9):
@@ -960,19 +989,32 @@ class AIWorker(QThread):
 
 class AnalysisWorker(QThread):
     result_ready = Signal(object, object)
+    heat_ready = Signal(object)
 
-    def __init__(self, game, budget, parent=None):
+    def __init__(self, game, budget, parent=None, policy_heat=False):
         super().__init__(parent)
         self.game = game
         self.budget = budget
+        self.policy_heat = policy_heat
 
     def run(self):
+        heat = None
         try:
             items, rates = analyze_position(self.game, self.budget)
             self.result_ready.emit(items, rates)
         except Exception as e:  # noqa: BLE001
             log.error('Analysis failed: %s', e)
             self.result_ready.emit([], (0.5, 0.0, 0.5))
+        # D40: the policy heat is a separate single net forward (no search);
+        # it never fails the analysis — a missing model or a torch error
+        # just means "no heat".
+        if self.policy_heat:
+            try:
+                heat = az_policy_priors(self.game)
+            except Exception as e:  # noqa: BLE001
+                log.error('Policy heat failed: %s', e)
+                heat = None
+        self.heat_ready.emit(heat)
 
 
 # ---------------------------------------------------------------------------
@@ -1169,6 +1211,13 @@ class MenuPage(EndfieldPage):
         self.assistant.setChecked(True)
         card_lay.addWidget(self.assistant)
 
+        # D40: AZNet policy heat on the empty cells — dormant until a trained
+        # model exists (models/az_ultimate.pt), harmless when off, so default on.
+        self.policy_heat = QCheckBox(t('Assistant policy heat (AZ)',
+                                       '助手策略熱圖（AZ）'))
+        self.policy_heat.setChecked(True)
+        card_lay.addWidget(self.policy_heat)
+
         self.reduce_anim = QCheckBox(
             t('Reduce Motion (no animations)', '減少動態（停用動畫）'))
         settings = QSettings('SBA', 'SBA')
@@ -1228,6 +1277,7 @@ class MenuPage(EndfieldPage):
         s['mcts'] = self.mcts.value()
         s['minimax_depth'] = self.mm_depth.value()
         s['assistant_enabled'] = self.assistant.isChecked()
+        s['policy_heat'] = self.policy_heat.isChecked()
         s['clock'] = CLOCK_PRESETS.get(self.clock_preset.currentData(), None)
         self.start_requested.emit(s)
 
@@ -1449,6 +1499,10 @@ class GamePage(EndfieldPage):
         self.assistant_switch.setChecked(True)
         self.assistant_switch.toggled.connect(self.on_assistant_toggled)
         info_lay.addWidget(self.assistant_switch)
+        self.heat_switch = QCheckBox(t('Policy heat (AZ)', '策略熱圖（AZ）'))
+        self.heat_switch.setChecked(True)
+        self.heat_switch.toggled.connect(self.on_heat_toggled)
+        info_lay.addWidget(self.heat_switch)
         panel.addWidget(info_card)
 
         # History card (user request): every step listed; clicking an entry
@@ -1617,6 +1671,11 @@ class GamePage(EndfieldPage):
         self.speed_slider.setValue(int(s.get('cvc_speed', 0.4) * 10))
         self.cvc_timer.setInterval(max(50, int(s.get('cvc_speed', 0.4) * 1000)))
         self.assistant_switch.setChecked(s.get('assistant_enabled', True))
+        # blockSignals: setChecked would fire on_heat_toggled mid-setup and
+        # start a worker before the board/session are consistent
+        self.heat_switch.blockSignals(True)
+        self.heat_switch.setChecked(s.get('policy_heat', True))
+        self.heat_switch.blockSignals(False)
         self.board.set_game(self.game)
         self.board.reset_reveal()
         self.analysis_list.clear()
@@ -2106,6 +2165,15 @@ class GamePage(EndfieldPage):
             self.analysis_pct.setText('—')
             self.analysis_list.addItem(t('Assistant disabled', '助手已關閉'))
 
+    def on_heat_toggled(self, checked):
+        """D40: flip the AZ policy heat live — off clears the overlay, on
+        re-runs the analysis (the worker computes the priors)."""
+        self.session['policy_heat'] = checked
+        if not checked:
+            self.board.set_policy_heat(None)
+        else:
+            self.trigger_analysis()
+
     def _set_scanning(self, on, step=None):
         """Persistent assistant status: indeterminate rail + SCANNING deck tag."""
         self.load_rail.setVisible(on)
@@ -2133,10 +2201,15 @@ class GamePage(EndfieldPage):
         # assistant budget is its own config knob (not the game AI's menu
         # slider) — re-read per trigger so settings-page changes apply live
         worker = AnalysisWorker(snapshot,
-                                int(cfg_engine('assistant_sims', 2000)))
+                                int(cfg_engine('assistant_sims', 2000)),
+                                policy_heat=bool(
+                                    self.session.get('policy_heat', True)))
         worker.result_ready.connect(
             lambda items, rates, g=gen, st=step, gi=gid:
                 self.on_analysis_done(items, rates, g, st, gi))
+        worker.heat_ready.connect(
+            lambda heat, g=gen, st=step, gi=gid:
+                self.on_heat_ready(heat, g, st, gi))
         worker.finished.connect(lambda w=worker: self._reap(w))
         self.workers.append(worker)
         worker.start()
@@ -2155,6 +2228,13 @@ class GamePage(EndfieldPage):
         if self.analysis_pending:
             self.analysis_pending = False
             self.trigger_analysis()
+
+    def on_heat_ready(self, heat, gen, step, gid):
+        """Apply the AZ policy heat only when the analysed position is still
+        the one on screen (same freshness rules as the Best Moves list)."""
+        if gen != self.gen or gid != self.game_id or step != self.step_idx:
+            return
+        self.board.set_policy_heat(heat)
 
     def _on_bar_anim(self, t):
         fx, fo = self._bar_from

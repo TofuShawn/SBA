@@ -392,6 +392,32 @@ def mcts_visit_counts(game, model, budget, c_puct=1.5, batch_size=BATCH_SIZE,
     return counts
 
 
+# ---------------------------------------------------------------
+# Policy inspection (D40): the raw priors, no search
+# ---------------------------------------------------------------
+
+@torch.no_grad()
+def policy_vector(game, model):
+    """Raw policy head for `game`: an 81-dim vector masked to the legal
+    moves and renormalised (mover's view — the net is state-only). Returns
+    None when no usable model output lands on a legal move (e.g. an
+    untrained net that prefers only illegal moves). One forward pass, no
+    search — this is what the assistant's board heat shows, distinct from
+    the visit-share ranking the MCTS analysis lists."""
+    model.eval()  # BatchNorm running stats, same as the search path
+    state = encode(game).unsqueeze(0).to(DEVICE)
+    policies, _values = model(state)
+    probs = F.softmax(policies, dim=1)[0].cpu().numpy()
+    mask = np.zeros(81, dtype=np.float32)
+    for m, i in game.legal_moves():
+        mask[m * 9 + i] = 1.0
+    probs = probs * mask
+    total = probs.sum()
+    if total <= 0:
+        return None
+    return probs / total
+
+
 def select_move(game, model, budget=800, temp=0.0, c_puct=1.5,
                 batch_size=BATCH_SIZE):
     model = model.to(DEVICE)  # callers may pass a CPU model
