@@ -9,9 +9,16 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import pytest  # noqa: E402
 
-pytest.importorskip('PySide6')
+try:
+    pytest.importorskip('PySide6')
+    # the offscreen platform still needs a system EGL/GL stack; on a GL-less
+    # runner the import fails INSIDE PySide6 (libEGL.so.1 missing) and the
+    # module must skip instead of erroring collection
+    from PySide6.QtWidgets import QApplication  # noqa: E402
+except ImportError as exc:  # pragma: no cover - GL-less environments
+    pytest.skip(f'PySide6/OpenGL stack unavailable: {exc}',
+                allow_module_level=True)
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
 from game import UltimateGame, apply_move  # noqa: E402
 
 # NOTE: the cache must NOT share its name with the accessor — a global
