@@ -1043,11 +1043,21 @@ def main(argv=None):
     global ROLLOUT_WEIGHT
     ap = argparse.ArgumentParser(description='AlphaZero for (Ultimate) Tic Tac Toe')
     sub = ap.add_subparsers(dest='cmd', required=True)
-    tr = sub.add_parser('train')
-    tr.add_argument('--games', type=int, default=300)
-    tr.add_argument('--sims', type=int, default=80)
-    tr.add_argument('--eval-every', type=int, default=25)
-    tr.add_argument('--eval-games', type=int, default=20)
+    tr = sub.add_parser('train',
+                        help='self-play + optimization (the two-stage D22 recipe)')
+    tr.add_argument('--games', type=int, default=300,
+                    help='self-play games to train on (default: 300; the '
+                         'D22 scale curve used 600/2000/6000)')
+    tr.add_argument('--sims', type=int, default=80,
+                    help='MCTS simulations per move in self-play (default: 80; '
+                         'stage 1 typically 800, see --stage)')
+    tr.add_argument('--eval-every', type=int, default=25,
+                    help='run the eval gauge every N games (default: 25; long '
+                         'runs should raise it - the gauge costs real search '
+                         'time, roughly the self-play time at the default)')
+    tr.add_argument('--eval-games', type=int, default=20,
+                    help='games per eval event, doubled for both first players '
+                         '(default: 20)')
     tr.add_argument('--eval-ai', type=str, default='MCTS',
                     help='in-training eval opponent (default: MCTS via the C tree)')
     tr.add_argument('--eval-sims', type=int, default=800,
@@ -1056,8 +1066,11 @@ def main(argv=None):
                     help='training-curve CSV (one row per game; default: '
                          'next to the model, <model>.csv; fresh run '
                          'overwrites, resume appends)')
-    tr.add_argument('--lr', type=float, default=1e-3)
-    tr.add_argument('--seed', type=int, default=None)
+    tr.add_argument('--lr', type=float, default=1e-3,
+                    help='Adam learning rate, linearly annealed to 1/5 by the '
+                         'last game (default: 1e-3)')
+    tr.add_argument('--seed', type=int, default=None,
+                    help='random seed for reproducible runs (default: None)')
     tr.add_argument('--rollout-weight', type=float, default=ROLLOUT_WEIGHT,
                     help='random-playout mix in the leaf value (0 = pure network)')
     tr.add_argument('--channels', type=int, default=128,
@@ -1087,9 +1100,14 @@ def main(argv=None):
                     help='path to a checkpoint to continue training from')
     tr.add_argument('--model-path', type=str, default=None,
                     help='where to save the model (default: models/az_<game>.pt)')
-    ev = sub.add_parser('eval')
-    ev.add_argument('--games', type=int, default=20)
-    ev.add_argument('--sims', type=int, default=200)
+    ev = sub.add_parser('eval',
+                        help='play a trained model against Random (quick '
+                             'sanity gauge; the in-training gauge plays MCTS)')
+    ev.add_argument('--games', type=int, default=20,
+                    help='games to play, doubled for both first players '
+                         '(default: 20)')
+    ev.add_argument('--sims', type=int, default=200,
+                    help='AZ MCTS budget per move (default: 200)')
     ev.add_argument('--rollout-weight', type=float, default=ROLLOUT_WEIGHT,
                     help='random-playout mix in the leaf value (0 = pure network)')
     args = ap.parse_args(argv)
