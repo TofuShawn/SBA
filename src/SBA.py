@@ -216,7 +216,26 @@ def bench(games=20, iterations=1600, game_type='ultimate', seed=12345,
     return 0
 
 
+def _build_tables():
+    """--build-tables: persist the solved Normal tablebase to
+    data/tt_normal.bin (idempotent; ships tracked so no rebuild needed)."""
+    import hashlib
+    import ai
+    path, stats = ai.write_tablebase_file()
+    with open(path, 'rb') as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    empty = {0: 'draw (theoretical result)', 1: 'X win', -1: 'O loss'}
+    print(f'tablebase -> {path}')
+    print(f"  {stats['bytes']} bytes, {stats['reachable']} reachable "
+          f"positions ({stats['terminal']} terminal)")
+    print(f"  empty board: {empty.get(stats['empty_board'], '?')}")
+    print(f'  sha256  {digest}')
+    return 0
+
+
 def main():
+    if '--build-tables' in sys.argv:
+        return _build_tables()
     if '--self-test' in sys.argv:
         try:
             import pytest

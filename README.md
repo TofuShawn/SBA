@@ -104,6 +104,7 @@ CLI flags / 指令參數：
 | `--debug` | Verbose backend logging / 後端詳細日誌 |
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
 | `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
+| `--build-tables` | Rebuild `data/tt_normal.bin` — the persisted perfect-play table for Normal mode (all 5,478 reachable positions) / 重建 Normal 模式持久化完美解表（全部 5,478 個可達局面） |
 | `--train-az` | Alias for `src/alphazero.py train` / 等同執行 `src/alphazero.py train` |
 
 ### 3. Self-test / 自測
