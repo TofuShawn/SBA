@@ -32,6 +32,13 @@ def _hint(text):
     return Static(text, classes='hint')
 
 
+def _field(label, widget):
+    """A labelled form row: the flag name alone (300 / 80 / 25) tells an
+    SSH user nothing - every input carries a bilingual label."""
+    yield Static(label, classes='field-label')
+    yield widget
+
+
 class _Page(Vertical):
     """One full-width page; visibility toggles via the page-visible class."""
 
@@ -42,6 +49,7 @@ class _Page(Vertical):
     _Page Select { margin-bottom: 1; max-width: 60; }
     _Page Button { margin-top: 1; max-width: 30; }
     _Page .hint { color: $text-muted; margin-top: 1; }
+    _Page .field-label { color: $text-muted; }
     _Page ProgressBar { margin-bottom: 1; }
     _Page Horizontal.spark { height: 6; }
     _Page Sparkline { width: 1fr; height: 100%; }
@@ -83,10 +91,12 @@ class BenchTUI(App):
                          prompt='引擎 A / Engine A', id='ai-a')
             yield Select(engines, value=self._cfg['ai_b'] or 'MCTS+GRAVE',
                          prompt='引擎 B / Engine B', id='ai-b')
-            yield Input(value=str(self._cfg['games']), type='integer',
-                        id='games')
-            yield Input(value=str(self._cfg['iterations']), type='integer',
-                        id='iters')
+            yield from _field('對戰局數 / games',
+                              Input(value=str(self._cfg['games']),
+                                    type='integer', id='games'))
+            yield from _field('每步模擬數 / sims per move',
+                              Input(value=str(self._cfg['iterations']),
+                                    type='integer', id='iters'))
             yield Select([('ultimate', 'ultimate'), ('normal', 'normal')],
                          value=self._cfg['game_type'], prompt='棋盤 / Board',
                          id='board')
@@ -219,16 +229,22 @@ class TrainTUI(App):
     def compose(self) -> ComposeResult:
         with _Page(id='page-params', classes='page-visible'):
             yield Static('[bold]TRAIN // 兩階段配方[/bold]')
-            yield Input(value=str(self._cfg['games']), type='integer',
-                        id='games')
-            yield Input(value=str(self._cfg['sims']), type='integer', id='sims')
-            yield Input(value=str(self._cfg['workers']), type='integer',
-                        id='workers')
-            yield Input(value=str(self._cfg['eval_every']), type='integer',
-                        id='eval-every')
+            yield from _field('訓練局數 / games（D22 尺度曲線：600/2000/6000）',
+                              Input(value=str(self._cfg['games']),
+                                    type='integer', id='games'))
+            yield from _field('每步模擬數 / sims（stage 1 通常 800）',
+                              Input(value=str(self._cfg['sims']),
+                                    type='integer', id='sims'))
+            yield from _field('平行進程數 / workers（各持一份 GPU 模型）',
+                              Input(value=str(self._cfg['workers']),
+                                    type='integer', id='workers'))
+            yield from _field('eval 頻率 / eval every N games（長跑建議調高）',
+                              Input(value=str(self._cfg['eval_every']),
+                                    type='integer', id='eval-every'))
             yield Select([('stage 2 (neural)', '2'),
                           ('stage 1 (pure MCTS)', '1')],
-                         value=str(self._cfg['stage']), prompt='Stage',
+                         value=str(self._cfg['stage']),
+                         prompt='階段 / stage（1 純 MCTS 自對弈 → 2 神經網路）',
                          id='stage')
             yield Input(value=self._cfg['resume'] or '', placeholder='resume '
                         'ckpt path (optional)', id='resume')
