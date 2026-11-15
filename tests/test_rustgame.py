@@ -13,7 +13,7 @@ import pytest
 
 import alphazero
 import rustbridge
-from game import X, UltimateGame
+from game import O, X, UltimateGame
 from rustbridge import RustUltimateGame
 
 pytestmark = pytest.mark.skipif(
@@ -120,6 +120,19 @@ def test_game_over_and_clone_parity():
     assert rb.current == base.current == X
     assert rb.active_macro == base.active_macro == 4 or \
         (base.active_macro is None and rb.active_macro is None)
+
+
+def test_shared_apply_move_helpers_route_the_wrapper():
+    """game.apply_move duck-types on the MOVE shape (tuple = ultimate), so
+    the shared helpers accept the wrapper too — the AZ eval path hit a
+    TypeError here on the first CI run that compiled the crate."""
+    from game import apply_clone_result, apply_move
+
+    ru = RustUltimateGame()
+    apply_move(ru, (4, 4))                       # tuple: ultimate routing
+    assert ru.current == O
+    assert apply_clone_result(ru, (4, 1)) is None     # O replies, no terminal
+    assert apply_clone_result(ru, (0, 0)) is None     # X again, no terminal
 
 
 def test_clone_is_independent_of_handle():

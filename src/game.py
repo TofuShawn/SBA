@@ -312,7 +312,11 @@ class BitUltimateGame:
 
 
 def apply_move(game, move):
-    if isinstance(game, (UltimateGame, BitUltimateGame)):
+    # duck-typed on the MOVE shape, not the game class: Ultimate moves are
+    # always (macro, micro) tuples and Normal moves are always ints — this
+    # routes any implementation (UltimateGame / BitUltimateGame / the D48
+    # Rust wrapper) without game.py having to import its consumers
+    if isinstance(move, tuple):
         game.make_move(*move)
     else:
         game.make_move(move)
