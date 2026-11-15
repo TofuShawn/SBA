@@ -80,6 +80,46 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   SbaTreeHandle *out_tree,
                                   const SbaTreeHandle prev_tree);
 
+/* RAVE / GRAVE trees (sba_rave.c) — D51. Same arena/handle contract as the
+ * UCT tree; k is cfg rave_k. prev_tree may be NULL. */
+int32_t __stdcall sba_rave_search(const int32_t *cells, const int32_t *macro,
+                                  int32_t player, int32_t active,
+                                  int32_t iterations, uint64_t seed, int32_t k,
+                                  const SbaSearchOpts *opts,
+                                  int32_t *out_best, int32_t *out_count,
+                                  int32_t *out_moves, double *out_visits,
+                                  double *out_wins, int32_t *out_mover,
+                                  int32_t *out_draws,
+                                  SbaTreeHandle *out_tree,
+                                  const SbaTreeHandle prev_tree);
+int32_t __stdcall sba_grave_search(const int32_t *cells, const int32_t *macro,
+                                   int32_t player, int32_t active,
+                                   int32_t iterations, uint64_t seed, int32_t k,
+                                   const SbaSearchOpts *opts,
+                                   int32_t *out_best, int32_t *out_count,
+                                   int32_t *out_moves, double *out_visits,
+                                   double *out_wins, int32_t *out_mover,
+                                   int32_t *out_draws,
+                                   SbaTreeHandle *out_tree,
+                                   const SbaTreeHandle prev_tree);
+
+/* Minimax Pro options (D51) — separate struct so the D37 SbaSearchOpts ABI
+ * stays untouched; used only by sba_minimax_pro. */
+typedef struct {
+    int32_t use_lmr;           /* 1: late-move reductions at depth >= 4 */
+    int32_t use_killers;       /* 1: killer-move ordering + cutoff records */
+    int32_t use_aspiration;    /* 1: aspiration windows around the prev score */
+    int32_t use_eval_ordering; /* 1: root ordering by the static eval */
+    int32_t micro_tablebase;   /* 1: exact 3x3 micro values in the eval */
+    int32_t tt_max;            /* transposition-table entry cap */
+} SbaProOpts;
+
+int32_t __stdcall sba_minimax_pro(const int32_t *cells, const int32_t *macro,
+                                  int32_t player, int32_t active, int32_t depth,
+                                  int32_t time_limit_ms,
+                                  const SbaProOpts *opts, int32_t *out_best,
+                                  double *out_score);
+
 /* minimax family (sba_minimax.c) */
 int32_t __stdcall sba_minimax_normal(const int32_t *board9, int32_t player,
                                      int32_t *out_best, double *out_score);

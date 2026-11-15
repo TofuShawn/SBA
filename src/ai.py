@@ -21,7 +21,8 @@ from game import (BitUltimateGame, EMPTY, NormalGame, O, UltimateGame, X,
                   apply_move, apply_clone_result)
 from config import (_CFG_DEFAULTS, ROOT, cfg_engine, cfg_session,
                     save_engine_config, set_engine_config)
-from cbridge import (_C_PREV, _c_mcts_move, _c_rollout_state, _c_search_opts,
+from cbridge import (_C_PREV, _c_mcts_move, _c_minimax_pro, _c_rave_grave_move,
+                     _c_rollout_state, _c_search_opts,
                      _ce, _get_c_rollout, _get_c_rollout_pattern,
                      _py_rollout_state, _rollout_move, _serialize_ultimate,
                      _threat_cells, _tt_key, move_text)
@@ -100,14 +101,20 @@ def az_policy_priors(game):
 
 def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
-    if ai_type == 'MCTS':
+    if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
         # D27: the whole tree search runs in C (order-of-magnitude faster).
         # D30: _c_mcts_move carries its own warm C arena in _C_PREV between
         # moves, so the C path does reuse a tree (the Python path has the
         # separate _REUSE cache). Normal 3x3 stays on the Python path.
+        # D51: RAVE/GRAVE gain their own C trees under the same switch.
         if (cfg_engine('c_mcts', True) and isinstance(game, UltimateGame)
                 and _ce.available(engine=True)):
-            mv = _c_mcts_move(game, budget, on_progress, trace)
+            if ai_type == 'MCTS':
+                mv = _c_mcts_move(game, budget, on_progress, trace)
+            else:
+                mv = _c_rave_grave_move(game, budget,
+                                        grave=(ai_type == 'MCTS+GRAVE'),
+                                        on_progress=on_progress, trace=trace)
             if mv is not None:
                 return mv
         if cfg_engine('multithreaded', False):
@@ -262,6 +269,15 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
                 return mv
         return minimax_move_ultimate(game, depth=minimax_depth)
     if ai_type == 'Minimax Pro':
+        # D51: the C backend (negamax + TT + killers + LMR + ID) under the
+        # same c_minimax switch; the Python Pro remains the fallback. The
+        # C export is ultimate-only — Normal delegates to the full solve
+        # (sba_minimax_normal) exactly like the Python Pro does.
+        if (cfg_engine('c_minimax', True) and isinstance(game, UltimateGame)
+                and _ce.available(engine=True)):
+            mv = _c_minimax_pro(game, minimax_depth)
+            if mv is not None:
+                return mv
         return minimax_pro_move(game, depth=minimax_depth)
     if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
         return _mcts_move(game, ai_type, mcts_budget, on_progress, trace)

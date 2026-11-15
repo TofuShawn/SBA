@@ -44,6 +44,19 @@ class SearchOpts(ctypes.Structure):
     ]
 
 
+class ProOpts(ctypes.Structure):
+    """Mirror of SbaProOpts in sba_ultt.h (D51 Minimax Pro). Keep the field
+    order in sync."""
+    _fields_ = [
+        ('use_lmr', ctypes.c_int32),
+        ('use_killers', ctypes.c_int32),
+        ('use_aspiration', ctypes.c_int32),
+        ('use_eval_ordering', ctypes.c_int32),
+        ('micro_tablebase', ctypes.c_int32),
+        ('tt_max', ctypes.c_int32),
+    ]
+
+
 DEFAULT_OPTS = {
     'uct_c': 1.4,
     'dynamic_uct': True,
@@ -148,6 +161,22 @@ def _load():
                 _bind(lib, 'sba_flat_mcts', ctypes.c_int32,
                       state_args + [ctypes.c_int32, ctypes.c_uint64,
                                     opts_ptr, ptr])
+                # rave/grave: cells, macro, player, active, iterations, seed,
+                # k, opts, out_best, out_count, out_moves, out_visits,
+                # out_wins, out_mover, out_draws, out_tree, prev (17 args)
+                _bind(lib, 'sba_rave_search', ctypes.c_int32,
+                      state_args + [ctypes.c_int32, ctypes.c_uint64,
+                                    ctypes.c_int32, opts_ptr,
+                                    ptr, ptr, ptr, dbl, dbl, ptr, ptr,
+                                    ctypes.POINTER(void), void])
+                _bind(lib, 'sba_grave_search', ctypes.c_int32,
+                      state_args + [ctypes.c_int32, ctypes.c_uint64,
+                                    ctypes.c_int32, opts_ptr,
+                                    ptr, ptr, ptr, dbl, dbl, ptr, ptr,
+                                    ctypes.POINTER(void), void])
+                _bind(lib, 'sba_minimax_pro', ctypes.c_int32,
+                      state_args + [ctypes.c_int32, ctypes.c_int32,
+                                    ctypes.POINTER(ProOpts), ptr, dbl])
                 _has_engine = True
             _lib = lib
         except OSError:
@@ -314,6 +343,63 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None,
     return mv, stats, tree
 
 
+def _rave_grave_search(state, iterations, k, grave, use_pattern=False,
+                       rng_seed=None, prev=None, opts=None):
+    """Native RAVE (grave=False) / GRAVE (grave=True) tree (D51). Same
+    return contract as mcts_search: (best_move, stats, _CTree)."""
+    lib = _load()
+    if lib is None or not _has_engine:
+        return None, [], None
+    cfg = dict(DEFAULT_OPTS)
+    if opts:
+        cfg.update({kk: v for kk, v in opts.items() if kk in cfg})
+    if use_pattern:
+        cfg['use_pattern'] = True
+    c_opts = make_opts(cfg)
+    ca, ma, player, active = _serialized_arrays(state)
+    best = ctypes.c_int32(-1)
+    count = ctypes.c_int32(0)
+    moves = (ctypes.c_int32 * 81)()
+    visits = (ctypes.c_double * 81)()
+    wins = (ctypes.c_double * 81)()
+    mover = (ctypes.c_int32 * 81)()
+    draws = (ctypes.c_int32 * 81)()
+    out_tree = ctypes.c_void_p()
+    prev_handle = prev._handle if prev is not None else None
+    seed = rng_seed if rng_seed is not None else random.getrandbits(64)
+    fn = lib.sba_grave_search if grave else lib.sba_rave_search
+    r = fn(ca, ma, player, active, iterations, seed, int(k),
+           ctypes.byref(c_opts),
+           ctypes.byref(best), ctypes.byref(count),
+           moves, visits, wins, mover, draws,
+           ctypes.byref(out_tree), prev_handle)
+    if r < 0:
+        if out_tree.value:
+            _free_tree(out_tree.value)
+        return None, [], None
+    stats = [(moves[kk], visits[kk], wins[kk], mover[kk], draws[kk])
+             for kk in range(count.value)]
+    mv = best.value if best.value >= 0 else None
+    tree = _CTree(out_tree.value) if out_tree.value else None
+    if mv is None:
+        return None, stats, tree
+    return (mv // 9, mv % 9), stats, tree
+
+
+def rave_search(state, iterations, k=None, use_pattern=False, rng_seed=None,
+                prev=None, opts=None):
+    # k defaults to the config's rave_k default (150); cbridge passes the
+    # live cfg value explicitly
+    return _rave_grave_search(state, iterations, 150 if k is None else k,
+                              False, use_pattern, rng_seed, prev, opts)
+
+
+def grave_search(state, iterations, k=None, use_pattern=False, rng_seed=None,
+                 prev=None, opts=None):
+    return _rave_grave_search(state, iterations, 150 if k is None else k,
+                              True, use_pattern, rng_seed, prev, opts)
+
+
 def minimax_normal(board9, player):
     """Full 3x3 solve; returns (move, score). None if unavailable."""
     lib = _load()
@@ -338,6 +424,36 @@ def minimax_ultimate(state, depth, opts=None):
     best = ctypes.c_int32(-1)
     lib.sba_minimax_ultimate(ca, ma, player, active, depth,
                              ctypes.byref(c_opts), ctypes.byref(best))
+    mv = best.value
+    if mv < 0:
+        return None
+    return (mv // 9, mv % 9)
+
+
+def minimax_pro(state, depth, time_limit_ms=8000, use_tb=None,
+                use_lmr=True, use_killers=True, use_aspiration=True,
+                use_eval_ordering=True, tt_max=None):
+    """Minimax Pro (D51): negamax + TT + killers + LMR + ID + aspiration +
+    time cap. Returns the best move or None."""
+    lib = _load()
+    if lib is None or not _has_engine:
+        return None
+    from config import cfg_engine
+    p_opts = ProOpts(
+        use_lmr=int(bool(use_lmr)),
+        use_killers=int(bool(use_killers)),
+        use_aspiration=int(bool(use_aspiration)),
+        use_eval_ordering=int(bool(use_eval_ordering)),
+        micro_tablebase=int(bool(cfg_engine('micro_tablebase', True)
+                                 if use_tb is None else use_tb)),
+        tt_max=int(cfg_engine('tt_max', 300000) if tt_max is None else tt_max),
+    )
+    ca, ma, player, active = _serialized_arrays(state)
+    best = ctypes.c_int32(-1)
+    score = ctypes.c_double(0.0)
+    lib.sba_minimax_pro(ca, ma, player, active, int(depth),
+                        int(time_limit_ms), ctypes.byref(p_opts),
+                        ctypes.byref(best), ctypes.byref(score))
     mv = best.value
     if mv < 0:
         return None

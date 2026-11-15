@@ -11,6 +11,18 @@
 
 #include "sba_ultt.h"
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+/* Wall-clock milliseconds on Windows (mingw clock() is wall time at 1 ms
+ * granularity); CPU time on POSIX hosts — fine for the time cap, which the
+ * Linux CI leg only exercises at shallow depths. clock() deliberately
+ * replaces clock_gettime: winpthreads would become a dynamic DLL dependency
+ * that plain installs cannot resolve. */
+static double pro_elapsed_ms(clock_t t0) {
+    return (double)(clock() - t0) * 1000.0 / (double)CLOCKS_PER_SEC;
+}
 
 /* ------------------------------------------------------------------ */
 /* Exact 3x3 micro tablebase (mirrors ai.py build_tablebase)            */
@@ -407,5 +419,329 @@ int32_t __stdcall sba_flat_mcts(const int32_t *cells, const int32_t *macro,
         }
     }
     if (out_best) *out_best = best_move;
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Minimax Pro (D51): negamax + TT + killers + LMR + ID + aspiration.   */
+/* Ports ai.py minimax_pro_move / _negamax_tt / _order_moves.           */
+/* ------------------------------------------------------------------ */
+
+static uint64_t pro_hash(const uint64_t k[3]) {
+    uint64_t h = 14695981039346656037ULL;
+    for (int32_t i = 0; i < 3; i++) {
+        h ^= k[i];
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/* Exact 3-word key: no hash collisions can produce wrong TT hits. */
+static void pro_key(const SbaState *st, uint64_t k[3]) {
+    k[0] = k[1] = k[2] = 0;
+    for (int32_t i = 0; i < 81; i++) {
+        int32_t w = i / 32, sh = (i % 32) * 2;
+        k[w] |= (uint64_t)(st->cells[i] & 3) << sh;
+    }
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) {
+        k[2] |= (uint64_t)(st->macro[m] & 3) << (34 + m * 2);
+    }
+    k[2] |= (uint64_t)(st->player & 3) << 52;
+    k[2] |= (uint64_t)((st->active + 1) & 15) << 54;
+}
+
+typedef struct {
+    uint64_t k[3];
+    int32_t depth;
+    int32_t flag;      /* 0 exact, -1 lower bound, 1 upper bound */
+    double score;
+    int32_t move;
+    int32_t used;
+} ProEntry;
+
+typedef struct {
+    ProEntry *slots;
+    int32_t cap;       /* power of two */
+    int32_t used;
+    int32_t tt_max;
+    int32_t killers[64][2];
+} ProSearch;
+
+static ProEntry *pro_lookup(ProSearch *ps, const uint64_t k[3]) {
+    uint32_t idx = (uint32_t)(pro_hash(k) & (uint64_t)(ps->cap - 1));
+    for (int32_t guard = 0; guard < 64; guard++) {
+        ProEntry *e = &ps->slots[idx];
+        if (!e->used) return NULL;
+        if (e->k[0] == k[0] && e->k[1] == k[1] && e->k[2] == k[2]) return e;
+        idx = (idx + 1) & (uint32_t)(ps->cap - 1);
+    }
+    return NULL;
+}
+
+static void pro_store(ProSearch *ps, const uint64_t k[3], int32_t depth,
+                      int32_t flag, double score, int32_t move) {
+    if (ps->used >= ps->tt_max) return;
+    uint32_t idx = (uint32_t)(pro_hash(k) & (uint64_t)(ps->cap - 1));
+    for (int32_t guard = 0; guard < 64; guard++) {
+        ProEntry *e = &ps->slots[idx];
+        if (!e->used) { ps->used++; e->used = 1; }
+        else if (e->k[0] != k[0] || e->k[1] != k[1] || e->k[2] != k[2]) {
+            idx = (idx + 1) & (uint32_t)(ps->cap - 1);
+            continue;
+        }
+        e->depth = depth;
+        e->flag = flag;
+        e->score = score;
+        e->move = move;
+        e->k[0] = k[0]; e->k[1] = k[1]; e->k[2] = k[2];
+        return;
+    }
+}
+
+/* ai.py blocks_immediate_win: the move lands on a line the opponent is
+ * one cell away from completing (cells are pre-move: idx empty). */
+static int32_t pro_blocks_win(const SbaState *st, int32_t idx, int32_t player) {
+    int32_t opp = player == 1 ? 2 : 1;
+    if (st->cells[idx] != 0) return 0;
+    int32_t i = idx % 9;
+    const int32_t *c = st->cells + (idx / 9) * 9;
+    for (int32_t l = 0; l < 8; l++) {
+        const int32_t *ln = SBA_LINES[l];
+        int32_t hit = 0, others_opp = 0, others_valid = 1;
+        for (int32_t j = 0; j < 3; j++) {
+            int32_t cell = ln[j];
+            if (cell == i) { hit = 1; continue; }
+            if (c[cell] == opp) others_opp++;
+            else if (c[cell] != 0) others_valid = 0;
+        }
+        if (hit && others_valid && others_opp == 2) return 1;
+    }
+    return 0;
+}
+
+/* ai.py _move_order_score (ultimate branch; the Normal path delegates to
+ * the full 3x3 solve before ordering ever matters). */
+static double pro_order_score(const SbaState *st, int32_t move, int32_t player) {
+    SbaState t = *st;
+    sba_apply(&t, move / 9, move % 9);
+    if (sba_result(&t) == player) return 1000000;
+    if (pro_blocks_win(st, move, player)) return 500000;
+    int32_t mm = move / 9, mi = move % 9;
+    double score = 0;
+    if (mi == 4) score += 30000;
+    else if (mi == 0 || mi == 2 || mi == 6 || mi == 8) score += 10000;
+    if (mm == 4) score += 20000;
+    else if (mm == 0 || mm == 2 || mm == 6 || mm == 8) score += 5000;
+    return score;
+}
+
+/* Stable insertion sort by descending score (ties keep legal order —
+ * Python sort() stability parity). */
+static void pro_sort(int32_t *moves, double *scores, int32_t n) {
+    for (int32_t i = 1; i < n; i++) {
+        int32_t mv = moves[i];
+        double s = scores[i];
+        int32_t j = i - 1;
+        while (j >= 0 && scores[j] < s) {
+            moves[j + 1] = moves[j];
+            scores[j + 1] = scores[j];
+            j--;
+        }
+        moves[j + 1] = mv;
+        scores[j + 1] = s;
+    }
+}
+
+/* ai.py _order_moves: depth < 0 = root call (eval ordering applies). */
+static int32_t pro_order_moves(const SbaState *st, int32_t player,
+                               int32_t depth, const ProSearch *ps,
+                               const SbaProOpts *o, int32_t use_tb,
+                               int32_t *moves, double *scores) {
+    int32_t n = legal_list(st, moves);
+    if (n <= 1) return n;
+    if (depth < 0 && o->use_eval_ordering) {
+        for (int32_t i = 0; i < n; i++) {
+            SbaState t = *st;
+            sba_apply(&t, moves[i] / 9, moves[i] % 9);
+            scores[i] = eval_ultt(&t, player, use_tb);
+        }
+    } else {
+        for (int32_t i = 0; i < n; i++) {
+            scores[i] = pro_order_score(st, moves[i], player);
+        }
+    }
+    if (depth >= 0 && o->use_killers) {
+        for (int32_t ki = 0; ki < 2; ki++) {
+            int32_t km = ps->killers[depth][ki];
+            if (km <= 0) continue;
+            for (int32_t i = 0; i < n; i++) {
+                if (moves[i] == km) scores[i] += 1e8;
+            }
+        }
+    }
+    pro_sort(moves, scores, n);
+    return n;
+}
+
+/* ai.py _negamax_tt. */
+static double pro_negamax(SbaState *st, int32_t depth, double alpha,
+                          double beta, ProSearch *ps, const SbaProOpts *o,
+                          int32_t use_tb) {
+    int32_t result = sba_result(st);
+    if (result != 0) {
+        if (result == 3) return 0.0;
+        return result == st->player ? 100000.0 : -100000.0;
+    }
+    if (depth == 0) return eval_ultt(st, st->player, use_tb);
+
+    uint64_t key[3];
+    pro_key(st, key);
+    ProEntry *entry = pro_lookup(ps, key);
+    if (entry && entry->depth >= depth) {
+        if (entry->flag == 0) return entry->score;
+        if (entry->flag == -1 && entry->score > alpha) alpha = entry->score;
+        else if (entry->flag == 1 && entry->score < beta) beta = entry->score;
+        if (alpha >= beta) return entry->score;
+    }
+    int32_t tt_move = entry ? entry->move : -1;
+    double alpha0 = alpha;
+
+    int32_t moves[81];
+    double scores[81];
+    int32_t n = pro_order_moves(st, st->player, depth, ps, o, use_tb,
+                                moves, scores);
+    double best = -1e300;
+    int32_t best_move = -1;
+    for (int32_t i = 0; i < n; i++) {
+        SbaState t = *st;
+        sba_apply(&t, moves[i] / 9, moves[i] % 9);
+        double val;
+        if (o->use_lmr && depth >= 4 && i >= 2 && moves[i] != tt_move) {
+            val = -pro_negamax(&t, depth - 2, -beta, -alpha, ps, o, use_tb);
+            if (val > alpha) {
+                val = -pro_negamax(&t, depth - 1, -beta, -alpha, ps, o, use_tb);
+            }
+        } else {
+            val = -pro_negamax(&t, depth - 1, -beta, -alpha, ps, o, use_tb);
+        }
+        if (val > best) { best = val; best_move = moves[i]; }
+        if (val > alpha) alpha = val;
+        if (alpha >= beta) {
+            if (o->use_killers && depth >= 2 && best_move >= 0
+                && best_move != tt_move) {
+                int32_t *ks = ps->killers[depth];
+                if (ks[0] != best_move && ks[1] != best_move) {
+                    ks[0] = ks[1];
+                    ks[1] = best_move;
+                }
+            }
+            break;
+        }
+    }
+    int32_t flag = 0;
+    if (best <= alpha0) flag = 1;
+    else if (best >= beta) flag = -1;
+    pro_store(ps, key, depth, flag, best, best_move);
+    return best;
+}
+
+int32_t __stdcall sba_minimax_pro(const int32_t *cells, const int32_t *macro,
+                                  int32_t player, int32_t active, int32_t depth,
+                                  int32_t time_limit_ms,
+                                  const SbaProOpts *opts_in, int32_t *out_best,
+                                  double *out_score) {
+    static const SbaProOpts PRO_DEFAULTS = {1, 1, 1, 1, 1, 300000};
+    const SbaProOpts *o = opts_in ? opts_in : &PRO_DEFAULTS;
+    if (out_best) *out_best = -1;
+    if (depth <= 0) return -2;
+
+    SbaState st;
+    for (int32_t i = 0; i < 81; i++) st.cells[i] = cells[i];
+    for (int32_t m = 0; m < SBA_N_MACROS; m++) st.macro[m] = macro[m];
+    st.player = player;
+    st.active = active;
+    if (sba_result(&st) != 0) return -1;   /* terminal: nothing to pick */
+    int32_t use_tb = o->micro_tablebase;
+
+    ProSearch ps;
+    int32_t cap = 4096;
+    while (cap < o->tt_max && cap < (1 << 18)) cap <<= 1;
+    ps.slots = (ProEntry *)calloc((size_t)cap, sizeof(ProEntry));
+    if (!ps.slots) return -2;
+    ps.cap = cap;
+    ps.used = 0;
+    ps.tt_max = o->tt_max;
+    memset(ps.killers, 0, sizeof(ps.killers));
+
+    clock_t t0 = clock();
+
+    /* fallback move: center preference, deterministic — only surfaced when
+     * the time budget expires before the first depth completes */
+    int32_t legal[81];
+    int32_t n_legal = legal_list(&st, legal);
+    int32_t best_move = n_legal ? legal[0] : -1;
+    for (int32_t i = 0; i < n_legal; i++) {
+        if (legal[i] == 40) { best_move = 40; break; }
+    }
+
+    double prev_val = 0.0;
+    int32_t have_prev = 0;
+    int32_t timed_out = 0;
+    double final_score = 0.0;
+    int32_t searched = 0;
+
+    for (int32_t d = 1; d <= depth && !timed_out; d++) {
+        double alpha = -1e300, beta = 1e300;
+        if (o->use_aspiration && d > 1 && have_prev) {
+            double margin = fabs(prev_val) * 0.1;
+            if (margin < 200.0) margin = 200.0;
+            alpha = prev_val - margin;
+            beta = prev_val + margin;
+        }
+        /* root ordering always by eval when enabled (depth = -1 sentinel) */
+        int32_t moves[81];
+        double scores[81];
+        int32_t n = pro_order_moves(&st, player, -1, &ps, o, use_tb,
+                                    moves, scores);
+        double bv = -1e300;
+        int32_t bm = -1;
+        for (int32_t i = 0; i < n; i++) {
+            SbaState child = st;
+            sba_apply(&child, moves[i] / 9, moves[i] % 9);
+            double val = -pro_negamax(&child, d - 1, -beta, -alpha, &ps, o,
+                                      use_tb);
+            if (val > bv) { bv = val; bm = moves[i]; }
+            if (pro_elapsed_ms(t0) > time_limit_ms) {
+                timed_out = 1;
+                break;
+            }
+        }
+        if (timed_out) break;
+        if (bm < 0) break;
+        if (o->use_aspiration && d > 1 && have_prev
+            && (bv <= alpha || bv >= beta)) {
+            bv = -1e300;
+            bm = -1;
+            for (int32_t i = 0; i < n; i++) {
+                SbaState child = st;
+                sba_apply(&child, moves[i] / 9, moves[i] % 9);
+                double val = -pro_negamax(&child, d - 1, -1e300, 1e300, &ps, o,
+                                          use_tb);
+                if (val > bv) { bv = val; bm = moves[i]; }
+            }
+            if (bm < 0) break;
+        }
+        prev_val = bv;
+        have_prev = 1;
+        best_move = bm;
+        final_score = bv;
+        searched = 1;
+        if (fabs(bv) >= 100000.0) break;
+        if (pro_elapsed_ms(t0) > time_limit_ms) break;
+    }
+
+    free(ps.slots);
+    if (out_best) *out_best = best_move;
+    if (out_score && searched) *out_score = final_score;
     return 0;
 }

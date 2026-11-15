@@ -28,7 +28,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, 'sba_engine.dll')
-SOURCES = ['sba_ultt.c', 'sba_rollout.c', 'sba_mcts.c', 'sba_minimax.c']
+SOURCES = ['sba_ultt.c', 'sba_rollout.c', 'sba_mcts.c', 'sba_rave.c',
+           'sba_minimax.c']
 
 RUST_DIR = os.path.join(HERE, 'sba-game')
 RUST_MANIFEST = os.path.join(RUST_DIR, 'Cargo.toml')

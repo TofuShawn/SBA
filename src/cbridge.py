@@ -255,3 +255,41 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
                      'share': 1.0,
                      'wr': (picked[2] / picked[1]) if picked and picked[1] else 0.0})
     return (move_idx // 9, move_idx % 9)
+
+
+def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
+    """Full RAVE/GRAVE tree in C (D51). Single-threaded — the Python trees
+    are too, and root parallelization over RAVE statistics is a separate
+    project. Tree reuse rides the same _C_PREV slots ('RAVE'/'GRAVE')."""
+    if not _ce.available(engine=True):
+        return None
+    key = 'GRAVE' if grave else 'RAVE'
+    prev = _C_PREV.get(key)
+    fn = _ce.grave_search if grave else _ce.rave_search
+    res = fn(game, budget, k=int(cfg_engine('rave_k', 150)),
+             opts=_c_search_opts(), prev=prev)
+    if res is None or res[0] is None:
+        return None
+    best_move, stats, tree = res
+    _C_PREV[key] = tree
+    if trace is not None:
+        root_visits = sum(s[1] for s in stats) or 1
+        top = sorted(stats, key=lambda s: -s[1])[:3]
+        trace['top'] = [(move_text((s[0] // 9, s[0] % 9)),
+                         s[1] / root_visits,
+                         s[2] / s[1] if s[1] else 0.0) for s in top]
+    if on_progress is not None:
+        packed = best_move[0] * 9 + best_move[1]
+        picked = next((s for s in stats if s[0] == packed), None)
+        on_progress({'it': budget, 'iterations': budget,
+                     'best_text': move_text(best_move),
+                     'share': 1.0,
+                     'wr': (picked[2] / picked[1]) if picked and picked[1] else 0.0})
+    return best_move
+
+
+def _c_minimax_pro(game, depth):
+    """Minimax Pro via the C backend (D51); None → Python fallback."""
+    if not _ce.available(engine=True):
+        return None
+    return _ce.minimax_pro(game, depth)
