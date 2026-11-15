@@ -131,10 +131,15 @@ def test_shared_apply_move_helpers_route_the_wrapper():
     ru = RustUltimateGame()
     apply_move(ru, (4, 4))                       # tuple: ultimate routing
     assert ru.current == O
-    assert apply_clone_result(ru, (4, 1)) is None     # O replies, no terminal
-    # O's micro index (1) routes X's reply into macro 1 — free choice would
-    # be rejected here, which is exactly the routing the helper must obey
-    assert apply_clone_result(ru, (1, 0)) is None
+    # the reply must stay inside macro 4 — the shared helper obeys routing
+    with pytest.raises(ValueError, match='move must be in the routed macro'):
+        apply_move(ru, (0, 0))
+    # O replies (4,1) on a working copy: no terminal, and X routes on
+    assert apply_clone_result(ru, (4, 1)) is None
+    ru2 = ru.clone()
+    apply_move(ru2, (4, 1))
+    assert ru2.current == X and ru2.active_macro == 1
+    assert apply_clone_result(ru2, (1, 0)) is None
 
 
 def test_clone_is_independent_of_handle():
