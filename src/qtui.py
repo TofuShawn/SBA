@@ -2354,8 +2354,8 @@ class SettingsPage(EndfieldPage):
                      '位元棋盤加速（僅 Python 路徑）'),
         'opening_book': ('Opening book', '開局書'),
         'micro_tablebase': ('Micro endgame tablebase', 'micro 殘局表'),
-        'multithreaded': ('Multithreaded MCTS (legacy, C path)',
-                          '多執行緒 MCTS（舊路徑，僅 C）'),
+        'multithreaded': ('Multithreaded MCTS (C tree / Python fallback)',
+                          '多執行緒 MCTS（C 樹並行／Python 回退並行）'),
         'early_stop': ('Stop dominant searches early (Python path)',
                        '提早終止優勢搜尋（僅 Python 路徑）'),
         'progressive_widening': ('Progressive widening (Python path)',
@@ -2377,8 +2377,8 @@ class SettingsPage(EndfieldPage):
          ['c_mcts', 'c_minimax', 'c_rollout_pattern']),
         ('MCTS SEARCH', 'MCTS 搜尋行為',
          '影響 MCTS 搜尋策略與棋力。未標註的開關 C 樹與 Python 路徑皆生效'
-         '（D37）；標註「僅 Python 路徑」者不影響 C 引擎，'
-         '「僅 C」者不影響 Python 樹。',
+         '（D37）；標註「僅 Python 路徑」者不影響 C 引擎。'
+         '多執行緒在 C 樹並行，C 關閉時則走 Python 的並行回退。',
          ['rollout_heuristic', 'tree_reuse', 'dynamic_uct', 'early_stop',
           'progressive_widening', 'multithreaded', 'object_pool']),
         ('SEARCH AIDS', '搜尋輔助結構',

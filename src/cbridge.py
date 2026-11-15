@@ -296,7 +296,18 @@ def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
 
 
 def _c_minimax_pro(game, depth):
-    """Minimax Pro via the C backend (D51); None → Python fallback."""
+    """Minimax Pro via the C backend (D51); None → Python fallback.
+
+    The four pruning switches are C-side capabilities too (sba_minimax_pro
+    reads o->use_*), but cengine.minimax_pro defaults them all to True.
+    Passing them explicitly is what keeps the MINIMAX PRUNING group on the
+    settings page from being a no-op whenever c_minimax is on.
+    """
     if not _ce.available(engine=True):
         return None
-    return _ce.minimax_pro(game, depth)
+    return _ce.minimax_pro(
+        game, depth,
+        use_lmr=bool(cfg_engine('use_lmr', True)),
+        use_killers=bool(cfg_engine('use_killers', True)),
+        use_aspiration=bool(cfg_engine('use_aspiration', True)),
+        use_eval_ordering=bool(cfg_engine('use_eval_ordering', True)))

@@ -13,6 +13,7 @@ config.toml). The parity fuzz in tests/test_rustgame.py keeps the two
 implementations identical — error texts included.
 """
 
+import atexit
 import ctypes
 import os
 
@@ -53,13 +54,23 @@ _FREE_BATCH = 512
 
 
 def _flush_handles():
+    """Release queued handles. Registered with atexit so the last batch
+    (fewer than _FREE_BATCH) is freed on a clean interpreter exit instead
+    of waiting for the OS to reclaim it.
+    """
     lib = _LIB
     if lib is None:
         return
     freed = len(_DEAD_HANDLES)
     for i in range(freed):
-        lib.sba_game_free(_DEAD_HANDLES[i])
+        try:
+            lib.sba_game_free(_DEAD_HANDLES[i])
+        except Exception:  # the DLL may already be gone at teardown
+            pass
     del _DEAD_HANDLES[:freed]   # handles appended mid-loop stay queued
+
+
+atexit.register(_flush_handles)
 
 
 class SbaState(ctypes.Structure):

@@ -40,8 +40,16 @@ def test_sba_config_overrides_read_and_write(tmp_path):
 def test_sba_config_rejects_paths_outside_the_write_guard():
     """The override rides the same write-path guard as every other path:
     outside repo/temp it must fail loudly at import, not silently fall
-    back to the repo config.toml."""
-    env = dict(os.environ, SBA_CONFIG='Z:\\definitely\\nowhere\\c.toml')
+    back to the repo config.toml.
+
+    Build the path from ROOT's PARENT so it is outside the allow-list on
+    BOTH platforms. A hardcoded drive-letter path (Z:\\...) is only a
+    filename under cwd on POSIX, where realpath would resolve it INSIDE
+    the repo and the guard would let it through — the Linux CI runner
+    used to fail this very assertion.
+    """
+    outside = os.path.join(os.path.dirname(ROOT), 'sba_guard_outside', 'c.toml')
+    env = dict(os.environ, SBA_CONFIG=outside)
     code = ('import sys; sys.path.insert(0, r"%s"); '
             'import config; print("LOADED")'
             % os.path.join(ROOT, 'src'))
@@ -49,3 +57,21 @@ def test_sba_config_rejects_paths_outside_the_write_guard():
                        capture_output=True, text=True, timeout=60)
     assert r.returncode != 0
     assert 'LOADED' not in r.stdout
+    assert 'outside repo/temp' in r.stderr
+
+
+def test_sba_config_rejects_parent_traversal_before_normalization():
+    """The '..' check must run on the RAW path: realpath() resolves '..'
+    away, so testing the normalized string could never fire. This path
+    lands inside the repo after normalization and would otherwise pass.
+    """
+    traversal = os.path.join(ROOT, 'src', '..', 'override.toml')
+    env = dict(os.environ, SBA_CONFIG=traversal)
+    code = ('import sys; sys.path.insert(0, r"%s"); '
+            'import config; print("LOADED")'
+            % os.path.join(ROOT, 'src'))
+    r = subprocess.run([sys.executable, '-c', code], env=env, cwd=ROOT,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode != 0
+    assert 'LOADED' not in r.stdout
+    assert 'may not contain ..' in r.stderr

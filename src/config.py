@@ -16,8 +16,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 log = logging.getLogger('sba.config')
 
-# the config file location; tests repoint this at tmp_path via
-# monkeypatch.setattr(config, '_CONFIG_PATH', ...) -- no env involved
+# the config file location; $SBA_CONFIG (applied below) and tests
+# (monkeypatch.setattr(config, '_CONFIG_PATH', ...)) both override it
 _CONFIG_PATH = os.path.join(ROOT, 'config.toml')
 
 # the only trees a write helper may create files under: this repo and the
@@ -29,11 +29,15 @@ def _writable_path(path):
     """Normalize a path and refuse anything the tool may not create files
     under: repo or system temp only, no '..' segments (path-traversal
     guard for the write helpers; reads use the same rule)."""
-    rp = os.path.realpath(str(path))                      # 1. 规范化
-    if '..' in rp.split(os.sep):                          # 2. 禁止 ..
-        raise ValueError('path may not contain ..: %s' % path)
+    raw = str(path)
+    # Check the RAW path: realpath() resolves '..' away, so testing the
+    # normalized string could never fire (a dead guard until D53 review).
+    # Split on both separators so Windows paths behave on POSIX too.
+    if '..' in raw.replace('\\', '/').split('/'):
+        raise ValueError('path may not contain ..: %s' % raw)
+    rp = os.path.realpath(raw)                            # 1. 规范化
     if not any(rp == r or rp.startswith(r + os.sep) for r in _ALLOWED_ROOTS):
-        raise ValueError('write path outside repo/temp: %s' % path)  # 3. 限目录
+        raise ValueError('write path outside repo/temp: %s' % raw)  # 2. 限目录
     return rp
 
 
@@ -44,7 +48,15 @@ def _writable_path(path):
 # _CONFIG_PATH at call time) writes the new one. Import time is one place
 # that every entry point hits identically.
 if os.environ.get('SBA_CONFIG'):
-    _CONFIG_PATH = _writable_path(os.environ['SBA_CONFIG'])
+    try:
+        _CONFIG_PATH = _writable_path(os.environ['SBA_CONFIG'])
+    except ValueError as exc:
+        # Say what the allowed locations are: the override file is BOTH
+        # read and written, so it is subject to the same guard as saves.
+        raise ValueError(
+            '$SBA_CONFIG must live in this repo or the system temp dir '
+            '(the override is read and written through the same path guard); '
+            '%s' % exc) from exc
 
 
 # ============================================================

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 TofuShawn
-# SPDX-License-Identifier: GPL-3-0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 """C RAVE / GRAVE / Minimax Pro engines (D51): the forced-win picks, the
 rave_k switch, tree reuse and the dispatch wiring. Skips when the DLL is
@@ -222,3 +222,78 @@ def test_c_minimax_pro_time_limit_stays_sane():
     elapsed = time.perf_counter() - t0
     assert mv in g.legal_moves()
     assert elapsed < 3.0
+
+
+def test_c_minimax_pro_pruning_switches_reach_the_backend(monkeypatch):
+    """The MINIMAX PRUNING group must reach the C Pro backend, not only the
+    Python fallback. cengine defaults all four switches to True, so a
+    missing kwarg silently turns the whole settings group into a no-op
+    whenever c_minimax is on (the same contract bug D53 fixed for
+    tree_reuse).
+    """
+    seen = []
+    real = _ce().minimax_pro
+
+    def spy(game, depth, **kw):
+        seen.append(kw)
+        return real(game, depth, **kw)
+
+    monkeypatch.setattr(_ce(), 'minimax_pro', spy)
+    g = _out_of_book()
+    try:
+        for flag in (False, True):
+            set_engine_config({'engine': {
+                'opening_book': False, 'c_minimax': True,
+                'use_lmr': flag, 'use_killers': flag,
+                'use_aspiration': flag, 'use_eval_ordering': flag}})
+            assert get_ai_move(g.clone(), 'Minimax Pro', 3, 3) in g.legal_moves()
+    finally:
+        set_engine_config()
+    assert len(seen) == 2, seen
+    for kw, flag in zip(seen, (False, True)):
+        for key in ('use_lmr', 'use_killers', 'use_aspiration',
+                    'use_eval_ordering'):
+            assert kw.get(key) is flag, (key, kw)
+
+
+def test_c_minimax_pro_switches_change_the_search():
+    """Behavioural half: the switches are not merely passed through. Pin it
+    on the raw ctypes export so a spy-only test cannot hide a wrapper that
+    drops the kwargs.
+
+    A fixed position where root eval ordering changes the tie-break: the
+    score must stay identical (exact negamax — pruning is not allowed to
+    change the result), but the chosen move does. LMR / killers /
+    aspiration are pure speed-ups and deliberately leave the result
+    alone; their contract is the kwargs assertion above.
+    """
+    import ctypes
+    ce = _ce()
+    lib = ce._load()
+    if lib is None or not ce._has_engine:
+        pytest.skip('full engine DLL not built')
+    g = UltimateGame()
+    for mv in ((7, 1), (1, 3), (3, 0), (0, 1), (1, 7), (7, 7), (7, 0),
+               (0, 4), (4, 1), (1, 5), (5, 6), (6, 0), (0, 8), (8, 1),
+               (1, 1), (1, 8)):
+        apply_move(g, mv)
+    ca, ma, player, active = ce._serialized_arrays(g)
+
+    def best_for(**switches):
+        v = dict(use_lmr=0, use_killers=0, use_aspiration=0,
+                 use_eval_ordering=0)
+        v.update(switches)
+        opts = ce.ProOpts(v['use_lmr'], v['use_killers'], v['use_aspiration'],
+                          v['use_eval_ordering'], 1, 300000)
+        best, score = ctypes.c_int32(-1), ctypes.c_double(0.0)
+        lib.sba_minimax_pro(ca, ma, player, active, 4, 8000,
+                            ctypes.byref(opts), ctypes.byref(best),
+                            ctypes.byref(score))
+        return best.value, score.value
+
+    off = best_for()
+    on = best_for(use_lmr=1, use_killers=1, use_aspiration=1,
+                  use_eval_ordering=1)
+    assert off[1] == on[1]           # pruning must not change the score
+    assert off[0] != on[0]           # ...but root ordering breaks the tie
+    assert best_for(use_eval_ordering=1)[0] == on[0]
