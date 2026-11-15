@@ -17,7 +17,7 @@ jobs:
   # lint is platform-independent and needs no torch — a lone job reports
   # red in seconds, before the test matrix pays for any heavy install
   lint:
-    name: Lint (ruff)
+    name: Lint (ruff / format / C)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -32,8 +32,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      - name: Ruff
+      - name: Ruff lint
         run: ruff check .
+
+      - name: Ruff format
+        run: ruff format --check .
+
+      # The C engine used to compile with no warning flags at all, and
+      # build.py swallowed successful builds' stderr. This is the gate;
+      # -D__stdcall= is the same define build.py uses on a Linux host.
+      - name: C warnings
+        run: |
+          for f in native/sba_ultt.c native/sba_rollout.c native/sba_mcts.c \
+                   native/sba_rave.c native/sba_minimax.c; do
+            gcc -std=c11 -fsyntax-only -Wall -Wextra -Werror \
+                -D__stdcall= -Inative "$f"
+          done
 
   test:
     name: Test (${{ matrix.os }})
@@ -91,3 +105,13 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests -q
+
+      # The test matrix calls the engine modules directly; these three
+      # entry points have their own argv routing and used to be unverified.
+      # One OS is enough — the matrix above already covers both platforms.
+      - name: CLI entry smoke
+        if: runner.os == 'Linux'
+        run: |
+          python sba.py --self-test
+          python sba.py --bench --games 1 --iters 20 --ai-a Basic --ai-b Random
+          python sba.py --build-tables

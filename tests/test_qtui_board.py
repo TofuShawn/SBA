@@ -5,19 +5,18 @@
 
 import os
 
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 
 try:
-    pytest.importorskip('PySide6')
+    pytest.importorskip("PySide6")
     # the offscreen platform still needs a system EGL/GL stack; on a GL-less
     # runner the import fails INSIDE PySide6 (libEGL.so.1 missing) and the
     # module must skip instead of erroring collection
     from PySide6.QtWidgets import QApplication  # noqa: E402
 except ImportError as exc:  # pragma: no cover - GL-less environments
-    pytest.skip(f'PySide6/OpenGL stack unavailable: {exc}',
-                allow_module_level=True)
+    pytest.skip(f"PySide6/OpenGL stack unavailable: {exc}", allow_module_level=True)
 
 from game import UltimateGame, apply_move  # noqa: E402
 
@@ -39,13 +38,14 @@ def _qapp():
 def _midgame_board(widget):
     g = UltimateGame()
     apply_move(g, (0, 0))
-    apply_move(g, (0, 4))          # routes the next move into macro 4
+    apply_move(g, (0, 4))  # routes the next move into macro 4
     widget.set_game(g)
 
 
 def test_policy_heat_paints_and_clears():
     _qapp()
     from qtui import BoardWidget
+
     w = BoardWidget()
     w.resize(450, 450)
     _midgame_board(w)
@@ -53,7 +53,7 @@ def test_policy_heat_paints_and_clears():
 
     heat = {(4, 4): 1.0, (4, 6): 0.5, (0, 1): 0.3}
     w.set_policy_heat(heat)
-    assert w.grab().toImage() != plain   # the tint is actually drawn
+    assert w.grab().toImage() != plain  # the tint is actually drawn
 
     # a stone cell is skipped: (0,0) holds X, so this clears to plain
     w.set_policy_heat({(0, 0): 1.0})
@@ -64,4 +64,4 @@ def test_policy_heat_paints_and_clears():
     w.set_game(UltimateGame())
     assert w._heat == {}
     _midgame_board(w)
-    assert w.grab().toImage() == plain   # and the midgame looks un-heated
+    assert w.grab().toImage() == plain  # and the midgame looks un-heated

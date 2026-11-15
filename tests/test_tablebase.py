@@ -12,15 +12,23 @@ import random
 import pytest
 
 import tablebase
-from ai import (_TABLEBASE_PATH, _board_key, _build_tablebase_dfs,
-                _read_tablebase_file, build_tablebase, get_ai_move,
-                set_engine_config, solver_move, write_tablebase_file)
+from ai import (
+    _TABLEBASE_PATH,
+    _board_key,
+    _build_tablebase_dfs,
+    _read_tablebase_file,
+    build_tablebase,
+    get_ai_move,
+    set_engine_config,
+    solver_move,
+    write_tablebase_file,
+)
 from game import NormalGame, apply_move
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def dfs_table():
     return _build_tablebase_dfs()
 
@@ -32,49 +40,51 @@ def _child_board(g, m):
 
 
 def test_committed_file_matches_a_fresh_solve(dfs_table):
-    raw = open(_TABLEBASE_PATH, 'rb').read()
-    assert len(raw) == 3 ** 9
+    with open(_TABLEBASE_PATH, "rb") as fh:
+        raw = fh.read()
+    assert len(raw) == 3**9
     table = _read_tablebase_file()
-    assert table == dfs_table            # same keys, same values
-    filled = {k for k in range(3 ** 9) if raw[k] != 0xFF}
-    assert filled == set(dfs_table)      # sentinel exactly on unreachable slots
-    assert table.get(0) == 0             # empty board: theoretical draw
-    assert len(table) == 5478            # literature figure for legal 3x3 states
+    assert table == dfs_table  # same keys, same values
+    filled = {k for k in range(3**9) if raw[k] != 0xFF}
+    assert filled == set(dfs_table)  # sentinel exactly on unreachable slots
+    assert table.get(0) == 0  # empty board: theoretical draw
+    assert len(table) == 5478  # literature figure for legal 3x3 states
 
 
 def test_loader_falls_back_to_dfs_without_file(dfs_table, monkeypatch, tmp_path):
     # patch the OWNING module (D47 split): ai only re-exports snapshots
-    monkeypatch.setattr(tablebase, '_TABLEBASE', None)
-    monkeypatch.setattr(tablebase, '_TABLEBASE_PATH',
-                        str(tmp_path / 'absent.bin'))
+    monkeypatch.setattr(tablebase, "_TABLEBASE", None)
+    monkeypatch.setattr(tablebase, "_TABLEBASE_PATH", str(tmp_path / "absent.bin"))
     assert build_tablebase() == dfs_table
 
 
 def test_corrupt_or_truncated_file_is_rejected(dfs_table, monkeypatch, tmp_path):
-    raw = bytearray(open(_TABLEBASE_PATH, 'rb').read())
+    with open(_TABLEBASE_PATH, "rb") as fh:
+        raw = bytearray(fh.read())
 
-    bad = tmp_path / 'bad_byte.bin'
-    raw[40] = 0x7F                       # neither a value code nor the sentinel
+    bad = tmp_path / "bad_byte.bin"
+    raw[40] = 0x7F  # neither a value code nor the sentinel
     bad.write_bytes(bytes(raw))
-    monkeypatch.setattr(tablebase, '_TABLEBASE', None)
-    monkeypatch.setattr(tablebase, '_TABLEBASE_PATH', str(bad))
+    monkeypatch.setattr(tablebase, "_TABLEBASE", None)
+    monkeypatch.setattr(tablebase, "_TABLEBASE_PATH", str(bad))
     assert _read_tablebase_file() is None
     assert build_tablebase() == dfs_table
 
-    trunc = tmp_path / 'truncated.bin'
+    trunc = tmp_path / "truncated.bin"
     trunc.write_bytes(bytes(raw[:100]))
-    monkeypatch.setattr(tablebase, '_TABLEBASE_PATH', str(trunc))
+    monkeypatch.setattr(tablebase, "_TABLEBASE_PATH", str(trunc))
     assert _read_tablebase_file() is None
 
 
 def test_write_is_idempotent_and_matches_committed(tmp_path):
-    p1, p2 = tmp_path / 'a.bin', tmp_path / 'b.bin'
+    p1, p2 = tmp_path / "a.bin", tmp_path / "b.bin"
     write_tablebase_file(str(p1))
     write_tablebase_file(str(p2))
     b1 = p1.read_bytes()
     assert b1 == p2.read_bytes()
-    assert hashlib.sha256(b1).hexdigest() == hashlib.sha256(
-        open(_TABLEBASE_PATH, 'rb').read()).hexdigest()
+    with open(_TABLEBASE_PATH, "rb") as fh:
+        committed = fh.read()
+    assert hashlib.sha256(b1).hexdigest() == hashlib.sha256(committed).hexdigest()
 
 
 def test_solver_move_is_optimal_on_random_positions(dfs_table):
@@ -103,12 +113,12 @@ def test_menu_solver_path_is_table_only(dfs_table, monkeypatch):
     """D39: get_ai_move('Solver') on Normal must be a pure table lookup —
     perfect play even with the C minimax switch off (the menu path runs on
     any install, no DLL required)."""
-    set_engine_config({'engine': {'c_minimax': False}})
+    set_engine_config({"engine": {"c_minimax": False}})
     try:
         g = NormalGame()
         apply_move(g, 4)
         apply_move(g, 0)
-        mv = get_ai_move(g, 'Solver', 300)
+        mv = get_ai_move(g, "Solver", 300)
         table = _read_tablebase_file()
         lm = g.legal_moves()
         best = max(-table[_board_key(_child_board(g, m))] for m in lm)

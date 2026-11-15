@@ -15,7 +15,7 @@ from mcts import mcts_move
 
 _TABLEBASE = None
 
-_TABLEBASE_PATH = os.path.join(ROOT, 'data', 'tt_normal.bin')
+_TABLEBASE_PATH = os.path.join(ROOT, "data", "tt_normal.bin")
 # one byte per base-3 board key (0..19682): 0x00 side-to-move win,
 # 0x01 draw, 0x02 side-to-move loss, 0xFF unreachable (never queried in
 # legal play). Side to move is derivable from the stone counts, so the
@@ -25,11 +25,13 @@ _TB_VALUE_BYTE = {1: 0x00, 0: 0x01, -1: 0x02}
 
 _TB_BYTE_VALUE = {b: v for v, b in _TB_VALUE_BYTE.items()}
 
+
 def _board_key(board):
     key = 0
     for c in board:
         key = key * 3 + (0 if c == EMPTY else (1 if c == X else 2))
     return key
+
 
 def _board_from_key(key):
     board = []
@@ -37,6 +39,7 @@ def _board_from_key(key):
         board.append((EMPTY, X, O)[key % 3])
         key //= 3
     return board[::-1]
+
 
 def _build_tablebase_dfs():
     """Minimax solve of every position reachable from the empty board
@@ -74,18 +77,19 @@ def _build_tablebase_dfs():
     solve([EMPTY] * 9, X)
     return memo
 
+
 def _read_tablebase_file(path=None):
     """Decode the persisted tablebase into the same dict the DFS produces;
     None on any structural mismatch (callers then rebuild)."""
     try:
-        with open(path or _TABLEBASE_PATH, 'rb') as f:
+        with open(path or _TABLEBASE_PATH, "rb") as f:
             raw = f.read()
     except OSError:
         return None
-    if len(raw) != 3 ** 9:
+    if len(raw) != 3**9:
         return None
     table = {}
-    for key in range(3 ** 9):
+    for key in range(3**9):
         val = _TB_BYTE_VALUE.get(raw[key])
         if val is None:
             if raw[key] != 0xFF:
@@ -97,6 +101,7 @@ def _read_tablebase_file(path=None):
         return None
     return table
 
+
 def build_tablebase():
     global _TABLEBASE
     if _TABLEBASE is not None:
@@ -107,28 +112,36 @@ def build_tablebase():
     _TABLEBASE = table
     return _TABLEBASE
 
+
 def write_tablebase_file(path=None):
     """Persist the solved tablebase: one byte per base-3 key, sentinel for
     unreachable slots. Idempotent — the same solve always yields the same
     bytes. Returns (path, stats)."""
     path = path or _TABLEBASE_PATH
     table = _build_tablebase_dfs()
-    raw = bytearray(b'\xFF' * (3 ** 9))
+    raw = bytearray(b"\xff" * (3**9))
     for key, val in table.items():
         raw[key] = _TB_VALUE_BYTE[val]
     path = _writable_path(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'wb') as f:
+    with open(path, "wb") as f:
         f.write(bytes(raw))
     terminal = 0
     for key in table:
         board = _board_from_key(key)
-        if any(board[a] and board[a] == board[b] == board[c]
-               for a, b, c in LINES) or EMPTY not in board:
+        if (
+            any(board[a] and board[a] == board[b] == board[c] for a, b, c in LINES)
+            or EMPTY not in board
+        ):
             terminal += 1
-    stats = {'bytes': len(raw), 'reachable': len(table),
-             'terminal': terminal, 'empty_board': table.get(0)}
+    stats = {
+        "bytes": len(raw),
+        "reachable": len(table),
+        "terminal": terminal,
+        "empty_board": table.get(0),
+    }
     return path, stats
+
 
 def build_micro_tablebase():
     """Exact minimax values for a single 3x3 micro (side-to-move view).
@@ -137,6 +150,7 @@ def build_micro_tablebase():
     this is a thin alias that keeps the intent readable at call sites.
     """
     return build_tablebase()
+
 
 def solver_move(game, mcts_budget=800):
     """Perfect play on Normal; falls back to MCTS on Ultimate."""

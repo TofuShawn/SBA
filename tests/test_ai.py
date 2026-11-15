@@ -2,22 +2,48 @@
 
 import math
 import random
+import sys
 import threading
 
+import pytest
 
 import ai
 import mcts
 import analysis
 from ai import (
-    get_basic_move, minimax_move_normal, mcts_move, solver_move,
-    minimax_pro_move, mcts_rave_move, mcts_grave_move, build_tablebase,
-    _board_key, get_ai_move, opening_book_move, build_micro_tablebase,
-    _rollout_move, reset_engine_caches, _REUSE, _fork_count,
-    mcts_move_parallel, _D4, position_win_rate, position_win_rates,
-    flat_mcts_move, analyze_position, set_engine_config, _diff_move,
+    get_basic_move,
+    minimax_move_normal,
+    mcts_move,
+    solver_move,
+    minimax_pro_move,
+    mcts_rave_move,
+    mcts_grave_move,
+    build_tablebase,
+    _board_key,
+    get_ai_move,
+    opening_book_move,
+    build_micro_tablebase,
+    _rollout_move,
+    reset_engine_caches,
+    _REUSE,
+    _fork_count,
+    mcts_move_parallel,
+    _D4,
+    position_win_rate,
+    position_win_rates,
+    flat_mcts_move,
+    analyze_position,
+    set_engine_config,
+    _diff_move,
 )
 from game import (
-    X, O, EMPTY, NormalGame, UltimateGame, BitUltimateGame, apply_move,
+    X,
+    O,
+    EMPTY,
+    NormalGame,
+    UltimateGame,
+    BitUltimateGame,
+    apply_move,
 )
 
 
@@ -48,12 +74,11 @@ def test_minimax_x_never_loses_to_random():
     for _ in range(6):
         g = NormalGame()
         while not g.is_over():
-            move = (minimax_move_normal(g)[0] if g.current == X
-                    else random.choice(g.legal_moves()))
+            move = minimax_move_normal(g)[0] if g.current == X else random.choice(g.legal_moves())
             g.make_move(move)
         if g.result() == X:
             wins += 1
-        elif g.result() == 'D':
+        elif g.result() == "D":
             draws += 1
     assert wins + draws == 6
 
@@ -99,7 +124,7 @@ def test_solver_winning_move_and_tablebase():
     assert -build_tablebase()[_board_key(b)] == 1
     assert len(build_tablebase()) > 5000
     g2 = NormalGame()
-    assert get_ai_move(g2, 'Solver', 300) in g2.legal_moves()
+    assert get_ai_move(g2, "Solver", 300) in g2.legal_moves()
 
 
 def test_immediate_win_across_engines():
@@ -134,6 +159,7 @@ def test_opening_book():
 
 def test_ultimate_opening_book_responses():
     from ai import ULTIMATE_BOOK
+
     for x_move, responses in ULTIMATE_BOOK.items():
         gu = UltimateGame()
         gu.make_move(*x_move)  # routes the next move into macro x_move[1]
@@ -171,11 +197,11 @@ def test_rollout_heuristic():
 def test_tree_reuse():
     # the opening book would answer the first two plies itself — turn it off
     # so the moves actually go through MCTS and populate the reuse cache
-    set_engine_config({'engine': {'opening_book': False}})
+    set_engine_config({"engine": {"opening_book": False}})
     g = NormalGame()
-    m1 = get_ai_move(g, 'MCTS', 100)
+    m1 = get_ai_move(g, "MCTS", 100)
     apply_move(g, m1)
-    m2 = get_ai_move(g, 'MCTS', 100)
+    m2 = get_ai_move(g, "MCTS", 100)
     assert m2 in g.legal_moves()
     assert len(_REUSE) > 0
     reset_engine_caches()
@@ -213,13 +239,22 @@ def test_symmetry_keeps_forced_win_on_python_path():
     g.micro[2] = [EMPTY, EMPTY, EMPTY, EMPTY, X, EMPTY, X, EMPTY, EMPTY]
     g.current = X
     g.active_macro = 2
-    set_engine_config({'engine': {'symmetry': True, 'c_mcts': False,
-                                  'c_minimax': False, 'opening_book': False,
-                                  'bitboard': False, 'tree_reuse': False}})
+    set_engine_config(
+        {
+            "engine": {
+                "symmetry": True,
+                "c_mcts": False,
+                "c_minimax": False,
+                "opening_book": False,
+                "bitboard": False,
+                "tree_reuse": False,
+            }
+        }
+    )
     try:
         for seed in (1, 2, 3):
             random.seed(seed)
-            assert get_ai_move(g.clone(), 'MCTS+GRAVE', 200) == (2, 2)
+            assert get_ai_move(g.clone(), "MCTS+GRAVE", 200) == (2, 2)
     finally:
         set_engine_config()
 
@@ -234,8 +269,9 @@ def test_multithreaded_enabled_via_config(monkeypatch):
     merge path: c_mcts off (the C tree would take it first) and the opening
     book off (an empty board would return a book move without searching).
     Two workers at budget 200 -> two chunked searches, 100 sims each."""
-    set_engine_config({'engine': {'multithreaded': True, 'workers': 2,
-                                  'c_mcts': False, 'opening_book': False}})
+    set_engine_config(
+        {"engine": {"multithreaded": True, "workers": 2, "c_mcts": False, "opening_book": False}}
+    )
     calls = []
     real = ai.mcts_search
 
@@ -243,14 +279,14 @@ def test_multithreaded_enabled_via_config(monkeypatch):
         calls.append(iterations)
         return real(state, iterations, **kw)
 
-    monkeypatch.setattr(ai, 'mcts_search', spy)
+    monkeypatch.setattr(ai, "mcts_search", spy)
     try:
         gu = UltimateGame()
         apply_move(gu, (0, 0))
         apply_move(gu, (0, 4))
-        assert get_ai_move(gu, 'MCTS', 200) in gu.legal_moves()
-        assert len(calls) == 2, calls    # one search per worker thread
-        assert sum(calls) == 200         # the budget split across threads
+        assert get_ai_move(gu, "MCTS", 200) in gu.legal_moves()
+        assert len(calls) == 2, calls  # one search per worker thread
+        assert sum(calls) == 200  # the budget split across threads
     finally:
         set_engine_config()
 
@@ -285,8 +321,8 @@ def test_thread_local_tt():
         t.start()
     for t in threads:
         t.join()
-    assert not errors, errors            # thread failures propagate here
-    assert len(ok) == 2 and all(ok)      # all(...) on an empty list is True
+    assert not errors, errors  # thread failures propagate here
+    assert len(ok) == 2 and all(ok)  # all(...) on an empty list is True
 
 
 def test_ultimate_game_winning_moves():
@@ -301,14 +337,16 @@ def test_ultimate_game_winning_moves():
 
 
 def test_cvc_termination():
-    for gt, ax, ao in (('normal', 'Random', 'Random'),
-                       ('ultimate', 'Random', 'Random'),
-                       ('ultimate', 'Minimax', 'Random'),
-                       ('normal', 'Solver', 'Random'),
-                       ('ultimate', 'Minimax Pro', 'Random'),
-                       ('ultimate', 'MCTS+RAVE', 'Random'),
-                       ('ultimate', 'MCTS+GRAVE', 'Random')):
-        game = NormalGame() if gt == 'normal' else UltimateGame()
+    for gt, ax, ao in (
+        ("normal", "Random", "Random"),
+        ("ultimate", "Random", "Random"),
+        ("ultimate", "Minimax", "Random"),
+        ("normal", "Solver", "Random"),
+        ("ultimate", "Minimax Pro", "Random"),
+        ("ultimate", "MCTS+RAVE", "Random"),
+        ("ultimate", "MCTS+GRAVE", "Random"),
+    ):
+        game = NormalGame() if gt == "normal" else UltimateGame()
         guard = 0
         while not game.is_over() and guard < 500:
             engine = ax if game.current == X else ao
@@ -318,10 +356,18 @@ def test_cvc_termination():
 
 
 def test_pvc_termination():
-    for gt in ('normal', 'ultimate'):
-        for engine in ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
-                       'MCTS+RAVE', 'MCTS+GRAVE', 'Solver'):
-            game = NormalGame() if gt == 'normal' else UltimateGame()
+    for gt in ("normal", "ultimate"):
+        for engine in (
+            "Random",
+            "Basic",
+            "Minimax",
+            "Minimax Pro",
+            "MCTS",
+            "MCTS+RAVE",
+            "MCTS+GRAVE",
+            "Solver",
+        ):
+            game = NormalGame() if gt == "normal" else UltimateGame()
             guard = 0
             while not game.is_over() and guard < 500:
                 if game.current == X:
@@ -333,13 +379,13 @@ def test_pvc_termination():
 
 
 def test_alphazero_falls_back_without_model(monkeypatch):
-    monkeypatch.setattr(ai, 'load_az_model', lambda game: None)
+    monkeypatch.setattr(ai, "load_az_model", lambda game: None)
     g = NormalGame()
-    assert get_ai_move(g, 'AlphaZero', 30) in g.legal_moves()
+    assert get_ai_move(g, "AlphaZero", 30) in g.legal_moves()
 
 
 def test_tree_reuse_across_opponent_reply(monkeypatch):
-    set_engine_config({'engine': {'opening_book': False}})
+    set_engine_config({"engine": {"opening_book": False}})
     seen = []
     orig = ai.mcts_search
 
@@ -347,30 +393,30 @@ def test_tree_reuse_across_opponent_reply(monkeypatch):
         seen.append(prev_root is not None)
         return orig(game, iterations, c, prev_root, pool, **kwargs)
 
-    monkeypatch.setattr(ai, 'mcts_search', spy)
+    monkeypatch.setattr(ai, "mcts_search", spy)
     g = NormalGame()
-    m1 = get_ai_move(g, 'MCTS', 40)
+    m1 = get_ai_move(g, "MCTS", 40)
     apply_move(g, m1)
-    reply = ai._REUSE_LAST['MCTS'].children[0].move
+    reply = ai._REUSE_LAST["MCTS"].children[0].move
     apply_move(g, reply)
-    get_ai_move(g, 'MCTS', 40)
+    get_ai_move(g, "MCTS", 40)
     assert seen == [False, True]
 
 
 def test_dynamic_uct_uses_this_search_visits(monkeypatch):
-    set_engine_config({'engine': {'opening_book': False}})
+    set_engine_config({"engine": {"opening_book": False}})
     calls = []
 
     def spy(c, rv, it):
         calls.append((rv, it))
         return c
 
-    monkeypatch.setattr(mcts, '_uct_scale', spy)
+    monkeypatch.setattr(mcts, "_uct_scale", spy)
     g = NormalGame()
-    m1 = get_ai_move(g, 'MCTS', 40)
+    m1 = get_ai_move(g, "MCTS", 40)
     apply_move(g, m1)
-    apply_move(g, ai._REUSE_LAST['MCTS'].children[0].move)
-    get_ai_move(g, 'MCTS', 40)
+    apply_move(g, ai._REUSE_LAST["MCTS"].children[0].move)
+    get_ai_move(g, "MCTS", 40)
     assert calls
     assert all(rv <= it for rv, it in calls)
 
@@ -390,14 +436,15 @@ def test_diff_move():
     assert _diff_move(ua, ub) == (4, 4)
     assert _diff_move(BitUltimateGame.from_game(ua), ub) == (4, 4)
     ub2 = UltimateGame()
-    ub2.make_move(0, 0)   # routes the reply into macro 0
+    ub2.make_move(0, 0)  # routes the reply into macro 0
     ub2.make_move(0, 1)
     assert _diff_move(ua, ub2) is None  # two new cells
-    assert _diff_move(ub, ua) is None   # a removal is not a forward move
+    assert _diff_move(ub, ua) is None  # a removal is not a forward move
 
 
 def test_ultimate_terminal_score_prefers_faster_win():
     from ai import _minimax_ultimate
+
     g = UltimateGame()
     g.macro = [X, X, X] + [EMPTY] * 6
     assert _minimax_ultimate(g, 5, -math.inf, math.inf, True, X) == 100000 - 5
@@ -412,7 +459,7 @@ def test_parallel_mcts_terminal_returns_none():
 
 
 def test_tt_max_is_dynamic():
-    set_engine_config({'engine': {'tt_max': 10}})
+    set_engine_config({"engine": {"tt_max": 10}})
     gu = UltimateGame()
     assert minimax_pro_move(gu, depth=3) in gu.legal_moves()
     assert len(ai._get_tt()) <= 10
@@ -422,7 +469,7 @@ def test_analyze_ultimate_bitboard_path(monkeypatch):
     """bitboard=True must actually build a BitUltimateGame for the Python
     search. With the default c_mcts=True the C analysis answers first and
     from_game is never called, so the switch must disable it here."""
-    set_engine_config({'engine': {'bitboard': True, 'c_mcts': False}})
+    set_engine_config({"engine": {"bitboard": True, "c_mcts": False}})
     built = []
     real_from = BitUltimateGame.from_game.__func__
 
@@ -432,9 +479,47 @@ def test_analyze_ultimate_bitboard_path(monkeypatch):
             built.append(True)
             return real_from(BitUltimateGame, game)
 
-    monkeypatch.setattr(analysis, 'BitUltimateGame', _SpyBit)
+    monkeypatch.setattr(analysis, "BitUltimateGame", _SpyBit)
     gu = UltimateGame()
     items, rates = analyze_position(gu, 200)
-    assert built, 'bitboard=True never constructed a BitUltimateGame'
+    assert built, "bitboard=True never constructed a BitUltimateGame"
     assert abs(sum(rates) - 1.0) < 1e-6
-    assert items and all(0.0 <= it['pct'] <= 1.0 for it in items)
+    assert items and all(0.0 <= it["pct"] <= 1.0 for it in items)
+
+
+def test_alphazero_degrades_cleanly_without_optional_deps(monkeypatch):
+    """torch/numpy are optional. A bare install must still pick a move
+    (MCTS fallback) and the assistant overlay must report no heat, instead
+    of raising ModuleNotFoundError from the top-level alphazero import."""
+    monkeypatch.setattr(ai, "_az_module", lambda: None)
+    g = UltimateGame()
+    apply_move(g, (4, 4))
+    assert get_ai_move(g, "AlphaZero", 30) in g.legal_moves()
+    assert ai.load_az_model(g) is None
+    assert ai.az_policy_priors(g) is None
+
+
+def test_az_module_treats_missing_torch_as_optional(monkeypatch):
+    """A real `import torch` failure carries name='torch' — that must be
+    the graceful-degradation path, not an error."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake(name, *args, **kwargs):
+        if name == "alphazero":
+            err = ModuleNotFoundError("No module named 'torch'")
+            err.name = "torch"
+            raise err
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake)
+    assert ai._az_module() is None
+
+
+def test_az_module_propagates_unrelated_import_failures(monkeypatch):
+    """Only a missing torch/numpy is an optional-dep fallback; any other
+    ModuleNotFoundError must surface rather than being swallowed."""
+    monkeypatch.setitem(sys.modules, "alphazero", None)
+    with pytest.raises(ModuleNotFoundError):
+        ai._az_module()

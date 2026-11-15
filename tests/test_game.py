@@ -5,9 +5,17 @@ import random
 import pytest
 
 from game import (
-    X, O, EMPTY,
-    NormalGame, UltimateGame, BitUltimateGame, apply_move,
-    line_coords, win_segment, macro_center, win_badge_svg,
+    X,
+    O,
+    EMPTY,
+    NormalGame,
+    UltimateGame,
+    BitUltimateGame,
+    apply_move,
+    line_coords,
+    win_segment,
+    macro_center,
+    win_badge_svg,
 )
 
 
@@ -22,7 +30,7 @@ def test_normal_draw_detected():
     g = NormalGame()
     for mv in (0, 1, 2, 4, 3, 5, 8, 6, 7):
         g.make_move(mv)
-    assert g.result() == 'D' and g.is_full()
+    assert g.result() == "D" and g.is_full()
     assert g.legal_moves() == []
 
 
@@ -37,7 +45,7 @@ def test_ultimate_routing():
 def test_ultimate_full_macro_frees_moves():
     g = UltimateGame()
     g.micro[0] = [X, O, X, X, O, O, O, X, X]
-    g.macro[0] = 'D'
+    g.macro[0] = "D"
     g.active_macro = 0
     g.current = X
     assert any(m != 0 for m, _ in g.legal_moves())
@@ -70,17 +78,17 @@ def test_ultimate_macro_win_detected():
 
 def test_ultimate_draw_detected():
     g = UltimateGame()
-    g.macro = ['D'] * 9
+    g.macro = ["D"] * 9
     for m in range(9):
         g.micro[m] = [X, O, X, X, O, O, O, X, X]
-    assert g.result() == 'D' and g.is_full()
+    assert g.result() == "D" and g.is_full()
 
 
 def test_geometry_helpers():
     assert win_segment((0, 1, 2), line_coords) == ((4, 20), (96, 20))
     assert win_segment((0, 4, 8), line_coords) == ((7, 7), (93, 93))
     assert win_segment((0, 4, 8), macro_center) == ((7, 7), (93, 93))
-    assert '<line' in win_badge_svg(X) and '<circle' in win_badge_svg(O)
+    assert "<line" in win_badge_svg(X) and "<circle" in win_badge_svg(O)
 
 
 def test_bitboard_equivalence():
@@ -107,9 +115,9 @@ def test_bitboard_occupied_cell_raises():
 def test_bitboard_drawn_macro_displays_D():
     g = UltimateGame()
     g.micro[0] = [X, O, X, X, O, O, O, X, X]
-    g.macro[0] = 'D'
+    g.macro[0] = "D"
     b = BitUltimateGame.from_game(g)
-    assert b.macro[0] == 'D'
+    assert b.macro[0] == "D"
 
 
 def test_make_move_rejects_terminal_and_misrouted_moves():
@@ -120,21 +128,21 @@ def test_make_move_rejects_terminal_and_misrouted_moves():
     for mv in (0, 3, 1, 4, 2):
         n.make_move(mv)
     assert n.result() == X and n.legal_moves() == []
-    with pytest.raises(ValueError, match='game is over'):
+    with pytest.raises(ValueError, match="game is over"):
         n.make_move(5)
 
     u = UltimateGame()
     apply_move(u, (0, 2))  # routes the reply into macro 2
-    with pytest.raises(ValueError, match='routed macro'):
+    with pytest.raises(ValueError, match="routed macro"):
         u.make_move(5, 5)
     b = BitUltimateGame.from_game(u)
-    with pytest.raises(ValueError, match='routed macro'):
+    with pytest.raises(ValueError, match="routed macro"):
         b.make_move(5, 5)
 
     draw = UltimateGame()
-    draw.macro = ['D'] * 9
+    draw.macro = ["D"] * 9
     for m in range(9):
         draw.micro[m] = [X, O, X, X, O, O, O, X, X]
-    assert draw.result() == 'D'
-    with pytest.raises(ValueError, match='game is over'):
+    assert draw.result() == "D"
+    with pytest.raises(ValueError, match="game is over"):
         draw.make_move(0, 0)

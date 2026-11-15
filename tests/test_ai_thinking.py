@@ -19,35 +19,36 @@ def _out_of_book_position():
 
 def test_mcts_progress_reports_steps():
     from ai import set_engine_config
+
     # live progress only exists on the Python MCTS path
-    set_engine_config({'engine': {'multithreaded': False, 'c_mcts': False,
-                                  'opening_book': False}})
+    set_engine_config({"engine": {"multithreaded": False, "c_mcts": False, "opening_book": False}})
     try:
         g = _out_of_book_position()
         events = []
-        move = get_ai_move(g, 'MCTS', 200, 3, on_progress=events.append)
+        move = get_ai_move(g, "MCTS", 200, 3, on_progress=events.append)
         assert move in g.legal_moves()
         assert len(events) >= 5
         first = events[0]
-        assert first['it'] <= first['iterations']
-        assert first['best_text']  # serial search always has a best child
-        assert 0.0 <= first['wr'] <= 1.0
+        assert first["it"] <= first["iterations"]
+        assert first["best_text"]  # serial search always has a best child
+        assert 0.0 <= first["wr"] <= 1.0
     finally:
         set_engine_config()
 
 
 def test_trace_has_top_candidates_and_pick():
     from ai import set_engine_config
-    set_engine_config({'engine': {'multithreaded': False}})
+
+    set_engine_config({"engine": {"multithreaded": False}})
     try:
         g = _out_of_book_position()
         trace = {}
-        move = get_ai_move(g, 'MCTS', 200, 3, trace=trace)
+        move = get_ai_move(g, "MCTS", 200, 3, trace=trace)
         assert move in g.legal_moves()
-        assert trace['engine'] == 'MCTS'
-        assert trace['budget'] == 200
-        assert trace['picked_text']  # engine-layer text for the chosen move
-        top = trace['top']
+        assert trace["engine"] == "MCTS"
+        assert trace["budget"] == 200
+        assert trace["picked_text"]  # engine-layer text for the chosen move
+        top = trace["top"]
         assert 1 <= len(top) <= 3
         for text, share, wr in top:
             assert text
@@ -66,19 +67,20 @@ def test_trace_on_parallel_mcts():
     # budget=200 -> two chunked searches; D24 reports once per finished
     # thread, so the counter jumps (100 -> 200), not smoothly.
     from ai import set_engine_config
-    set_engine_config({'engine': {'multithreaded': True, 'workers': 2,
-                                  'c_mcts': False, 'opening_book': False}})
+
+    set_engine_config(
+        {"engine": {"multithreaded": True, "workers": 2, "c_mcts": False, "opening_book": False}}
+    )
     try:
         g = _out_of_book_position()
         trace = {}
         events = []
-        move = get_ai_move(g, 'MCTS', 200, 3,
-                           on_progress=events.append, trace=trace)
+        move = get_ai_move(g, "MCTS", 200, 3, on_progress=events.append, trace=trace)
         assert move in g.legal_moves()
-        assert trace['engine'] == 'MCTS'
-        assert trace['top']  # merged root stats fill the candidates
+        assert trace["engine"] == "MCTS"
+        assert trace["top"]  # merged root stats fill the candidates
         assert len(events) == 2  # one coarse report per finished thread
-        assert [e['it'] for e in events] == [100, 200]  # chunk boundaries
+        assert [e["it"] for e in events] == [100, 200]  # chunk boundaries
     finally:
         set_engine_config()
 
@@ -87,24 +89,24 @@ def test_trace_on_book_and_basic():
     g = UltimateGame()
     # empty board: MCTS hits the opening book — trace notes it, no top list
     trace = {}
-    get_ai_move(g, 'MCTS', 200, 3, trace=trace)
-    assert trace.get('note') == 'opening book'
-    assert 'top' not in trace
+    get_ai_move(g, "MCTS", 200, 3, trace=trace)
+    assert trace.get("note") == "opening book"
+    assert "top" not in trace
 
     # Basic is instant: trace carries engine metadata only
     g2 = _out_of_book_position()
     trace2 = {}
-    get_ai_move(g2, 'Basic', 0, 3, trace=trace2)
-    assert trace2['engine'] == 'Basic'
-    assert trace2['picked_text']
+    get_ai_move(g2, "Basic", 0, 3, trace=trace2)
+    assert trace2["engine"] == "Basic"
+    assert trace2["picked_text"]
 
 
 def test_backward_compatible_call():
     """Existing call sites (no kwargs) keep working."""
     g = _out_of_book_position()
-    move = get_ai_move(g, 'Basic')
+    move = get_ai_move(g, "Basic")
     assert move in g.legal_moves()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])

@@ -39,11 +39,14 @@ def bench_table(title, header, rows):
     style) tuples for per-cell styling."""
     if not _RICH:
         return None
-    t = Table(title=title, box=box.SIMPLE_HEAVY, title_justify='left',
-              pad_edge=False)
+    t = Table(title=title, box=box.SIMPLE_HEAVY, title_justify="left", pad_edge=False)
     for col in header:
-        t.add_column(col, justify='left' if col in ('A', 'B') else 'right')
+        t.add_column(col, justify="left" if col in ("A", "B") else "right")
     for row in rows:
-        t.add_row(*[cell if not isinstance(cell, tuple) else
-                    f'[{cell[1]}]{cell[0]}[/{cell[1]}]' for cell in row])
+        t.add_row(
+            *[
+                cell if not isinstance(cell, tuple) else f"[{cell[1]}]{cell[0]}[/{cell[1]}]"
+                for cell in row
+            ]
+        )
     return t

@@ -14,6 +14,7 @@ implementations identical — error texts included.
 """
 
 import atexit
+import contextlib
 import ctypes
 import os
 
@@ -29,18 +30,17 @@ _ERR_OCCUPIED = -5
 
 # sba_game_apply error code -> the same text UltimateGame would raise
 _ERR_TEXT = {
-    _ERR_OVER: 'game is over',
-    _ERR_RANGE: 'cell out of range',
-    _ERR_ROUTED: 'move must be in the routed macro',
-    _ERR_MACRO_CLOSED: 'macro is not open',
-    _ERR_OCCUPIED: 'cell is occupied',
+    _ERR_OVER: "game is over",
+    _ERR_RANGE: "cell out of range",
+    _ERR_ROUTED: "move must be in the routed macro",
+    _ERR_MACRO_CLOSED: "macro is not open",
+    _ERR_OCCUPIED: "cell is occupied",
 }
 
-_RES_CODES = {0: None, 1: X, 2: O, 3: 'D'}
+_RES_CODES = {0: None, 1: X, 2: O, 3: "D"}
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_LIB_PATH = os.path.join(_ROOT, 'native',
-                         'sba_game.dll' if os.name == 'nt' else 'sba_game.so')
+_LIB_PATH = os.path.join(_ROOT, "native", "sba_game.dll" if os.name == "nt" else "sba_game.so")
 
 _LIB = None
 _TRIED = False
@@ -63,11 +63,10 @@ def _flush_handles():
         return
     freed = len(_DEAD_HANDLES)
     for i in range(freed):
-        try:
+        # the DLL may already be gone at teardown
+        with contextlib.suppress(Exception):
             lib.sba_game_free(_DEAD_HANDLES[i])
-        except Exception:  # the DLL may already be gone at teardown
-            pass
-    del _DEAD_HANDLES[:freed]   # handles appended mid-loop stay queued
+    del _DEAD_HANDLES[:freed]  # handles appended mid-loop stay queued
 
 
 atexit.register(_flush_handles)
@@ -76,14 +75,15 @@ atexit.register(_flush_handles)
 class SbaState(ctypes.Structure):
     """Mirror of the Rust SbaState dump — field order IS the ABI
     (rust cdylib native/sba-game/src/lib.rs #[repr(C)] SbaState)."""
+
     _fields_ = [
-        ('px', ctypes.c_uint16 * 9),
-        ('po', ctypes.c_uint16 * 9),
-        ('mx', ctypes.c_uint16),
-        ('mo', ctypes.c_uint16),
-        ('current', ctypes.c_uint8),
-        ('active', ctypes.c_int32),
-        ('result', ctypes.c_int32),
+        ("px", ctypes.c_uint16 * 9),
+        ("po", ctypes.c_uint16 * 9),
+        ("mx", ctypes.c_uint16),
+        ("mo", ctypes.c_uint16),
+        ("current", ctypes.c_uint8),
+        ("active", ctypes.c_int32),
+        ("result", ctypes.c_int32),
     ]
 
 
@@ -106,32 +106,36 @@ def _load():
         lib.sba_game_clone.restype = ctypes.c_void_p
         lib.sba_game_free.argtypes = [ctypes.c_void_p]
         lib.sba_game_free.restype = None
-        lib.sba_game_apply.argtypes = [ctypes.c_void_p, ctypes.c_int32,
-                                       ctypes.c_int32]
+        lib.sba_game_apply.argtypes = [ctypes.c_void_p, ctypes.c_int32, ctypes.c_int32]
         lib.sba_game_apply.restype = ctypes.c_int32
         lib.sba_game_result.argtypes = [ctypes.c_void_p]
         lib.sba_game_result.restype = ctypes.c_int32
         lib.sba_game_macro_open.argtypes = [ctypes.c_void_p, ctypes.c_int32]
         lib.sba_game_macro_open.restype = ctypes.c_int32
-        lib.sba_game_legal.argtypes = [ctypes.c_void_p,
-                                       ctypes.POINTER(ctypes.c_int32),
-                                       ctypes.c_int32]
+        lib.sba_game_legal.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.c_int32,
+        ]
         lib.sba_game_legal.restype = ctypes.c_int32
-        lib.sba_game_state.argtypes = [ctypes.c_void_p,
-                                       ctypes.POINTER(SbaState)]
+        lib.sba_game_state.argtypes = [ctypes.c_void_p, ctypes.POINTER(SbaState)]
         lib.sba_game_state.restype = None
-        lib.sba_game_serialize.argtypes = [ctypes.c_void_p,
-                                           ctypes.POINTER(ctypes.c_int32),
-                                           ctypes.POINTER(ctypes.c_int32),
-                                           ctypes.POINTER(ctypes.c_int32),
-                                           ctypes.POINTER(ctypes.c_int32)]
+        lib.sba_game_serialize.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.POINTER(ctypes.c_int32),
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         lib.sba_game_serialize.restype = ctypes.c_int32
-        lib.sba_game_planes.argtypes = [ctypes.c_void_p,
-                                        ctypes.POINTER(ctypes.c_float)]
+        lib.sba_game_planes.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_float)]
         lib.sba_game_planes.restype = ctypes.c_int32
-        lib.sba_game_clone_apply.argtypes = [ctypes.c_void_p, ctypes.c_int32,
-                                             ctypes.c_int32,
-                                             ctypes.POINTER(ctypes.c_int32)]
+        lib.sba_game_clone_apply.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int32,
+            ctypes.c_int32,
+            ctypes.POINTER(ctypes.c_int32),
+        ]
         lib.sba_game_clone_apply.restype = ctypes.c_void_p
         if lib.sba_game_abi() != ABI:
             return None
@@ -154,13 +158,14 @@ class RustUltimateGame:
     plain attributes exactly like UltimateGame (no ctypes call per read).
     """
 
-    __slots__ = ('_h', 'current', 'active_macro')
+    __slots__ = ("_h", "current", "active_macro")
 
     def __init__(self):
         lib = _load()
         if lib is None:
-            raise RuntimeError('sba_game native library not available '
-                               '(build it with `python native/build.py`)')
+            raise RuntimeError(
+                "sba_game native library not available (build it with `python native/build.py`)"
+            )
         self._h = lib.sba_game_new()
         self.current = X
         self.active_macro = None
@@ -170,7 +175,7 @@ class RustUltimateGame:
         # states per game and a per-object FFI free measured 30% slower than
         # the Python game in the stage-2 mix (the AZ tree churns states).
         # Handles park in _DEAD_HANDLES until the threshold flush.
-        h = getattr(self, '_h', None)
+        h = getattr(self, "_h", None)
         if h:
             _DEAD_HANDLES.append(h)
             if len(_DEAD_HANDLES) >= _FREE_BATCH:
@@ -181,7 +186,7 @@ class RustUltimateGame:
         """Adopt an UltimateGame / BitUltimateGame position."""
         lib = _load()
         if lib is None:
-            raise RuntimeError('sba_game native library not available')
+            raise RuntimeError("sba_game native library not available")
         st = SbaState()
         for m in range(9):
             for i in range(9):
@@ -200,7 +205,7 @@ class RustUltimateGame:
         g = cls.__new__(cls)
         g._h = lib.sba_game_load(ctypes.byref(st))
         if not g._h:
-            raise RuntimeError('sba_game_load failed')
+            raise RuntimeError("sba_game_load failed")
         g.current = game.current
         g.active_macro = game.active_macro
         return g
@@ -217,7 +222,7 @@ class RustUltimateGame:
     def make_move(self, m, i):
         rc = _LIB.sba_game_apply(self._h, m, i)
         if rc != 0:
-            raise ValueError(_ERR_TEXT.get(rc, 'invalid move'))
+            raise ValueError(_ERR_TEXT.get(rc, "invalid move"))
         # mirrors advance in lockstep with the handle (same rules)
         self.current = O if self.current == X else X
         self.active_macro = i if self.macro_open(i) else None
@@ -285,8 +290,8 @@ class RustUltimateGame:
                 out.append(X)
             elif (st.mo >> m) & 1:
                 out.append(O)
-            elif (st.px[m] | st.po[m]) == 0x1FF:   # parens: | binds looser than ==
-                out.append('D')
+            elif (st.px[m] | st.po[m]) == 0x1FF:  # parens: | binds looser than ==
+                out.append("D")
             else:
                 out.append(EMPTY)
         return out
@@ -301,19 +306,18 @@ class RustUltimateGame:
         macro = (ctypes.c_int32 * 9)()
         player = ctypes.c_int32()
         active = ctypes.c_int32()
-        _LIB.sba_game_serialize(self._h, cells, macro,
-                                ctypes.byref(player), ctypes.byref(active))
+        _LIB.sba_game_serialize(self._h, cells, macro, ctypes.byref(player), ctypes.byref(active))
         return cells, macro, player.value, active.value
 
     def sba_planes_tensor(self):
         """The whole 4x9x9 encode tensor as float32 numpy — one Rust call
         fills all four planes (alphazero.encode adopts it wholesale)."""
         import numpy as np
+
         buf = np.zeros(324, dtype=np.float32)
-        rc = _LIB.sba_game_planes(
-            self._h, buf.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+        rc = _LIB.sba_game_planes(self._h, buf.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
         if rc != 0:
-            raise RuntimeError('sba_game_planes failed')
+            raise RuntimeError("sba_game_planes failed")
         return buf.reshape(4, 9, 9)
 
     def clone_apply(self, m, i):
@@ -322,10 +326,9 @@ class RustUltimateGame:
         side returns the child's routing macro)."""
         child = type(self).__new__(type(self))
         active = ctypes.c_int32()
-        child._h = _LIB.sba_game_clone_apply(self._h, m, i,
-                                             ctypes.byref(active))
+        child._h = _LIB.sba_game_clone_apply(self._h, m, i, ctypes.byref(active))
         if not child._h:
-            raise ValueError('clone_apply: illegal move')
+            raise ValueError("clone_apply: illegal move")
         child.current = O if self.current == X else X
         child.active_macro = active.value if active.value >= 0 else None
         return child

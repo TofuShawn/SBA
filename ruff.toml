@@ -1,6 +1,9 @@
-# Ruff — F (pyflakes) + E9 (syntax) + E7 (naming/multiline basics).
+# Ruff — F (pyflakes) + E9 (syntax) + E7 (naming/multiline basics)
+# + B (bugbear) + SIM (simplify) + PERF (perflint).
 # E741 is per-file-ignored where `O` IS the domain constant: the second
 # player's mark cannot be renamed to satisfy a linter.
+# S (bandit), RUF, I (isort) and UP (pyupgrade) are intentionally NOT
+# selected: they mostly flag style rather than defects on this codebase.
 line-length = 100
 
 exclude = [
@@ -9,7 +12,7 @@ exclude = [
 ]
 
 [lint]
-select = ["F", "E9", "E7"]
+select = ["F", "E9", "E7", "B", "SIM", "PERF"]
 
 [lint.per-file-ignores]
 # the facade re-exports the whole engine surface on purpose (from ai import

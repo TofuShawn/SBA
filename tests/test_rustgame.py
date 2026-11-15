@@ -11,13 +11,19 @@ import random
 
 import pytest
 
+# torch/numpy are optional (requirements.txt deliberately omits them so
+# Dependabot cannot drag the CUDA wheel into CI). Without these guards the
+# top-level `import alphazero` makes --self-test fail at COLLECTION on a
+# bare install, even though every other test file skips cleanly.
+pytest.importorskip("numpy")
+pytest.importorskip("torch")
+
 import alphazero
 import rustbridge
 from game import O, X, UltimateGame
 from rustbridge import RustUltimateGame
 
-pytestmark = pytest.mark.skipif(
-    not rustbridge.available(), reason='sba_game cdylib not built')
+pytestmark = pytest.mark.skipif(not rustbridge.available(), reason="sba_game cdylib not built")
 
 SEED = 20261115
 
@@ -31,7 +37,7 @@ def _assert_parity(py, ru):
     """One position, both implementations: everything a search or the UI
     can observe must agree."""
     assert set(ru.legal_moves()) == set(py.legal_moves())
-    assert ru.legal_moves() == py.legal_moves()          # order too
+    assert ru.legal_moves() == py.legal_moves()  # order too
     assert ru.current == py.current
     assert ru.active_macro == py.active_macro
     assert ru.result() == py.result()
@@ -81,14 +87,14 @@ def test_illegal_moves_raise_the_same_texts():
     py, ru = _fresh_pair()
     py.make_move(4, 4)
     ru.make_move(4, 4)
-    with pytest.raises(ValueError, match='cell is occupied'):
+    with pytest.raises(ValueError, match="cell is occupied"):
         ru.make_move(4, 4)
-    with pytest.raises(ValueError, match='cell is occupied'):
+    with pytest.raises(ValueError, match="cell is occupied"):
         py.make_move(4, 4)
     # after (4,4) the reply is forced into macro 4
-    with pytest.raises(ValueError, match='move must be in the routed macro'):
+    with pytest.raises(ValueError, match="move must be in the routed macro"):
         ru.make_move(0, 0)
-    with pytest.raises(ValueError, match='move must be in the routed macro'):
+    with pytest.raises(ValueError, match="move must be in the routed macro"):
         py.make_move(0, 0)
     # a closed macro target with no open route would raise the same text
     # on both sides — covered end-to-end by the parity fuzz instead
@@ -96,22 +102,23 @@ def test_illegal_moves_raise_the_same_texts():
 
 def test_game_over_and_clone_parity():
     py = UltimateGame()
-    py.macro = [X] * 9                       # already won macro row
+    py.macro = [X] * 9  # already won macro row
     ru = RustUltimateGame.from_game(py)
-    assert ru.result() == py.result() == 'X'
-    with pytest.raises(ValueError, match='game is over'):
+    assert ru.result() == py.result() == "X"
+    with pytest.raises(ValueError, match="game is over"):
         ru.make_move(0, 0)
-    with pytest.raises(ValueError, match='game is over'):
+    with pytest.raises(ValueError, match="game is over"):
         py.make_move(0, 0)
 
     base = UltimateGame()
     rb = RustUltimateGame.from_game(base)
     rc = rb.clone()
     rc.make_move(4, 4)
-    assert rb.legal_moves() == base.legal_moves()   # the original untouched
+    assert rb.legal_moves() == base.legal_moves()  # the original untouched
     assert rb.current == base.current == X
-    assert rb.active_macro == base.active_macro == 4 or \
-        (base.active_macro is None and rb.active_macro is None)
+    assert rb.active_macro == base.active_macro == 4 or (
+        base.active_macro is None and rb.active_macro is None
+    )
 
 
 def test_shared_apply_move_helpers_route_the_wrapper():
@@ -121,10 +128,10 @@ def test_shared_apply_move_helpers_route_the_wrapper():
     from game import apply_clone_result, apply_move
 
     ru = RustUltimateGame()
-    apply_move(ru, (4, 4))                       # tuple: ultimate routing
+    apply_move(ru, (4, 4))  # tuple: ultimate routing
     assert ru.current == O
     # the reply must stay inside macro 4 — the shared helper obeys routing
-    with pytest.raises(ValueError, match='move must be in the routed macro'):
+    with pytest.raises(ValueError, match="move must be in the routed macro"):
         apply_move(ru, (0, 0))
     # O replies (4,1) on a working copy: no terminal, and X routes on
     assert apply_clone_result(ru, (4, 1)) is None
@@ -141,26 +148,27 @@ def test_clone_is_independent_of_handle():
     lm = c.legal_moves()
     if lm:
         c.make_move(*lm[0])
-        _assert_parity(py, ru)               # the source state is unchanged
+        _assert_parity(py, ru)  # the source state is unchanged
 
 
 def test_switch_off_falls_back_to_python_game(monkeypatch):
     from config import set_engine_config
     from game import UltimateGame
-    set_engine_config({'engine': {'rust_game': False}})
+
+    set_engine_config({"engine": {"rust_game": False}})
     try:
-        assert type(alphazero.make_game('ultimate')) is UltimateGame
+        assert type(alphazero.make_game("ultimate")) is UltimateGame
     finally:
         set_engine_config()
-    assert isinstance(alphazero.make_game('ultimate'), RustUltimateGame)
+    assert isinstance(alphazero.make_game("ultimate"), RustUltimateGame)
 
 
 def test_self_play_smoke_runs_on_the_rust_layer():
     """Full self-play game through make_game -> wrapper: the C tree search,
     the encode fast path and the terminal scoring all accept the wrapper."""
     states, targets, zs = alphazero.self_play_game(
-        lambda: alphazero.make_game('ultimate'), None, sims=8, temp=1.0,
-        use_network=False)
+        lambda: alphazero.make_game("ultimate"), None, sims=8, temp=1.0, use_network=False
+    )
     assert states and len(states) == len(targets) == len(zs)
     assert all(tuple(s.shape) == (4, 9, 9) for s in states)
     # every policy target is a normalized distribution over the 81 cells
@@ -177,6 +185,7 @@ def test_serialize_ffi_matches_cengine_packing():
     """D50 fast path: sba_ffi() must equal cengine.serialize_ultimate's
     list contract, cell for cell, across random positions."""
     from native import cengine
+
     rng = random.Random(SEED + 3)
     for py, ru in _random_positions(rng, 30):
         cells, macro, player, active = cengine.serialize_ultimate(py)
@@ -210,5 +219,5 @@ def test_clone_apply_matches_clone_plus_make_move():
         _assert_parity(py_child, ru_child)
     ru = _fresh_pair()[1]
     ru.make_move(4, 4)
-    with pytest.raises(ValueError, match='illegal move'):
-        ru.clone_apply(4, 4)                 # occupied → null handle
+    with pytest.raises(ValueError, match="illegal move"):
+        ru.clone_apply(4, 4)  # occupied → null handle

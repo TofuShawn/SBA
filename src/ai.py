@@ -17,39 +17,99 @@ import random
 import sys
 import threading
 
-from game import (BitUltimateGame, EMPTY, NormalGame, O, UltimateGame, X,
-                  apply_move, apply_clone_result)
-from config import (_CFG_DEFAULTS, ROOT, cfg_engine, cfg_session,
-                    save_engine_config, set_engine_config)
-from cbridge import (_C_PREV, _c_mcts_move, _c_minimax_pro, _c_rave_grave_move,
-                     _c_rollout_state, _c_search_opts,
-                     _ce, _get_c_rollout, _get_c_rollout_pattern,
-                     _py_rollout_state, _rollout_move, _serialize_ultimate,
-                     _threat_cells, _tt_key, move_text)
-from books import _BOOK_ENGINES, ULTIMATE_BOOK, get_basic_move, \
-    opening_book_move
-from mcts import (_REUSE, _REUSE_LAST, GraveNode, MCTSNode, _diff_move, _D4,
-                  _POOL, _best_mcts_move, flat_mcts_move, mcts_grave_move,
-                  mcts_grave_search, mcts_move, mcts_rave_move,
-                  mcts_rave_search, mcts_search)
-from minimax import (_get_killers, _get_tt, _minimax_ultimate,
-                     minimax_move_normal, minimax_move_ultimate,
-                     minimax_pro_move)
-from tablebase import (_TABLEBASE, _TABLEBASE_PATH, _TB_BYTE_VALUE,
-                       _TB_VALUE_BYTE, _board_from_key, _board_key,
-                       _build_tablebase_dfs, _read_tablebase_file,
-                       build_micro_tablebase, build_tablebase, solver_move,
-                       write_tablebase_file)
-from analysis import (_c_ultt_analysis, _fork_count, _rates_from_root,
-                      _rates_from_stats, analyze_position,
-                      blocks_immediate_win, compute_analysis, eval_ultimate,
-                      position_win_rate, position_win_rates,
-                      reason_for_move)
+from game import (
+    BitUltimateGame,
+    EMPTY,
+    NormalGame,
+    O,
+    UltimateGame,
+    X,
+    apply_move,
+    apply_clone_result,
+)
+from config import (
+    _CFG_DEFAULTS,
+    ROOT,
+    cfg_engine,
+    cfg_session,
+    save_engine_config,
+    set_engine_config,
+)
+from cbridge import (
+    _C_PREV,
+    _c_mcts_move,
+    _c_minimax_pro,
+    _c_rave_grave_move,
+    _c_rollout_state,
+    _c_search_opts,
+    _ce,
+    _get_c_rollout,
+    _get_c_rollout_pattern,
+    _py_rollout_state,
+    _rollout_move,
+    _serialize_ultimate,
+    _threat_cells,
+    _tt_key,
+    move_text,
+)
+from books import _BOOK_ENGINES, ULTIMATE_BOOK, get_basic_move, opening_book_move
+from mcts import (
+    _REUSE,
+    _REUSE_LAST,
+    GraveNode,
+    MCTSNode,
+    _diff_move,
+    _D4,
+    _POOL,
+    _best_mcts_move,
+    flat_mcts_move,
+    mcts_grave_move,
+    mcts_grave_search,
+    mcts_move,
+    mcts_rave_move,
+    mcts_rave_search,
+    mcts_search,
+)
+from minimax import (
+    _get_killers,
+    _get_tt,
+    _minimax_ultimate,
+    minimax_move_normal,
+    minimax_move_ultimate,
+    minimax_pro_move,
+)
+from tablebase import (
+    _TABLEBASE,
+    _TABLEBASE_PATH,
+    _TB_BYTE_VALUE,
+    _TB_VALUE_BYTE,
+    _board_from_key,
+    _board_key,
+    _build_tablebase_dfs,
+    _read_tablebase_file,
+    build_micro_tablebase,
+    build_tablebase,
+    solver_move,
+    write_tablebase_file,
+)
+from analysis import (
+    _c_ultt_analysis,
+    _fork_count,
+    _rates_from_root,
+    _rates_from_stats,
+    analyze_position,
+    blocks_immediate_win,
+    compute_analysis,
+    eval_ultimate,
+    position_win_rate,
+    position_win_rates,
+    reason_for_move,
+)
 
 if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)   # the native/ package lives at the repo root
+    sys.path.insert(0, ROOT)  # the native/ package lives at the repo root
 
-log = logging.getLogger('sba.ai')
+log = logging.getLogger("sba.ai")
 
 
 def reset_engine_caches():
@@ -67,66 +127,101 @@ def reset_engine_caches():
 
 _AZ_MODELS = {}
 
+
+def _az_module():
+    """Import the optional AlphaZero module, or None when torch/numpy are
+    not installed. They are deliberately absent from requirements.txt (so
+    Dependabot cannot drag a CUDA wheel into CI); a bare install must still
+    be able to play and to run --self-test. Other import failures propagate.
+    """
+    try:
+        import alphazero
+    except ModuleNotFoundError as exc:
+        root = (exc.name or "").split(".")[0]
+        if root not in ("torch", "numpy"):
+            raise
+        log.info("AlphaZero: optional dependency %s is missing", root)
+        return None
+    return alphazero
+
+
 def load_az_model(game):
-    import alphazero
-    key = 'normal' if isinstance(game, NormalGame) else 'ultimate'
+    az = _az_module()
+    if az is None:
+        return None
+    key = "normal" if isinstance(game, NormalGame) else "ultimate"
     if key not in _AZ_MODELS:
-        _AZ_MODELS[key] = alphazero.load_model(key)
+        _AZ_MODELS[key] = az.load_model(key)
     return _AZ_MODELS[key]
 
+
 def alphazero_move(game, budget=800):
-    import alphazero
+    az = _az_module()
+    if az is None:
+        return mcts_move(game, budget)
     model = load_az_model(game)
     if model is None:
-        log.info('AlphaZero: no trained model (models/az_%s.pt), falling back to MCTS',
-                 'normal' if isinstance(game, NormalGame) else 'ultimate')
+        log.info(
+            "AlphaZero: no trained model (models/az_%s.pt), falling back to MCTS",
+            "normal" if isinstance(game, NormalGame) else "ultimate",
+        )
         return mcts_move(game, budget)
-    return alphazero.alphazero_move(game, model, budget)
+    return az.alphazero_move(game, model, budget)
+
 
 def az_policy_priors(game):
     """AZNet policy priors over the legal moves of the current position:
     {(m, i): p} renormalised across legal moves (mover's view). None when
-    the board is Normal, the game is over, or no trained model exists —
-    callers treat that as "no heat" (D40: the assistant board overlay)."""
+    the board is Normal, the game is over, no trained model exists, or the
+    optional torch/numpy deps are absent — callers treat that as "no heat"
+    (D40: the assistant board overlay)."""
     if isinstance(game, NormalGame) or game.is_over():
         return None
-    import alphazero
+    az = _az_module()
+    if az is None:
+        return None
     model = load_az_model(game)
     if model is None:
         return None
-    vec = alphazero.policy_vector(game, model)
+    vec = az.policy_vector(game, model)
     if vec is None:
         return None
     return {(k // 9, k % 9): float(v) for k, v in enumerate(vec) if v > 0.0}
 
+
 def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
-    if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
+    if ai_type in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
         # D27: the whole tree search runs in C (order-of-magnitude faster).
         # D30: _c_mcts_move carries its own warm C arena in _C_PREV between
         # moves, so the C path does reuse a tree (the Python path has the
         # separate _REUSE cache). Normal 3x3 stays on the Python path.
         # D51: RAVE/GRAVE gain their own C trees under the same switch.
-        if (cfg_engine('c_mcts', True) and isinstance(game, UltimateGame)
-                and _ce.available(engine=True)):
-            if ai_type == 'MCTS':
+        if (
+            cfg_engine("c_mcts", True)
+            and isinstance(game, UltimateGame)
+            and _ce.available(engine=True)
+        ):
+            if ai_type == "MCTS":
                 mv = _c_mcts_move(game, budget, on_progress, trace)
             else:
-                mv = _c_rave_grave_move(game, budget,
-                                        grave=(ai_type == 'MCTS+GRAVE'),
-                                        on_progress=on_progress, trace=trace)
+                mv = _c_rave_grave_move(
+                    game,
+                    budget,
+                    grave=(ai_type == "MCTS+GRAVE"),
+                    on_progress=on_progress,
+                    trace=trace,
+                )
             if mv is not None:
                 return mv
-        if cfg_engine('multithreaded', False):
-            return mcts_move_parallel(game, budget, cfg_engine('workers', 8),
-                                      on_progress, trace)
-    reuse = cfg_engine('tree_reuse', True)
-    if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
+        if cfg_engine("multithreaded", False):
+            return mcts_move_parallel(game, budget, cfg_engine("workers", 8), on_progress, trace)
+    reuse = cfg_engine("tree_reuse", True)
+    if cfg_engine("bitboard", True) and isinstance(game, UltimateGame):
         search_game = BitUltimateGame.from_game(game)
     else:
         search_game = game
-    pool = (_POOL if (ai_type == 'MCTS'
-                      and cfg_engine('object_pool', True) and not reuse) else None)
+    pool = _POOL if (ai_type == "MCTS" and cfg_engine("object_pool", True) and not reuse) else None
     key, prev = None, None
     if reuse:
         key = (ai_type, _tt_key(game))
@@ -136,12 +231,10 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
             if last is not None:
                 reply = _diff_move(last.state, game)
                 if reply is not None:
-                    prev = next((c for c in last.children
-                                 if c.move == reply), None)
-    if ai_type == 'MCTS':
-        root = mcts_search(search_game, budget, prev_root=prev, pool=pool,
-                           on_progress=on_progress)
-    elif ai_type == 'MCTS+RAVE':
+                    prev = next((c for c in last.children if c.move == reply), None)
+    if ai_type == "MCTS":
+        root = mcts_search(search_game, budget, prev_root=prev, pool=pool, on_progress=on_progress)
+    elif ai_type == "MCTS+RAVE":
         root = mcts_rave_search(search_game, budget, prev_root=prev)
     else:
         root = mcts_grave_search(search_game, budget, prev_root=prev)
@@ -153,8 +246,9 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
         min_visits = max(5, budget // 100)
         cands = [c for c in root.children if c.visits >= min_visits]
         cands.sort(key=lambda c: -c.visits)
-        trace['top'] = [(move_text(c.move), c.visits / root_visits,
-                         c.wins / c.visits) for c in cands[:3]]
+        trace["top"] = [
+            (move_text(c.move), c.visits / root_visits, c.wins / c.visits) for c in cands[:3]
+        ]
     if reuse:
         g = game.clone()
         apply_move(g, move)
@@ -162,11 +256,12 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
         if child is not None:
             _REUSE[(ai_type, _tt_key(g))] = child
             _REUSE_LAST[ai_type] = child
-            if len(_REUSE) > cfg_engine('reuse_cache', 32):
+            if len(_REUSE) > cfg_engine("reuse_cache", 32):
                 _REUSE.pop(next(iter(_REUSE)))
     if pool is not None:
         pool.release(root)
     return move
+
 
 def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None):
     """Run several independent MCTS searches and merge their root stats.
@@ -181,7 +276,7 @@ def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None
     """
     chunk = max(1, iterations // workers)
     results = []
-    if cfg_engine('bitboard', True) and isinstance(game, UltimateGame):
+    if cfg_engine("bitboard", True) and isinstance(game, UltimateGame):
         base = BitUltimateGame.from_game(game)
     else:
         base = game
@@ -195,8 +290,15 @@ def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None
     for i, t in enumerate(threads):
         t.join()
         if on_progress is not None:
-            on_progress({'it': (i + 1) * chunk, 'iterations': iterations,
-                         'best_text': '', 'share': 0.0, 'wr': 0.0})
+            on_progress(
+                {
+                    "it": (i + 1) * chunk,
+                    "iterations": iterations,
+                    "best_text": "",
+                    "share": 0.0,
+                    "wr": 0.0,
+                }
+            )
     stats = {}
     for root in results:
         for c in root.children:
@@ -206,8 +308,7 @@ def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None
     if trace is not None:
         total_v = sum(s[0] for s in stats.values()) or 1
         top = sorted(stats.items(), key=lambda kv: -kv[1][0])[:3]
-        trace['top'] = [(move_text(m), s[0] / total_v, s[1] / max(1, s[0]))
-                        for m, s in top]
+        trace["top"] = [(move_text(m), s[0] / total_v, s[1] / max(1, s[0])) for m, s in top]
     if not stats:
         moves = game.legal_moves()
         return random.choice(moves) if moves else None
@@ -222,8 +323,8 @@ def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None
                 break
     return best_move
 
-def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3,
-                on_progress=None, trace=None):
+
+def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=None, trace=None):
     """Pick a move for `ai_type`.
 
     Optional hooks for showing the engine's thinking (D24):
@@ -233,66 +334,71 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3,
       {'engine', 'budget', 'depth', 'picked_text', 'top': [(text, share, wr)],
       'note'} so UIs can display what the engine considered.
     """
-    move = _get_ai_move_impl(game, ai_type, mcts_budget, minimax_depth,
-                             on_progress, trace)
+    move = _get_ai_move_impl(game, ai_type, mcts_budget, minimax_depth, on_progress, trace)
     if trace is not None:
-        trace.setdefault('engine', ai_type)
-        trace['picked_text'] = move_text(move)
+        trace.setdefault("engine", ai_type)
+        trace["picked_text"] = move_text(move)
     return move
 
-def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
-                      on_progress=None, trace=None):
+
+def _get_ai_move_impl(
+    game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=None, trace=None
+):
     if trace is not None:
-        trace['budget'] = mcts_budget
-        trace['depth'] = minimax_depth
-    if cfg_engine('opening_book', True) and ai_type in _BOOK_ENGINES:
+        trace["budget"] = mcts_budget
+        trace["depth"] = minimax_depth
+    if cfg_engine("opening_book", True) and ai_type in _BOOK_ENGINES:
         book_move = opening_book_move(game)
         if book_move is not None:
             if trace is not None:
-                trace['note'] = 'opening book'
+                trace["note"] = "opening book"
             return book_move
-    if ai_type == 'Random':
+    if ai_type == "Random":
         return random.choice(game.legal_moves())
-    if ai_type == 'Basic':
+    if ai_type == "Basic":
         return get_basic_move(game)
-    if ai_type == 'Minimax':
+    if ai_type == "Minimax":
         if isinstance(game, NormalGame):
-            if cfg_engine('c_minimax', True) and _ce.available(engine=True):
+            if cfg_engine("c_minimax", True) and _ce.available(engine=True):
                 r = _ce.minimax_normal(game.board, game.current)
                 if r and r[0] is not None:
                     return r[0]
             return minimax_move_normal(game)[0]
-        if cfg_engine('c_minimax', True) and _ce.available(engine=True):
-            mv = _ce.minimax_ultimate(game, minimax_depth,
-                                      opts=_c_search_opts())
+        if cfg_engine("c_minimax", True) and _ce.available(engine=True):
+            mv = _ce.minimax_ultimate(game, minimax_depth, opts=_c_search_opts())
             if mv is not None:
                 return mv
         return minimax_move_ultimate(game, depth=minimax_depth)
-    if ai_type == 'Minimax Pro':
+    if ai_type == "Minimax Pro":
         # D51: the C backend (negamax + TT + killers + LMR + ID) under the
         # same c_minimax switch; the Python Pro remains the fallback. The
         # C export is ultimate-only — Normal delegates to the full solve
         # (sba_minimax_normal) exactly like the Python Pro does.
-        if (cfg_engine('c_minimax', True) and isinstance(game, UltimateGame)
-                and _ce.available(engine=True)):
+        if (
+            cfg_engine("c_minimax", True)
+            and isinstance(game, UltimateGame)
+            and _ce.available(engine=True)
+        ):
             mv = _c_minimax_pro(game, minimax_depth)
             if mv is not None:
                 return mv
         return minimax_pro_move(game, depth=minimax_depth)
-    if ai_type in ('MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'):
+    if ai_type in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
         return _mcts_move(game, ai_type, mcts_budget, on_progress, trace)
-    if ai_type == 'Flat MCTS':
+    if ai_type == "Flat MCTS":
         # the C flat kernel serializes Ultimate boards only
-        if (not isinstance(game, NormalGame)
-                and cfg_engine('c_mcts', True) and _ce.available(engine=True)):
+        if (
+            not isinstance(game, NormalGame)
+            and cfg_engine("c_mcts", True)
+            and _ce.available(engine=True)
+        ):
             moves = game.legal_moves()
             if moves:
-                mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)),
-                                   opts=_c_search_opts())
+                mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)), opts=_c_search_opts())
                 if mv is not None:
                     return mv
         return flat_mcts_move(game, mcts_budget)
-    if ai_type == 'Solver':
+    if ai_type == "Solver":
         if isinstance(game, NormalGame):
             # D39: Normal Solver is a pure table lookup — the persisted
             # tablebase (data/tt_normal.bin, rebuilt by --build-tables)
@@ -300,11 +406,11 @@ def _get_ai_move_impl(game, ai_type, mcts_budget=800, minimax_depth=3,
             # Minimax engine (both are perfect play)
             return solver_move(game, mcts_budget)
         # Ultimate: Solver is a plain MCTS fallback -> the C tree wins
-        if cfg_engine('c_mcts', True) and _ce.available(engine=True):
+        if cfg_engine("c_mcts", True) and _ce.available(engine=True):
             mv = _c_mcts_move(game, mcts_budget, on_progress, trace)
             if mv is not None:
                 return mv
         return solver_move(game, mcts_budget)
-    if ai_type == 'AlphaZero':
+    if ai_type == "AlphaZero":
         return alphazero_move(game, mcts_budget)
-    raise ValueError(f'Unknown AI type: {ai_type}')
+    raise ValueError(f"Unknown AI type: {ai_type}")

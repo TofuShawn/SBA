@@ -12,13 +12,19 @@ Maintenance notes:
   depends on it.
 - win_badge_svg / win_segment / macro_center are shared by the web board.
 """
-X = 'X'
-O = 'O'
-EMPTY = ''
+
+X = "X"
+O = "O"
+EMPTY = ""
 LINES = [
-    (0, 1, 2), (3, 4, 5), (6, 7, 8),
-    (0, 3, 6), (1, 4, 7), (2, 5, 8),
-    (0, 4, 8), (2, 4, 6),
+    (0, 1, 2),
+    (3, 4, 5),
+    (6, 7, 8),
+    (0, 3, 6),
+    (1, 4, 7),
+    (2, 5, 8),
+    (0, 4, 8),
+    (2, 4, 6),
 ]
 
 
@@ -33,7 +39,7 @@ def line_winner(cells):
 def _assert_playable(game):
     """Reject moves on a finished board (shared by every rule implementation)."""
     if game.result() is not None:
-        raise ValueError('game is over')
+        raise ValueError("game is over")
 
 
 def _assert_ultimate_routing(game, macro):
@@ -43,14 +49,15 @@ def _assert_ultimate_routing(game, macro):
     active = game.active_macro
     if active is not None and game.macro_open(active):
         if macro != active:
-            raise ValueError('move must be in the routed macro')
+            raise ValueError("move must be in the routed macro")
     elif not game.macro_open(macro):
-        raise ValueError('macro is not open')
+        raise ValueError("macro is not open")
 
 
 # ============================================================
 # Game engines
 # ============================================================
+
 
 class NormalGame:
     def __init__(self):
@@ -67,7 +74,7 @@ class NormalGame:
     def make_move(self, index):
         _assert_playable(self)
         if self.board[index] != EMPTY:
-            raise ValueError('cell is occupied')
+            raise ValueError("cell is occupied")
         self.board[index] = self.current
         if self.result() is None:
             self.current = O if self.current == X else X
@@ -86,7 +93,7 @@ class NormalGame:
         if w:
             return w
         if self.is_full():
-            return 'D'
+            return "D"
         return None
 
     def clone(self):
@@ -94,6 +101,7 @@ class NormalGame:
         g.board = self.board[:]
         g.current = self.current
         return g
+
 
 class UltimateGame:
     def __init__(self):
@@ -109,15 +117,16 @@ class UltimateGame:
         if self.winner() is not None:
             return []
         if self.active_macro is not None and self.macro_open(self.active_macro):
-            return [(self.active_macro, i)
-                    for i in range(9) if self.micro[self.active_macro][i] == EMPTY]
+            return [
+                (self.active_macro, i)
+                for i in range(9)
+                if self.micro[self.active_macro][i] == EMPTY
+            ]
         moves = []
         for m in range(9):
             if not self.macro_open(m):
                 continue
-            for i in range(9):
-                if self.micro[m][i] == EMPTY:
-                    moves.append((m, i))
+            moves.extend((m, i) for i in range(9) if self.micro[m][i] == EMPTY)
         return moves
 
     def micro_winner(self, m):
@@ -127,13 +136,13 @@ class UltimateGame:
         _assert_playable(self)
         _assert_ultimate_routing(self, macro)
         if self.micro[macro][micro] != EMPTY:
-            raise ValueError('cell is occupied')
+            raise ValueError("cell is occupied")
         self.micro[macro][micro] = self.current
         w = self.micro_winner(macro)
         if w:
             self.macro[macro] = w
         elif all(c != EMPTY for c in self.micro[macro]):
-            self.macro[macro] = 'D'
+            self.macro[macro] = "D"
         self.active_macro = micro if self.macro_open(micro) else None
         self.current = O if self.current == X else X
 
@@ -154,7 +163,7 @@ class UltimateGame:
         if w:
             return w
         if self.is_full():
-            return 'D'
+            return "D"
         return None
 
     def clone(self):
@@ -174,7 +183,7 @@ class BitUltimateGame:
     search on the bit representation and hand moves back to the list UI.
     """
 
-    __slots__ = ('x', 'o', 'mx', 'mo', 'current', 'active_macro')
+    __slots__ = ("x", "o", "mx", "mo", "current", "active_macro")
 
     def __init__(self):
         self.x = 0
@@ -245,9 +254,7 @@ class BitUltimateGame:
             if not self.macro_open(m):
                 continue
             taken = self._micro_bits(m)
-            for i in range(9):
-                if not (taken >> i) & 1:
-                    moves.append((m, i))
+            moves.extend((m, i) for i in range(9) if not (taken >> i) & 1)
         return moves
 
     def make_move(self, m, i):
@@ -255,7 +262,7 @@ class BitUltimateGame:
         _assert_ultimate_routing(self, m)
         bit = 1 << (m * 9 + i)
         if (self.x | self.o) & bit:
-            raise ValueError('cell is occupied')
+            raise ValueError("cell is occupied")
         if self.current == X:
             self.x |= bit
         else:
@@ -285,7 +292,7 @@ class BitUltimateGame:
         if w:
             return w
         if self.is_full():
-            return 'D'
+            return "D"
         return None
 
     def is_over(self):
@@ -305,10 +312,12 @@ class BitUltimateGame:
 
     @property
     def macro(self):
-        return [X if self.mx & (1 << m) else
-                (O if self.mo & (1 << m) else
-                 ('D' if self._micro_bits(m) == 0x1FF else EMPTY))
-                for m in range(9)]
+        return [
+            X
+            if self.mx & (1 << m)
+            else (O if self.mo & (1 << m) else ("D" if self._micro_bits(m) == 0x1FF else EMPTY))
+            for m in range(9)
+        ]
 
 
 def apply_move(game, move):
@@ -365,16 +374,22 @@ def win_segment(line, coord):
 def macro_center(m):
     r, c = divmod(m, 3)
     return 100.0 / 6 * (2 * c + 1), 100.0 / 6 * (2 * r + 1)
- 
+
 
 def win_badge_svg(player):
     if player == X:
-        inner = ('<line x1="14" y1="14" x2="86" y2="86" stroke="currentColor" '
-                 'stroke-width="12" stroke-linecap="round"/>'
-                 '<line x1="86" y1="14" x2="14" y2="86" stroke="currentColor" '
-                 'stroke-width="12" stroke-linecap="round"/>')
+        inner = (
+            '<line x1="14" y1="14" x2="86" y2="86" stroke="currentColor" '
+            'stroke-width="12" stroke-linecap="round"/>'
+            '<line x1="86" y1="14" x2="14" y2="86" stroke="currentColor" '
+            'stroke-width="12" stroke-linecap="round"/>'
+        )
     else:
-        inner = ('<circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" '
-                 'stroke-width="12" stroke-linecap="round"/>')
-    return (f'<svg class="macro-win-svg" viewBox="0 0 100 100" '
-            f'xmlns="http://www.w3.org/2000/svg">{inner}</svg>')
+        inner = (
+            '<circle cx="50" cy="50" r="36" fill="none" stroke="currentColor" '
+            'stroke-width="12" stroke-linecap="round"/>'
+        )
+    return (
+        f'<svg class="macro-win-svg" viewBox="0 0 100 100" '
+        f'xmlns="http://www.w3.org/2000/svg">{inner}</svg>'
+    )

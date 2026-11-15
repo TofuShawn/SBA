@@ -30,7 +30,7 @@
 - **Arknights: Endfield field-console theme / 終末地工業 console 主題**：訊號黃 × 炭灰、deck 標籤、瞄準括號、落子蓋章與勝利線動畫（可「減少動態」）
 - **Settings page / 設定頁**：引擎開關全數圖形化，保存寫回 `config.toml`
 - **History card / 歷史卡**：點擊任一步直接回放該局面
-- **Headless pytest suite / 無頭 pytest 測試**（138 tests）
+- **Headless pytest suite / 無頭 pytest 測試**（149 tests）
 
 ---
 

@@ -9,7 +9,7 @@ import random
 import threading
 import time
 
-from game import (NormalGame, apply_move)
+from game import NormalGame, apply_move
 from config import cfg_engine
 
 from analysis import blocks_immediate_win, eval_ultimate
@@ -19,7 +19,7 @@ from cbridge import _tt_key
 def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):
     result = game.result()
     if result is not None:
-        if result == 'D':
+        if result == "D":
             return 0
         return (100 - depth) if result == ai_player else (depth - 100)
     if maximizing:
@@ -42,6 +42,7 @@ def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):
             break
     return best
 
+
 def minimax_move_normal(game):
     player = game.current
     best_moves, best_score = [], -math.inf
@@ -55,10 +56,11 @@ def minimax_move_normal(game):
             best_moves.append(m)
     return random.choice(best_moves), best_score
 
+
 def _minimax_ultimate(game, depth, alpha, beta, maximizing, ai_player):
     result = game.result()
     if result is not None:
-        if result == 'D':
+        if result == "D":
             return 0
         return 100000 - depth if result == ai_player else depth - 100000
     if depth == 0:
@@ -83,6 +85,7 @@ def _minimax_ultimate(game, depth, alpha, beta, maximizing, ai_player):
             break
     return best
 
+
 def minimax_move_ultimate(game, depth=3):
     player = game.current
     legal = game.legal_moves()
@@ -105,8 +108,10 @@ def minimax_move_ultimate(game, depth=3):
             best_moves.append(m)
     return random.choice(best_moves)
 
+
 def _tt_max():
-    return cfg_engine('tt_max', 300000)
+    return cfg_engine("tt_max", 300000)
+
 
 # The transposition table and killer moves are per-thread so concurrent
 # browser sessions using Minimax Pro (web runs AI via asyncio.to_thread) do
@@ -114,17 +119,20 @@ def _tt_max():
 
 _tls = threading.local()
 
+
 def _get_tt():
-    tt = getattr(_tls, 'tt', None)
+    tt = getattr(_tls, "tt", None)
     if tt is None:
         tt = _tls.tt = {}
     return tt
 
+
 def _get_killers():
-    killers = getattr(_tls, 'killers', None)
+    killers = getattr(_tls, "killers", None)
     if killers is None:
         killers = _tls.killers = {}
     return killers
+
 
 def _move_order_score(game, move):
     player = game.current
@@ -152,12 +160,12 @@ def _move_order_score(game, move):
         score += 5000
     return score
 
+
 def _order_moves(game, tt_move=None, depth=None):
     moves = list(game.legal_moves())
     if len(moves) <= 1:
         return moves
-    if (depth is None and not isinstance(game, NormalGame)
-            and cfg_engine('use_eval_ordering', True)):
+    if depth is None and not isinstance(game, NormalGame) and cfg_engine("use_eval_ordering", True):
         # Root ordering uses the same static eval as plain minimax_move_ultimate
         # (better pruning and tie-breaking, measured ~32% -> ~45% vs plain
         # Minimax at depth 4). Interior nodes keep the cheap heuristic so the
@@ -173,19 +181,20 @@ def _order_moves(game, tt_move=None, depth=None):
     if tt_move is not None:
         for i, (s, m) in enumerate(scored):
             if m == tt_move:
-                scored[i] = (s + 10 ** 9, m)
-    if depth is not None and cfg_engine('use_killers', True):
+                scored[i] = (s + 10**9, m)
+    if depth is not None and cfg_engine("use_killers", True):
         for k in _get_killers().get(depth, []):
             for i, (s, m) in enumerate(scored):
                 if m == k:
-                    scored[i] = (s + 10 ** 8, m)
+                    scored[i] = (s + 10**8, m)
     scored.sort(key=lambda x: -x[0])
     return [m for _, m in scored]
+
 
 def _negamax_tt(game, depth, alpha, beta):
     result = game.result()
     if result is not None:
-        if result == 'D':
+        if result == "D":
             return 0
         return 100000 if result == game.current else -100000
     if depth == 0:
@@ -208,8 +217,7 @@ def _negamax_tt(game, depth, alpha, beta):
     for idx, m in enumerate(_order_moves(game, tt_move, depth)):
         g = game.clone()
         apply_move(g, m)
-        if (cfg_engine('use_lmr', True) and depth >= 4 and idx >= 2
-                and m != tt_move):
+        if cfg_engine("use_lmr", True) and depth >= 4 and idx >= 2 and m != tt_move:
             val = -_negamax_tt(g, depth - 2, -beta, -alpha)
             if val > alpha:
                 val = -_negamax_tt(g, depth - 1, -beta, -alpha)
@@ -219,8 +227,12 @@ def _negamax_tt(game, depth, alpha, beta):
             best, best_move = val, m
         alpha = max(alpha, val)
         if alpha >= beta:
-            if (cfg_engine('use_killers', True) and depth >= 2
-                    and best_move is not None and best_move != tt_move):
+            if (
+                cfg_engine("use_killers", True)
+                and depth >= 2
+                and best_move is not None
+                and best_move != tt_move
+            ):
                 killers = _get_killers()
                 killers.setdefault(depth, [])
                 if best_move not in killers[depth]:
@@ -236,6 +248,7 @@ def _negamax_tt(game, depth, alpha, beta):
     if len(_get_tt()) < _tt_max():
         _get_tt()[key] = (depth, flag, best, best_move)
     return best
+
 
 def minimax_pro_move(game, depth=5, time_limit=8.0):
     """Normal: perfect full search. Ultimate: ID negamax + TT + time cap."""
@@ -258,7 +271,7 @@ def minimax_pro_move(game, depth=5, time_limit=8.0):
                 return None, None
         return bm, bv
 
-    use_asp = cfg_engine('use_aspiration', True)
+    use_asp = cfg_engine("use_aspiration", True)
     prev_val = None
     for d in range(1, depth + 1):
         alpha, beta = -math.inf, math.inf
@@ -268,8 +281,7 @@ def minimax_pro_move(game, depth=5, time_limit=8.0):
         bm, bv = search_root(d, alpha, beta)
         if bm is None:
             return best_move
-        if (use_asp and d > 1 and prev_val is not None
-                and (bv <= alpha or bv >= beta)):
+        if use_asp and d > 1 and prev_val is not None and (bv <= alpha or bv >= beta):
             bm, bv = search_root(d, -math.inf, math.inf)
             if bm is None:
                 return best_move

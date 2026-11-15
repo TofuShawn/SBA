@@ -10,12 +10,11 @@ import random
 import sys
 import threading
 
-from game import (BitUltimateGame, EMPTY, LINES, NormalGame, O, X,
-                  apply_move)
+from game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
 from config import ROOT, cfg_engine
 
 if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)   # the native/ package lives at the repo root
+    sys.path.insert(0, ROOT)  # the native/ package lives at the repo root
 
 from native import cengine as _ce
 
@@ -23,17 +22,21 @@ from native import cengine as _ce
 def move_text(move):
     if isinstance(move, int):
         r, c = divmod(move, 3)
-        return f'({r + 1},{c + 1})'
+        return f"({r + 1},{c + 1})"
     m, i = move
     r, c = divmod(i, 3)
-    return f'B{m + 1} ({r + 1},{c + 1})'
+    return f"B{m + 1} ({r + 1},{c + 1})"
 
 
 def _tt_key(game):
     if isinstance(game, NormalGame):
-        return ''.join(c or '.' for c in game.board)
-    return (''.join(c or '.' for row in game.micro for c in row)
-            + '|' + str(game.active_macro) + game.current)
+        return "".join(c or "." for c in game.board)
+    return (
+        "".join(c or "." for row in game.micro for c in row)
+        + "|"
+        + str(game.active_macro)
+        + game.current
+    )
 
 
 def _reset_dll_state():
@@ -45,26 +48,31 @@ def _reset_dll_state():
     _C_ROLL = None
     _C_ROLL_PAT = None
 
-_C_ROLL = True    # legacy test hook: replaced by cengine.available()
+
+_C_ROLL = True  # legacy test hook: replaced by cengine.available()
 
 _C_ROLL_TRIED = False
 
 _C_ROLL_PAT = None
 
+
 def _get_c_rollout():
     """Compat wrapper (tests): truthy when the native DLL is usable."""
     return True if _ce.available() else None
+
 
 def _get_c_rollout_pattern():
     """Compat wrapper (tests): the pattern-kernel symbol, or None."""
     _ce._load()
     if _ce._lib is not None and _ce._has_engine:
-        return getattr(_ce._lib, 'sba_rollout_pattern', None)
+        return getattr(_ce._lib, "sba_rollout_pattern", None)
     return None
+
 
 def _serialize_ultimate(state):
     """Compat wrapper (tests): delegates to the cengine interop layer."""
     return _ce.serialize_ultimate(state)
+
 
 def _c_rollout_state(state):
     """One native rollout to terminal; returns X / O / 'D'. Uses the pattern
@@ -72,6 +80,7 @@ def _c_rollout_state(state):
     is missing."""
     r = _ce.rollout_state(state, opts=_c_search_opts())
     return r if r is not None else _py_rollout_state(state)
+
 
 def _py_rollout_state(state):
     """Pure-Python heuristic rollout to terminal (the D25-era fallback)."""
@@ -85,21 +94,24 @@ def _py_rollout_state(state):
         result = state.result()
     return result
 
+
 def _c_search_opts():
     """Snapshot of every switch the C backends consume (D37). Built once per
     search rather than per simulation, so it stays off the hot path. Keeping
     this the single source of truth is what stops a switch from being
     "promised" in config.toml but ignored by the C tree."""
     return {
-        'uct_c': float(cfg_engine('uct_c')),
-        'dynamic_uct': bool(cfg_engine('dynamic_uct')),
-        'rollout_heuristic': bool(cfg_engine('rollout_heuristic')),
-        'micro_tablebase': bool(cfg_engine('micro_tablebase')),
-        'symmetry': bool(cfg_engine('symmetry')),
-        'use_pattern': bool(cfg_engine('c_rollout_pattern')),
+        "uct_c": float(cfg_engine("uct_c")),
+        "dynamic_uct": bool(cfg_engine("dynamic_uct")),
+        "rollout_heuristic": bool(cfg_engine("rollout_heuristic")),
+        "micro_tablebase": bool(cfg_engine("micro_tablebase")),
+        "symmetry": bool(cfg_engine("symmetry")),
+        "use_pattern": bool(cfg_engine("c_rollout_pattern")),
     }
 
+
 _LINE_BITS = [(1 << a) | (1 << b) | (1 << c) for a, b, c in LINES]
+
 
 def _threat_cells(state, player):
     """Cells where `player` would win immediately by playing there."""
@@ -138,13 +150,14 @@ def _threat_cells(state, player):
                 res.append((m, (a, b, c)[vals.index(EMPTY)]))
     return res
 
+
 def _rollout_move(state, moves=None):
     """Win/block-biased rollout policy (falls back to random when disabled)."""
     if moves is None:
         moves = state.legal_moves()
     if not moves:
         return None
-    if not cfg_engine('rollout_heuristic', True):
+    if not cfg_engine("rollout_heuristic", True):
         return random.choice(moves)
     legal = set(moves)
     current = state.current
@@ -168,7 +181,8 @@ def _rollout_move(state, moves=None):
 # isolates the search structure). Hidden from the menus; kept for learning,
 # tests and --bench.
 
-_C_PREV = {}   # ai_type -> previous C search tree buffer (tree reuse, D30)
+_C_PREV = {}  # ai_type -> previous C search tree buffer (tree reuse, D30)
+
 
 def _c_mcts_move(game, budget, on_progress=None, trace=None):
     """Full-tree MCTS in C (D27), with root parallelization + tree reuse
@@ -182,14 +196,13 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     """
     c_opts = _c_search_opts()
     # the multithreaded switch gates root parallelization; workers caps it
-    threads = (int(cfg_engine('workers', 8) or 1)
-               if cfg_engine('multithreaded', False) else 1)
+    threads = int(cfg_engine("workers", 8) or 1) if cfg_engine("multithreaded", False) else 1
     threads = max(1, min(threads, max(1, budget // 400)))
     # the switch gates BOTH ends of the reuse cycle: no prev passed in, and
     # the fresh arena is dropped on return (the _CTree finalizer frees it) —
     # storing it would pin a dead arena between moves
-    reuse = cfg_engine('tree_reuse', True)
-    prev = _C_PREV.get('MCTS') if reuse else None
+    reuse = cfg_engine("tree_reuse", True)
+    prev = _C_PREV.get("MCTS") if reuse else None
 
     results = [None]
     if threads <= 1:
@@ -199,12 +212,9 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
         results = [None] * threads
 
         def _work(k):
-            results[k] = _ce.mcts_search(
-                game, per, opts=c_opts,
-                prev=prev if k == 0 else None)
+            results[k] = _ce.mcts_search(game, per, opts=c_opts, prev=prev if k == 0 else None)
 
-        workers = [threading.Thread(target=_work, args=(k,))
-                   for k in range(threads)]
+        workers = [threading.Thread(target=_work, args=(k,)) for k in range(threads)]
         for w in workers:
             w.start()
         for w in workers:
@@ -214,7 +224,7 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     # merge root children across threads (thread 0 may carry the warm tree)
     merged = {}
     tree = None
-    for mv_idx, stats, buf in results:
+    for _mv_idx, stats, buf in results:
         if buf is not None and tree is None:
             tree = buf
         for mi, v, w, mo, dr in stats:
@@ -226,7 +236,7 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
                 e[1] += w
                 e[3] += dr
     if tree is not None and reuse:
-        _C_PREV['MCTS'] = tree
+        _C_PREV["MCTS"] = tree
     if not merged:
         return None
     stats = [(mi, v[0], v[1], v[2], v[3]) for mi, v in merged.items()]
@@ -249,15 +259,21 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     if trace is not None:
         root_visits = sum(s[1] for s in stats) or 1
         cands3 = sorted(stats, key=lambda s: -s[1])[:3]
-        trace['top'] = [(move_text((s[0] // 9, s[0] % 9)),
-                         s[1] / root_visits,
-                         s[2] / s[1] if s[1] else 0.0) for s in cands3]
+        trace["top"] = [
+            (move_text((s[0] // 9, s[0] % 9)), s[1] / root_visits, s[2] / s[1] if s[1] else 0.0)
+            for s in cands3
+        ]
     if on_progress is not None:
         picked = next((s for s in stats if s[0] == move_idx), None)
-        on_progress({'it': budget, 'iterations': budget,
-                     'best_text': move_text((move_idx // 9, move_idx % 9)),
-                     'share': 1.0,
-                     'wr': (picked[2] / picked[1]) if picked and picked[1] else 0.0})
+        on_progress(
+            {
+                "it": budget,
+                "iterations": budget,
+                "best_text": move_text((move_idx // 9, move_idx % 9)),
+                "share": 1.0,
+                "wr": (picked[2] / picked[1]) if picked and picked[1] else 0.0,
+            }
+        )
     return (move_idx // 9, move_idx % 9)
 
 
@@ -267,13 +283,12 @@ def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
     project. Tree reuse rides the same _C_PREV slots ('RAVE'/'GRAVE')."""
     if not _ce.available(engine=True):
         return None
-    key = 'GRAVE' if grave else 'RAVE'
+    key = "GRAVE" if grave else "RAVE"
     # tree_reuse gates both ends here too (same contract as _c_mcts_move)
-    reuse = cfg_engine('tree_reuse', True)
+    reuse = cfg_engine("tree_reuse", True)
     prev = _C_PREV.get(key) if reuse else None
     fn = _ce.grave_search if grave else _ce.rave_search
-    res = fn(game, budget, k=int(cfg_engine('rave_k', 150)),
-             opts=_c_search_opts(), prev=prev)
+    res = fn(game, budget, k=int(cfg_engine("rave_k", 150)), opts=_c_search_opts(), prev=prev)
     if res is None or res[0] is None:
         return None
     best_move, stats, tree = res
@@ -282,16 +297,22 @@ def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
     if trace is not None:
         root_visits = sum(s[1] for s in stats) or 1
         top = sorted(stats, key=lambda s: -s[1])[:3]
-        trace['top'] = [(move_text((s[0] // 9, s[0] % 9)),
-                         s[1] / root_visits,
-                         s[2] / s[1] if s[1] else 0.0) for s in top]
+        trace["top"] = [
+            (move_text((s[0] // 9, s[0] % 9)), s[1] / root_visits, s[2] / s[1] if s[1] else 0.0)
+            for s in top
+        ]
     if on_progress is not None:
         packed = best_move[0] * 9 + best_move[1]
         picked = next((s for s in stats if s[0] == packed), None)
-        on_progress({'it': budget, 'iterations': budget,
-                     'best_text': move_text(best_move),
-                     'share': 1.0,
-                     'wr': (picked[2] / picked[1]) if picked and picked[1] else 0.0})
+        on_progress(
+            {
+                "it": budget,
+                "iterations": budget,
+                "best_text": move_text(best_move),
+                "share": 1.0,
+                "wr": (picked[2] / picked[1]) if picked and picked[1] else 0.0,
+            }
+        )
     return best_move
 
 
@@ -306,8 +327,10 @@ def _c_minimax_pro(game, depth):
     if not _ce.available(engine=True):
         return None
     return _ce.minimax_pro(
-        game, depth,
-        use_lmr=bool(cfg_engine('use_lmr', True)),
-        use_killers=bool(cfg_engine('use_killers', True)),
-        use_aspiration=bool(cfg_engine('use_aspiration', True)),
-        use_eval_ordering=bool(cfg_engine('use_eval_ordering', True)))
+        game,
+        depth,
+        use_lmr=bool(cfg_engine("use_lmr", True)),
+        use_killers=bool(cfg_engine("use_killers", True)),
+        use_aspiration=bool(cfg_engine("use_aspiration", True)),
+        use_eval_ordering=bool(cfg_engine("use_eval_ordering", True)),
+    )

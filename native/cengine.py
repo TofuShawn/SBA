@@ -20,50 +20,53 @@ import os
 import random
 import threading
 import weakref
+import contextlib
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_ENGINE_DLL = os.path.join(_ROOT, 'native', 'sba_engine.dll')
-_LEGACY_DLL = os.path.join(_ROOT, 'native', 'sba_rollout.dll')
+_ENGINE_DLL = os.path.join(_ROOT, "native", "sba_engine.dll")
+_LEGACY_DLL = os.path.join(_ROOT, "native", "sba_rollout.dll")
 
 _lib = None
 _has_engine = False
 _load_lock = threading.Lock()
 
-_XO = {1: 'X', 2: 'O', 3: 'D'}
+_XO = {1: "X", 2: "O", 3: "D"}
 
 
 class SearchOpts(ctypes.Structure):
     """Mirror of SbaSearchOpts in sba_ultt.h. Keep the field order in sync."""
+
     _fields_ = [
-        ('uct_c', ctypes.c_double),
-        ('dynamic_uct', ctypes.c_int32),
-        ('rollout_heuristic', ctypes.c_int32),
-        ('micro_tablebase', ctypes.c_int32),
-        ('symmetry', ctypes.c_int32),
-        ('use_pattern', ctypes.c_int32),
+        ("uct_c", ctypes.c_double),
+        ("dynamic_uct", ctypes.c_int32),
+        ("rollout_heuristic", ctypes.c_int32),
+        ("micro_tablebase", ctypes.c_int32),
+        ("symmetry", ctypes.c_int32),
+        ("use_pattern", ctypes.c_int32),
     ]
 
 
 class ProOpts(ctypes.Structure):
     """Mirror of SbaProOpts in sba_ultt.h (D51 Minimax Pro). Keep the field
     order in sync."""
+
     _fields_ = [
-        ('use_lmr', ctypes.c_int32),
-        ('use_killers', ctypes.c_int32),
-        ('use_aspiration', ctypes.c_int32),
-        ('use_eval_ordering', ctypes.c_int32),
-        ('micro_tablebase', ctypes.c_int32),
-        ('tt_max', ctypes.c_int32),
+        ("use_lmr", ctypes.c_int32),
+        ("use_killers", ctypes.c_int32),
+        ("use_aspiration", ctypes.c_int32),
+        ("use_eval_ordering", ctypes.c_int32),
+        ("micro_tablebase", ctypes.c_int32),
+        ("tt_max", ctypes.c_int32),
     ]
 
 
 DEFAULT_OPTS = {
-    'uct_c': 1.4,
-    'dynamic_uct': True,
-    'rollout_heuristic': True,
-    'micro_tablebase': True,
-    'symmetry': True,
-    'use_pattern': False,
+    "uct_c": 1.4,
+    "dynamic_uct": True,
+    "rollout_heuristic": True,
+    "micro_tablebase": True,
+    "symmetry": True,
+    "use_pattern": False,
 }
 
 
@@ -74,12 +77,12 @@ def make_opts(values=None, **overrides):
         merged.update({k: v for k, v in values.items() if k in merged})
     merged.update({k: v for k, v in overrides.items() if k in merged})
     return SearchOpts(
-        float(merged['uct_c']),
-        int(bool(merged['dynamic_uct'])),
-        int(bool(merged['rollout_heuristic'])),
-        int(bool(merged['micro_tablebase'])),
-        int(bool(merged['symmetry'])),
-        int(bool(merged['use_pattern'])),
+        float(merged["uct_c"]),
+        int(bool(merged["dynamic_uct"])),
+        int(bool(merged["rollout_heuristic"])),
+        int(bool(merged["micro_tablebase"])),
+        int(bool(merged["symmetry"])),
+        int(bool(merged["use_pattern"])),
     )
 
 
@@ -87,10 +90,8 @@ def _free_tree(handle):
     lib = _lib
     if lib is None or not handle:
         return
-    try:
+    with contextlib.suppress(AttributeError, OSError):
         lib.sba_tree_free(ctypes.c_void_p(handle))
-    except (AttributeError, OSError):
-        pass
 
 
 class _CTree:
@@ -98,7 +99,7 @@ class _CTree:
     wrapper is garbage-collected, so analysis searches that discard their
     tree do not leak the arena."""
 
-    __slots__ = ('_handle', '_finalizer', '__weakref__')
+    __slots__ = ("_handle", "_finalizer", "__weakref__")
 
     def __init__(self, handle):
         self._handle = ctypes.c_void_p(handle)
@@ -127,8 +128,11 @@ def _load():
             return _lib
         # load AND bind under the lock: a second thread entering mid-bind
         # would otherwise call symbols whose argtypes are not declared yet
-        path = _ENGINE_DLL if os.path.isfile(_ENGINE_DLL) else (
-            _LEGACY_DLL if os.path.isfile(_LEGACY_DLL) else None)
+        path = (
+            _ENGINE_DLL
+            if os.path.isfile(_ENGINE_DLL)
+            else (_LEGACY_DLL if os.path.isfile(_LEGACY_DLL) else None)
+        )
         if path is None:
             return None
         try:
@@ -137,46 +141,107 @@ def _load():
             dbl = ctypes.POINTER(ctypes.c_double)
             void = ctypes.c_void_p
             opts_ptr = ctypes.POINTER(SearchOpts)
-            rollout_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32,
-                            ctypes.c_uint64]
+            rollout_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32, ctypes.c_uint64]
             state_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32]
-            _bind(lib, 'sba_rollout', ctypes.c_int32, rollout_args)
-            _bind(lib, 'sba_rollout_pattern', ctypes.c_int32, rollout_args)
-            if os.path.basename(path) == 'sba_engine.dll':
-                _bind(lib, 'sba_rollout_random', ctypes.c_int32, rollout_args)
-                _bind(lib, 'sba_rollout_trace', ctypes.c_int32,
-                      state_args + [ctypes.c_uint64, ptr, ptr, opts_ptr])
+            _bind(lib, "sba_rollout", ctypes.c_int32, rollout_args)
+            _bind(lib, "sba_rollout_pattern", ctypes.c_int32, rollout_args)
+            if os.path.basename(path) == "sba_engine.dll":
+                _bind(lib, "sba_rollout_random", ctypes.c_int32, rollout_args)
+                _bind(
+                    lib,
+                    "sba_rollout_trace",
+                    ctypes.c_int32,
+                    state_args + [ctypes.c_uint64, ptr, ptr, opts_ptr],
+                )
                 # cells, macro, player, active, iterations, seed, opts,
                 # out_best, out_count, out_moves, out_visits, out_wins,
                 # out_mover, out_draws, out_tree, prev_tree   (16 args)
-                _bind(lib, 'sba_mcts_search', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, ctypes.c_uint64, opts_ptr,
-                                    ptr, ptr, ptr, dbl, dbl, ptr, ptr,
-                                    ctypes.POINTER(void), void])
-                _bind(lib, 'sba_tree_free', ctypes.c_int32, [void])
-                _bind(lib, 'sba_minimax_normal', ctypes.c_int32,
-                      [ptr, ctypes.c_int32, ptr, dbl])
-                _bind(lib, 'sba_minimax_ultimate', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, opts_ptr, ptr])
-                _bind(lib, 'sba_flat_mcts', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                    opts_ptr, ptr])
+                _bind(
+                    lib,
+                    "sba_mcts_search",
+                    ctypes.c_int32,
+                    state_args
+                    + [
+                        ctypes.c_int32,
+                        ctypes.c_uint64,
+                        opts_ptr,
+                        ptr,
+                        ptr,
+                        ptr,
+                        dbl,
+                        dbl,
+                        ptr,
+                        ptr,
+                        ctypes.POINTER(void),
+                        void,
+                    ],
+                )
+                _bind(lib, "sba_tree_free", ctypes.c_int32, [void])
+                _bind(lib, "sba_minimax_normal", ctypes.c_int32, [ptr, ctypes.c_int32, ptr, dbl])
+                _bind(
+                    lib,
+                    "sba_minimax_ultimate",
+                    ctypes.c_int32,
+                    state_args + [ctypes.c_int32, opts_ptr, ptr],
+                )
+                _bind(
+                    lib,
+                    "sba_flat_mcts",
+                    ctypes.c_int32,
+                    state_args + [ctypes.c_int32, ctypes.c_uint64, opts_ptr, ptr],
+                )
                 # rave/grave: cells, macro, player, active, iterations, seed,
                 # k, opts, out_best, out_count, out_moves, out_visits,
                 # out_wins, out_mover, out_draws, out_tree, prev (17 args)
-                _bind(lib, 'sba_rave_search', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                    ctypes.c_int32, opts_ptr,
-                                    ptr, ptr, ptr, dbl, dbl, ptr, ptr,
-                                    ctypes.POINTER(void), void])
-                _bind(lib, 'sba_grave_search', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, ctypes.c_uint64,
-                                    ctypes.c_int32, opts_ptr,
-                                    ptr, ptr, ptr, dbl, dbl, ptr, ptr,
-                                    ctypes.POINTER(void), void])
-                _bind(lib, 'sba_minimax_pro', ctypes.c_int32,
-                      state_args + [ctypes.c_int32, ctypes.c_int32,
-                                    ctypes.POINTER(ProOpts), ptr, dbl])
+                _bind(
+                    lib,
+                    "sba_rave_search",
+                    ctypes.c_int32,
+                    state_args
+                    + [
+                        ctypes.c_int32,
+                        ctypes.c_uint64,
+                        ctypes.c_int32,
+                        opts_ptr,
+                        ptr,
+                        ptr,
+                        ptr,
+                        dbl,
+                        dbl,
+                        ptr,
+                        ptr,
+                        ctypes.POINTER(void),
+                        void,
+                    ],
+                )
+                _bind(
+                    lib,
+                    "sba_grave_search",
+                    ctypes.c_int32,
+                    state_args
+                    + [
+                        ctypes.c_int32,
+                        ctypes.c_uint64,
+                        ctypes.c_int32,
+                        opts_ptr,
+                        ptr,
+                        ptr,
+                        ptr,
+                        dbl,
+                        dbl,
+                        ptr,
+                        ptr,
+                        ctypes.POINTER(void),
+                        void,
+                    ],
+                )
+                _bind(
+                    lib,
+                    "sba_minimax_pro",
+                    ctypes.c_int32,
+                    state_args
+                    + [ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ProOpts), ptr, dbl],
+                )
                 _has_engine = True
             _lib = lib
         except OSError:
@@ -196,7 +261,7 @@ def serialize_ultimate(state):
     (cells[81], macro[9], player 1/2, active -1..8)."""
     cells = [0] * 81
     macro = [0] * 9
-    if type(state).__name__ == 'BitUltimateGame':
+    if type(state).__name__ == "BitUltimateGame":
         for idx in range(81):
             b = 1 << idx
             if state.x & b:
@@ -216,19 +281,19 @@ def serialize_ultimate(state):
             base = m * 9
             for i in range(9):
                 c = row[i]
-                if c == 'X':
+                if c == "X":
                     cells[base + i] = 1
-                elif c == 'O':
+                elif c == "O":
                     cells[base + i] = 2
             w = state.macro[m]
-            if w == 'X':
+            if w == "X":
                 macro[m] = 1
-            elif w == 'O':
+            elif w == "O":
                 macro[m] = 2
-            elif w == 'D':
+            elif w == "D":
                 macro[m] = 3
     active = -1 if state.active_macro is None else state.active_macro
-    player = 1 if state.current == 'X' else 2
+    player = 1 if state.current == "X" else 2
     return cells, macro, player, active
 
 
@@ -240,7 +305,7 @@ def _serialized_arrays(state):
     """(ca, ma, player, active) FFI-ready. The D50 fast path hands ctypes
     arrays straight from the Rust wrapper (one sba_game_serialize call);
     every other game implementation packs through the list contract."""
-    if type(state).__name__ == 'RustUltimateGame':
+    if type(state).__name__ == "RustUltimateGame":
         return state.sba_ffi()
     cells, macro, player, active = serialize_ultimate(state)
     ca, ma = _arrays(cells, macro)
@@ -258,13 +323,13 @@ def rollout_state(state, pattern=False, rng_seed=None, opts=None):
     if opts:
         cfg.update({k: v for k, v in opts.items() if k in cfg})
     if pattern:
-        cfg['use_pattern'] = True
-    if not cfg['rollout_heuristic']:
+        cfg["use_pattern"] = True
+    if not cfg["rollout_heuristic"]:
         if not _has_engine:
             return None
         fn = lib.sba_rollout_random
     else:
-        fn = lib.sba_rollout_pattern if cfg['use_pattern'] else lib.sba_rollout
+        fn = lib.sba_rollout_pattern if cfg["use_pattern"] else lib.sba_rollout
     ca, ma, player, active = _serialized_arrays(state)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     return _XO[fn(ca, ma, player, active, seed)]
@@ -282,21 +347,20 @@ def rollout_trace(state, rng_seed=None, pattern=False, opts=None):
     if opts:
         cfg.update({k: v for k, v in opts.items() if k in cfg})
     if pattern:
-        cfg['use_pattern'] = True
+        cfg["use_pattern"] = True
     c_opts = make_opts(cfg)
     ca, ma, player, active = _serialized_arrays(state)
     out_moves = (ctypes.c_int32 * 256)()
     out_len = ctypes.c_int32(0)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    res = lib.sba_rollout_trace(ca, ma, player, active, seed,
-                                out_moves, ctypes.byref(out_len),
-                                ctypes.byref(c_opts))
+    res = lib.sba_rollout_trace(
+        ca, ma, player, active, seed, out_moves, ctypes.byref(out_len), ctypes.byref(c_opts)
+    )
     seq = [(out_moves[k] // 9, out_moves[k] % 9) for k in range(out_len.value)]
     return _XO[res], seq
 
 
-def mcts_search(state, iterations, use_pattern=False, rng_seed=None,
-                prev=None, opts=None):
+def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None, opts=None):
     """Full native MCTS. Returns (best_move, stats, tree) where stats is a
     list of (move, visits, wins, mover, draws) for the root children, and
     tree is a _CTree owning the C-allocated arena (pass it back as `prev`
@@ -314,7 +378,7 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None,
     if opts:
         cfg.update({k: v for k, v in opts.items() if k in cfg})
     if use_pattern:
-        cfg['use_pattern'] = True
+        cfg["use_pattern"] = True
     c_opts = make_opts(cfg)
     ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
@@ -327,24 +391,37 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None,
     out_tree = ctypes.c_void_p()
     prev_handle = prev._handle if prev is not None else None
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    r = lib.sba_mcts_search(ca, ma, player, active, iterations, seed,
-                            ctypes.byref(c_opts),
-                            ctypes.byref(best), ctypes.byref(count),
-                            moves, visits, wins, mover, draws,
-                            ctypes.byref(out_tree), prev_handle)
+    r = lib.sba_mcts_search(
+        ca,
+        ma,
+        player,
+        active,
+        iterations,
+        seed,
+        ctypes.byref(c_opts),
+        ctypes.byref(best),
+        ctypes.byref(count),
+        moves,
+        visits,
+        wins,
+        mover,
+        draws,
+        ctypes.byref(out_tree),
+        prev_handle,
+    )
     if r < 0:
         if out_tree.value:
             _free_tree(out_tree.value)
         return None, [], None
-    stats = [(moves[k], visits[k], wins[k], mover[k], draws[k])
-             for k in range(count.value)]
+    stats = [(moves[k], visits[k], wins[k], mover[k], draws[k]) for k in range(count.value)]
     mv = best.value if best.value >= 0 else None
     tree = _CTree(out_tree.value) if out_tree.value else None
     return mv, stats, tree
 
 
-def _rave_grave_search(state, iterations, k, grave, use_pattern=False,
-                       rng_seed=None, prev=None, opts=None):
+def _rave_grave_search(
+    state, iterations, k, grave, use_pattern=False, rng_seed=None, prev=None, opts=None
+):
     """Native RAVE (grave=False) / GRAVE (grave=True) tree (D51). Same
     return contract as mcts_search: (best_move, stats, _CTree)."""
     lib = _load()
@@ -354,7 +431,7 @@ def _rave_grave_search(state, iterations, k, grave, use_pattern=False,
     if opts:
         cfg.update({kk: v for kk, v in opts.items() if kk in cfg})
     if use_pattern:
-        cfg['use_pattern'] = True
+        cfg["use_pattern"] = True
     c_opts = make_opts(cfg)
     ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
@@ -368,17 +445,30 @@ def _rave_grave_search(state, iterations, k, grave, use_pattern=False,
     prev_handle = prev._handle if prev is not None else None
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     fn = lib.sba_grave_search if grave else lib.sba_rave_search
-    r = fn(ca, ma, player, active, iterations, seed, int(k),
-           ctypes.byref(c_opts),
-           ctypes.byref(best), ctypes.byref(count),
-           moves, visits, wins, mover, draws,
-           ctypes.byref(out_tree), prev_handle)
+    r = fn(
+        ca,
+        ma,
+        player,
+        active,
+        iterations,
+        seed,
+        int(k),
+        ctypes.byref(c_opts),
+        ctypes.byref(best),
+        ctypes.byref(count),
+        moves,
+        visits,
+        wins,
+        mover,
+        draws,
+        ctypes.byref(out_tree),
+        prev_handle,
+    )
     if r < 0:
         if out_tree.value:
             _free_tree(out_tree.value)
         return None, [], None
-    stats = [(moves[kk], visits[kk], wins[kk], mover[kk], draws[kk])
-             for kk in range(count.value)]
+    stats = [(moves[kk], visits[kk], wins[kk], mover[kk], draws[kk]) for kk in range(count.value)]
     mv = best.value if best.value >= 0 else None
     tree = _CTree(out_tree.value) if out_tree.value else None
     if mv is None:
@@ -386,18 +476,18 @@ def _rave_grave_search(state, iterations, k, grave, use_pattern=False,
     return (mv // 9, mv % 9), stats, tree
 
 
-def rave_search(state, iterations, k=None, use_pattern=False, rng_seed=None,
-                prev=None, opts=None):
+def rave_search(state, iterations, k=None, use_pattern=False, rng_seed=None, prev=None, opts=None):
     # k defaults to the config's rave_k default (150); cbridge passes the
     # live cfg value explicitly
-    return _rave_grave_search(state, iterations, 150 if k is None else k,
-                              False, use_pattern, rng_seed, prev, opts)
+    return _rave_grave_search(
+        state, iterations, 150 if k is None else k, False, use_pattern, rng_seed, prev, opts
+    )
 
 
-def grave_search(state, iterations, k=None, use_pattern=False, rng_seed=None,
-                 prev=None, opts=None):
-    return _rave_grave_search(state, iterations, 150 if k is None else k,
-                              True, use_pattern, rng_seed, prev, opts)
+def grave_search(state, iterations, k=None, use_pattern=False, rng_seed=None, prev=None, opts=None):
+    return _rave_grave_search(
+        state, iterations, 150 if k is None else k, True, use_pattern, rng_seed, prev, opts
+    )
 
 
 def minimax_normal(board9, player):
@@ -405,12 +495,10 @@ def minimax_normal(board9, player):
     lib = _load()
     if lib is None or not _has_engine:
         return None
-    b = (ctypes.c_int32 * 9)(
-        *[1 if c == 'X' else (2 if c == 'O' else 0) for c in board9])
+    b = (ctypes.c_int32 * 9)(*[1 if c == "X" else (2 if c == "O" else 0) for c in board9])
     best = ctypes.c_int32(-1)
     score = ctypes.c_double(0.0)
-    lib.sba_minimax_normal(b, 1 if player == 'X' else 2,
-                           ctypes.byref(best), ctypes.byref(score))
+    lib.sba_minimax_normal(b, 1 if player == "X" else 2, ctypes.byref(best), ctypes.byref(score))
     return (best.value if best.value >= 0 else None), score.value
 
 
@@ -422,38 +510,57 @@ def minimax_ultimate(state, depth, opts=None):
     c_opts = make_opts(opts)
     ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
-    lib.sba_minimax_ultimate(ca, ma, player, active, depth,
-                             ctypes.byref(c_opts), ctypes.byref(best))
+    lib.sba_minimax_ultimate(
+        ca, ma, player, active, depth, ctypes.byref(c_opts), ctypes.byref(best)
+    )
     mv = best.value
     if mv < 0:
         return None
     return (mv // 9, mv % 9)
 
 
-def minimax_pro(state, depth, time_limit_ms=8000, use_tb=None,
-                use_lmr=True, use_killers=True, use_aspiration=True,
-                use_eval_ordering=True, tt_max=None):
+def minimax_pro(
+    state,
+    depth,
+    time_limit_ms=8000,
+    use_tb=None,
+    use_lmr=True,
+    use_killers=True,
+    use_aspiration=True,
+    use_eval_ordering=True,
+    tt_max=None,
+):
     """Minimax Pro (D51): negamax + TT + killers + LMR + ID + aspiration +
     time cap. Returns the best move or None."""
     lib = _load()
     if lib is None or not _has_engine:
         return None
     from config import cfg_engine
+
     p_opts = ProOpts(
         use_lmr=int(bool(use_lmr)),
         use_killers=int(bool(use_killers)),
         use_aspiration=int(bool(use_aspiration)),
         use_eval_ordering=int(bool(use_eval_ordering)),
-        micro_tablebase=int(bool(cfg_engine('micro_tablebase', True)
-                                 if use_tb is None else use_tb)),
-        tt_max=int(cfg_engine('tt_max', 300000) if tt_max is None else tt_max),
+        micro_tablebase=int(
+            bool(cfg_engine("micro_tablebase", True) if use_tb is None else use_tb)
+        ),
+        tt_max=int(cfg_engine("tt_max", 300000) if tt_max is None else tt_max),
     )
     ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
     score = ctypes.c_double(0.0)
-    lib.sba_minimax_pro(ca, ma, player, active, int(depth),
-                        int(time_limit_ms), ctypes.byref(p_opts),
-                        ctypes.byref(best), ctypes.byref(score))
+    lib.sba_minimax_pro(
+        ca,
+        ma,
+        player,
+        active,
+        int(depth),
+        int(time_limit_ms),
+        ctypes.byref(p_opts),
+        ctypes.byref(best),
+        ctypes.byref(score),
+    )
     mv = best.value
     if mv < 0:
         return None
@@ -469,13 +576,14 @@ def flat_mcts(state, per_move, use_pattern=False, rng_seed=None, opts=None):
     if opts:
         cfg.update({k: v for k, v in opts.items() if k in cfg})
     if use_pattern:
-        cfg['use_pattern'] = True
+        cfg["use_pattern"] = True
     c_opts = make_opts(cfg)
     ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
-    lib.sba_flat_mcts(ca, ma, player, active, per_move, seed,
-                      ctypes.byref(c_opts), ctypes.byref(best))
+    lib.sba_flat_mcts(
+        ca, ma, player, active, per_move, seed, ctypes.byref(c_opts), ctypes.byref(best)
+    )
     mv = best.value
     if mv < 0:
         return None

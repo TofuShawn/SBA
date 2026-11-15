@@ -24,8 +24,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-SRC = os.path.join(ROOT, 'src')
-for _p in (SRC, ROOT):          # SRC for the sba modules, ROOT for native/
+SRC = os.path.join(ROOT, "src")
+for _p in (SRC, ROOT):  # SRC for the sba modules, ROOT for native/
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -42,6 +42,7 @@ def _shared_moves(n_games, seed=SEED):
     """One seeded legal-move sequence per game number, from the reference
     implementation — drives both sides identically in the playout bench."""
     import random
+
     rng = random.Random(seed)
     seqs = []
     for _ in range(n_games):
@@ -76,6 +77,7 @@ def bench_fullgame(n_games, sides):
     """The real per-ply mix: legal_moves + encode + clone + apply, each
     side driving itself (this is what self-play pays per move)."""
     import random
+
     out = {}
     for name, make in sides:
         rng = random.Random(SEED)
@@ -88,8 +90,8 @@ def bench_fullgame(n_games, sides):
                 plies += len(lm)
                 if not lm:
                     break
-                _ = encode(g)          # the training-step tensor
-                _ = g.clone()          # the expansion-shaped clone
+                _ = encode(g)  # the training-step tensor
+                _ = g.clone()  # the expansion-shaped clone
                 apply_move(g, rng.choice(lm))
         out[name] = (time.perf_counter() - t0, plies)
     return out
@@ -113,41 +115,40 @@ def bench_stage1(seqs, sims, sides):
 
 
 def _row(label, out):
-    p_t, p_n = out['python']
-    line = f'{label:<10} python {p_t:8.3f}s'
-    if 'rust' in out:
-        r_t, r_n = out['rust']
-        speedup = p_t / r_t if r_t else float('inf')
-        line += f'   rust {r_t:8.3f}s   speedup {speedup:5.2f}x'
-    line += f'   ({p_n} ops)'
+    p_t, p_n = out["python"]
+    line = f"{label:<10} python {p_t:8.3f}s"
+    if "rust" in out:
+        r_t, r_n = out["rust"]
+        speedup = p_t / r_t if r_t else float("inf")
+        line += f"   rust {r_t:8.3f}s   speedup {speedup:5.2f}x"
+    line += f"   ({p_n} ops)"
     return line
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--games', type=int, default=20)
-    ap.add_argument('--sims', type=int, default=100)
+    ap.add_argument("--games", type=int, default=20)
+    ap.add_argument("--sims", type=int, default=100)
     args = ap.parse_args()
 
     has_rust = rustbridge.available()
     if has_rust:
-        print('rust wrapper: available')
+        print("rust wrapper: available")
     else:
-        print('rust wrapper: NOT BUILT (python rows only — build '
-              'sba_game.dll to compare)')
+        print("rust wrapper: NOT BUILT (python rows only — build sba_game.dll to compare)")
 
     seqs = _shared_moves(args.games)
-    seqs = [s for s in seqs if s][:args.games]
+    seqs = [s for s in seqs if s][: args.games]
 
     print()
-    sides = [('python', UltimateGame)]
+    sides = [("python", UltimateGame)]
     if has_rust:
-        sides.append(('rust', lambda: rustbridge.RustUltimateGame()))
-    print(_row('playout', bench_playout(seqs, sides)))
-    print(_row('fullgame', bench_fullgame(args.games, sides)))
-    print(_row('stage1', bench_stage1(seqs, args.sims, sides)))
+        sides.append(("rust", lambda: rustbridge.RustUltimateGame()))
+    print(_row("playout", bench_playout(seqs, sides)))
+    print(_row("fullgame", bench_fullgame(args.games, sides)))
+    print(_row("stage1", bench_stage1(seqs, args.sims, sides)))
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

@@ -9,15 +9,23 @@ the research reference."""
 import math
 import random
 
-from game import (EMPTY, NormalGame, O, X, apply_move)
+from game import EMPTY, NormalGame, O, X, apply_move
 from config import cfg_engine
-from cbridge import (_c_search_opts, _ce, _py_rollout_state, _rollout_move,
-                     _tt_key, move_text)
+from cbridge import _c_search_opts, _ce, _py_rollout_state, _rollout_move, _tt_key, move_text
 
 
 class MCTSNode:
-    __slots__ = ('state', 'move', 'parent', 'children', 'mover', 'visits',
-                 'wins', 'draws', 'untried')
+    __slots__ = (
+        "state",
+        "move",
+        "parent",
+        "children",
+        "mover",
+        "visits",
+        "wins",
+        "draws",
+        "untried",
+    )
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -42,6 +50,7 @@ class MCTSNode:
             if uct > best_val:
                 best, best_val = child, uct
         return best
+
 
 class NodePool:
     """Reusable MCTSNode objects to reduce GC churn.
@@ -77,23 +86,27 @@ class NodePool:
             n.children = []
             self._free.append(n)
 
+
 _POOL = NodePool()
+
 
 def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress=None):
     """Plain MCTS. `on_progress(info)` fires ~10 times per search with the
     current best child so UIs can show the engine's thinking (D24)."""
-    c = cfg_engine('uct_c', 1.4) if c is None else c
+    c = cfg_engine("uct_c", 1.4) if c is None else c
     if prev_root is not None:
         root = prev_root
         root_state = root.state
     else:
         root_state = game.clone()
-        root = (pool.acquire(root_state, None, None, None)
-                if pool is not None else MCTSNode(root_state, None, None, None))
+        root = (
+            pool.acquire(root_state, None, None, None)
+            if pool is not None
+            else MCTSNode(root_state, None, None, None)
+        )
     start_visits = root.visits
     root_sym = set()
-    c_roll = (None if isinstance(game, NormalGame)
-              else (_ce if _ce.available() else None))
+    c_roll = None if isinstance(game, NormalGame) else (_ce if _ce.available() else None)
     c_opts = _c_search_opts() if c_roll is not None else None
     report_at = max(1, iterations // 10) if on_progress else 0
     for it in range(iterations):
@@ -111,8 +124,11 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
             if m is not None:
                 mover = state.current
                 apply_move(state, m)
-                child = (pool.acquire(state.clone(), m, node, mover)
-                         if pool is not None else MCTSNode(state.clone(), m, node, mover))
+                child = (
+                    pool.acquire(state.clone(), m, node, mover)
+                    if pool is not None
+                    else MCTSNode(state.clone(), m, node, mover)
+                )
                 node.children.append(child)
                 node = child
         result = state.result()
@@ -121,8 +137,7 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
             # must not go to the C kernel: it only stops for a win it plays
             # itself and would keep emitting moves on a finished board.
             if c_roll is not None:
-                result = (_ce.rollout_state(state, opts=c_opts)
-                          or _py_rollout_state(state))
+                result = _ce.rollout_state(state, opts=c_opts) or _py_rollout_state(state)
             else:
                 while result is None:
                     moves = state.legal_moves()
@@ -135,24 +150,28 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
             node.visits += 1
             if result == node.mover:
                 node.wins += 1.0
-            elif result == 'D':
+            elif result == "D":
                 node.wins += 0.5
                 node.draws += 1
             node = node.parent
-        if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
-                and root.children):
+        if cfg_engine("early_stop", False) and it >= 0.7 * iterations and root.children:
             top = max(root.children, key=lambda c: c.visits)
-            if root.visits and top.visits / root.visits > 0.6 \
-                    and top.wins / top.visits > 0.55:
+            if root.visits and top.visits / root.visits > 0.6 and top.wins / top.visits > 0.55:
                 break
         if report_at and (it + 1) % report_at == 0 and root.children:
             top = max(root.children, key=lambda ch: ch.visits)
             if root.visits and top.visits:
-                on_progress({'it': it + 1, 'iterations': iterations,
-                             'best_text': move_text(top.move),
-                             'share': top.visits / root.visits,
-                             'wr': top.wins / top.visits})
+                on_progress(
+                    {
+                        "it": it + 1,
+                        "iterations": iterations,
+                        "best_text": move_text(top.move),
+                        "share": top.visits / root.visits,
+                        "wr": top.wins / top.visits,
+                    }
+                )
     return root
+
 
 def _best_mcts_move(root, game, iterations):
     """Pick the best child of a finished MCTS root, preferring an immediate win."""
@@ -168,14 +187,17 @@ def _best_mcts_move(root, game, iterations):
                 break
     return best.move
 
+
 def mcts_move(game, iterations):
-    pool = (_POOL if (cfg_engine('object_pool', True)
-                      and not cfg_engine('tree_reuse', True)) else None)
+    pool = (
+        _POOL if (cfg_engine("object_pool", True) and not cfg_engine("tree_reuse", True)) else None
+    )
     root = mcts_search(game, iterations, pool=pool)
     move = _best_mcts_move(root, game, iterations)
     if pool is not None:
         pool.release(root)
     return move
+
 
 def _flat_playout(game, player):
     """Random playout from `game`; +1 win / 0.5 draw / 0 loss for `player`."""
@@ -188,9 +210,10 @@ def _flat_playout(game, player):
         apply_move(g, _rollout_move(g, moves))
         guard += 1
     r = g.result()
-    if r == 'D':
+    if r == "D":
         return 0.5
     return 1.0 if r == player else 0.0
+
 
 def flat_mcts_move(game, iterations):
     """Flat/root-level Monte Carlo: split the budget evenly across moves.
@@ -221,13 +244,15 @@ def flat_mcts_move(game, iterations):
                 break
     return best
 
+
 def _can_expand(node):
     """Progressive-widening gate: limit expansions as a node's visits grow."""
-    if not cfg_engine('progressive_widening', False):
+    if not cfg_engine("progressive_widening", False):
         return True
     if node.visits == 0:
         return True
     return len(node.children) < math.ceil(1.5 * math.sqrt(node.visits))
+
 
 def _pop_untried(node, root_sym, is_root):
     """Pop an untried move, skipping D4-equivalent duplicates at the root.
@@ -240,26 +265,24 @@ def _pop_untried(node, root_sym, is_root):
     symmetry on)."""
     while node.untried:
         m = node.untried.pop()
-        if cfg_engine('symmetry', False) and is_root:
+        if cfg_engine("symmetry", False) and is_root:
             g = node.state.clone()
             apply_move(g, m)
             imgs = [_tt_key(g)]
             if isinstance(g, NormalGame):
-                for t in _D4[1:]:
-                    imgs.append(''.join(g.board[t[i]] or '.'
-                                        for i in range(9)))
+                imgs.extend("".join(g.board[t[i]] or "." for i in range(9)) for t in _D4[1:])
                 key = min(imgs)
             else:
                 # Ultimate: dedup only on the raw micro grid + routing, the
                 # same encoding _tt_key uses, min over the 8 cell transforms
                 base = g
-                key = min(_tt_key(base) if t == 0 else _ultt_sym_key(base, t)
-                          for t in range(8))
+                key = min(_tt_key(base) if t == 0 else _ultt_sym_key(base, t) for t in range(8))
             if key in root_sym:
                 continue
             root_sym.add(key)
         return m
     return None
+
 
 def _ultt_sym_key(game, t):
     """Canonical key of an Ultimate position under the t-th D4 transform:
@@ -267,19 +290,22 @@ def _ultt_sym_key(game, t):
     transform, so two keys are equal iff the positions are truly equivalent."""
     p9 = _D4[t]
     P = [p9[m] * 9 + p9[i] for m in range(9) for i in range(9)]
-    micro = ''.join(c or '.' for row in game.micro for c in row)
-    cells = ''.join(micro[P[i]] or '.' for i in range(81))
-    macro_t = ''.join('.' if game.macro[p9[m]] == EMPTY
-                      else str(game.macro[p9[m]]) for m in range(9))
+    micro = "".join(c or "." for row in game.micro for c in row)
+    cells = "".join(micro[P[i]] or "." for i in range(81))
+    macro_t = "".join(
+        "." if game.macro[p9[m]] == EMPTY else str(game.macro[p9[m]]) for m in range(9)
+    )
     active = game.active_macro
     active_t = p9[active] if active is not None and active >= 0 else -1
-    return cells + '|' + macro_t + '|' + str(active_t) + game.current
+    return cells + "|" + macro_t + "|" + str(active_t) + game.current
+
 
 def _uct_scale(c, root_visits, iterations):
     """Dynamic UCT: explore more early, exploit more as the search matures."""
-    if cfg_engine('dynamic_uct', True):
+    if cfg_engine("dynamic_uct", True):
         return c * (0.6 + 0.4 * (1.0 - root_visits / max(1, iterations)))
     return c
+
 
 _REUSE = {}
 
@@ -287,6 +313,7 @@ _REUSE = {}
 # it to locate the opponent's reply and descend into the matching child.
 
 _REUSE_LAST = {}
+
 
 def _diff_move(old_state, new_game):
     """Return the single move leading from old_state to new_game, else None.
@@ -303,19 +330,19 @@ def _diff_move(old_state, new_game):
         if len(diff) != 1 or new_game.board[diff[0]] == EMPTY:
             return None
         return diff[0]
-    if not hasattr(old_state, 'micro'):
+    if not hasattr(old_state, "micro"):
         return None
-    diffs = []
-    for m in range(9):
-        for i in range(9):
-            if old_state.micro[m][i] != new_game.micro[m][i]:
-                diffs.append((m, i))
+    diffs = [
+        (m, i) for m in range(9) for i in range(9) if old_state.micro[m][i] != new_game.micro[m][i]
+    ]
     if len(diffs) != 1 or new_game.micro[diffs[0][0]][diffs[0][1]] == EMPTY:
         return None
     return diffs[0]
 
+
 def _d4_perms():
     """Eight D4 permutations of the 9 cells of a 3x3 grid."""
+
     def rot(rc):
         r, c = rc
         return (c, 2 - r)
@@ -334,17 +361,37 @@ def _d4_perms():
     def identity(rc):
         return rc
 
-    return [transform(f) for f in (
-        identity, rot, lambda rc: rot(rot(rc)), lambda rc: rot(rot(rot(rc))),
-        ref, lambda rc: ref(rot(rc)), lambda rc: ref(rot(rot(rc))),
-        lambda rc: ref(rot(rot(rot(rc)))),
-    )]
+    return [
+        transform(f)
+        for f in (
+            identity,
+            rot,
+            lambda rc: rot(rot(rc)),
+            lambda rc: rot(rot(rot(rc))),
+            ref,
+            lambda rc: ref(rot(rc)),
+            lambda rc: ref(rot(rot(rc))),
+            lambda rc: ref(rot(rot(rot(rc)))),
+        )
+    ]
+
 
 _D4 = _d4_perms()
 
+
 class RAVENode:
-    __slots__ = ('state', 'move', 'parent', 'children', 'mover',
-                 'visits', 'wins', 'draws', 'untried', 'amaf')
+    __slots__ = (
+        "state",
+        "move",
+        "parent",
+        "children",
+        "mover",
+        "visits",
+        "wins",
+        "draws",
+        "untried",
+        "amaf",
+    )
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -370,15 +417,15 @@ class RAVENode:
                 an, aw = self.amaf.get(child.move, (0, 0.0))
                 q_amaf = aw / an if an else q
                 beta = math.sqrt(k / (3 * child.visits + k))
-                uct = ((1 - beta) * q + beta * q_amaf
-                       + c * math.sqrt(log_n / child.visits))
+                uct = (1 - beta) * q + beta * q_amaf + c * math.sqrt(log_n / child.visits)
             if uct > best_val:
                 best, best_val = child, uct
         return best
 
+
 def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
-    c = cfg_engine('uct_c', 1.4) if c is None else c
-    k = cfg_engine('rave_k', 150) if k is None else k
+    c = cfg_engine("uct_c", 1.4) if c is None else c
+    k = cfg_engine("rave_k", 150) if k is None else k
     if prev_root is not None:
         root = prev_root
         root_state = root.state
@@ -408,8 +455,7 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 node.children.append(child)
                 node = child
                 rollout_moves.append(m)
-        if (_ce.available() and not isinstance(state, NormalGame)
-                and state.result() is None):
+        if _ce.available() and not isinstance(state, NormalGame) and state.result() is None:
             result, seq = _ce.rollout_trace(state, opts=c_opts)
             if result is None:
                 result = _py_rollout_state(state)
@@ -429,17 +475,17 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
             result = state.result()
         while node is not None:
             node.visits += 1
-            win = 1.0 if result == node.mover else (0.5 if result == 'D' else 0.0)
+            win = 1.0 if result == node.mover else (0.5 if result == "D" else 0.0)
             node.wins += win
-            if result == 'D':
+            if result == "D":
                 node.draws += 1
             # AMAF is scored from the perspective of the player to move at this
             # node (standard all-moves RAVE), not from the player who moved into it.
             if node.mover is None:
-                amaf_win = 1.0 if result == X else (0.5 if result == 'D' else 0.0)
+                amaf_win = 1.0 if result == X else (0.5 if result == "D" else 0.0)
             else:
                 amaf_p = O if node.mover == X else X
-                amaf_win = 1.0 if result == amaf_p else (0.5 if result == 'D' else 0.0)
+                amaf_win = 1.0 if result == amaf_p else (0.5 if result == "D" else 0.0)
             amaf = node.amaf
             for m in rollout_moves:
                 if m in amaf:
@@ -448,13 +494,12 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
                 else:
                     amaf[m] = [1, amaf_win]
             node = node.parent
-        if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
-                and root.children):
+        if cfg_engine("early_stop", False) and it >= 0.7 * iterations and root.children:
             top = max(root.children, key=lambda c: c.visits)
-            if root.visits and top.visits / root.visits > 0.6 \
-                    and top.wins / top.visits > 0.55:
+            if root.visits and top.visits / root.visits > 0.6 and top.wins / top.visits > 0.55:
                 break
     return root
+
 
 def mcts_rave_move(game, iterations):
     root = mcts_rave_search(game, iterations)
@@ -470,9 +515,21 @@ def mcts_rave_move(game, iterations):
 # tables. Same bias term as RAVE, but far less memory and steadier
 # estimates on wide branching factors (e.g. Ultimate).
 
+
 class GraveNode:
-    __slots__ = ('state', 'move', 'parent', 'children', 'mover',
-                 'visits', 'wins', 'draws', 'untried', 'ref', 'rave')
+    __slots__ = (
+        "state",
+        "move",
+        "parent",
+        "children",
+        "mover",
+        "visits",
+        "wins",
+        "draws",
+        "untried",
+        "ref",
+        "rave",
+    )
 
     def __init__(self, state, move, parent, mover):
         self.state = state
@@ -485,8 +542,8 @@ class GraveNode:
         self.draws = 0
         self.untried = [] if state.is_over() else state.legal_moves()
         random.shuffle(self.untried)
-        self.ref = None   # reference node providing this move's RAVE stats
-        self.rave = {}    # move -> [visits, wins], only meaningful on ref nodes
+        self.ref = None  # reference node providing this move's RAVE stats
+        self.rave = {}  # move -> [visits, wins], only meaningful on ref nodes
 
     def best_child(self, c, k):
         log_n = math.log(max(1, self.visits))
@@ -500,15 +557,15 @@ class GraveNode:
                 an, aw = ref.rave.get(child.move, (0, 0.0))
                 q_rave = aw / an if an else q
                 beta = math.sqrt(k / (3 * child.visits + k))
-                uct = ((1 - beta) * q + beta * q_rave
-                       + c * math.sqrt(log_n / child.visits))
+                uct = (1 - beta) * q + beta * q_rave + c * math.sqrt(log_n / child.visits)
             if uct > best_val:
                 best, best_val = child, uct
         return best
 
+
 def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
-    c = cfg_engine('uct_c', 1.4) if c is None else c
-    k = cfg_engine('rave_k', 150) if k is None else k
+    c = cfg_engine("uct_c", 1.4) if c is None else c
+    k = cfg_engine("rave_k", 150) if k is None else k
     if prev_root is not None:
         root = prev_root
         root_state = root.state
@@ -541,8 +598,7 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                 node.children.append(child)
                 node = child
                 rollout_moves.append(m)
-        if (_ce.available() and not isinstance(state, NormalGame)
-                and state.result() is None):
+        if _ce.available() and not isinstance(state, NormalGame) and state.result() is None:
             result, seq = _ce.rollout_trace(state, opts=c_opts)
             if result is None:
                 result = _py_rollout_state(state)
@@ -563,19 +619,19 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
         seen_refs = set()
         while node is not None:
             node.visits += 1
-            win = 1.0 if result == node.mover else (0.5 if result == 'D' else 0.0)
+            win = 1.0 if result == node.mover else (0.5 if result == "D" else 0.0)
             node.wins += win
-            if result == 'D':
+            if result == "D":
                 node.draws += 1
             ref = node.ref if node.ref is not None else node
             if id(ref) not in seen_refs:
                 seen_refs.add(id(ref))
                 # RAVE is scored from the perspective of the player to move.
                 if node.mover is None:
-                    amaf_win = 1.0 if result == X else (0.5 if result == 'D' else 0.0)
+                    amaf_win = 1.0 if result == X else (0.5 if result == "D" else 0.0)
                 else:
                     amaf_p = O if node.mover == X else X
-                    amaf_win = 1.0 if result == amaf_p else (0.5 if result == 'D' else 0.0)
+                    amaf_win = 1.0 if result == amaf_p else (0.5 if result == "D" else 0.0)
                 rave = ref.rave
                 for m in rollout_moves:
                     if m in rave:
@@ -584,13 +640,12 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
                     else:
                         rave[m] = [1, amaf_win]
             node = node.parent
-        if (cfg_engine('early_stop', False) and it >= 0.7 * iterations
-                and root.children):
+        if cfg_engine("early_stop", False) and it >= 0.7 * iterations and root.children:
             top = max(root.children, key=lambda c: c.visits)
-            if root.visits and top.visits / root.visits > 0.6 \
-                    and top.wins / top.visits > 0.55:
+            if root.visits and top.visits / root.visits > 0.6 and top.wins / top.visits > 0.55:
                 break
     return root
+
 
 def mcts_grave_move(game, iterations):
     root = mcts_grave_search(game, iterations)

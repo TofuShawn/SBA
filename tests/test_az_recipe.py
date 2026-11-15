@@ -52,10 +52,9 @@ def test_root_value_weighted_mean():
         mover = None
 
         def __init__(self):
-            self.children = [FakeChild(10, 8.0), FakeChild(5, 2.0),
-                             FakeChild(0, 0.0)]
+            self.children = [FakeChild(10, 8.0), FakeChild(5, 2.0), FakeChild(0, 0.0)]
 
     v = alphazero._root_value(FakeRoot())
     expected = (10 * 0.8 + 5 * 0.4) / 15
     assert abs(v - expected) < 1e-9
-    assert alphazero._root_value(type('R', (), {'children': []})()) == 0.0
+    assert alphazero._root_value(type("R", (), {"children": []})()) == 0.0

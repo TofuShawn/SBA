@@ -4,8 +4,7 @@
 """books — static-knowledge engines: the Basic heuristic and the
 Normal/Ultimate opening books."""
 
-from game import (EMPTY, NormalGame, O, X, apply_clone_result,
-                  apply_move)
+from game import EMPTY, NormalGame, O, X, apply_clone_result, apply_move
 import math
 import random
 
@@ -54,7 +53,8 @@ def get_basic_move(game):
             return best
     return random.choice(moves)
 
-_BOOK_ENGINES = {'Basic', 'Minimax', 'Minimax Pro', 'MCTS', 'MCTS+RAVE', 'MCTS+GRAVE'}
+
+_BOOK_ENGINES = {"Basic", "Minimax", "Minimax Pro", "MCTS", "MCTS+RAVE", "MCTS+GRAVE"}
 
 # Curated Ultimate openers: X's first move -> O's response (a cell in the
 # routed macro). All entries are validated against the legal moves before use.
@@ -78,19 +78,21 @@ ULTIMATE_BOOK = {
 # Expose the Ultimate opening book through config.toml ([engine.opening_book_ultimate],
 # keys like "4,4"); the dict above remains the built-in default.
 
-_CFG_DEFAULTS['engine']['opening_book_ultimate'] = ULTIMATE_BOOK
+_CFG_DEFAULTS["engine"]["opening_book_ultimate"] = ULTIMATE_BOOK
+
 
 def _ultimate_book():
     """Config-backed Ultimate opening book (accepts tuple or 'm,i' keys)."""
     out = {}
-    for k, v in (cfg_engine('opening_book_ultimate', ULTIMATE_BOOK) or {}).items():
+    for k, v in (cfg_engine("opening_book_ultimate", ULTIMATE_BOOK) or {}).items():
         if isinstance(k, str):
-            m, i = k.split(',')
+            m, i = k.split(",")
             key = (int(m.strip()), int(i.strip()))
         else:
             key = tuple(k)
         out[key] = [tuple(r) for r in v]
     return out
+
 
 def opening_book_move(game):
     """Curated early-game moves (Normal: first two plies; Ultimate: first two)."""
@@ -106,8 +108,7 @@ def opening_book_move(game):
     if filled == 0 and game.current == X:
         return random.choice(((4, 4), (0, 0), (2, 2), (6, 6), (8, 8), (4, 0)))
     if filled == 1 and game.current == O:
-        x_move = next((m, i) for m in range(9) for i in range(9)
-                      if game.micro[m][i] == X)
+        x_move = next((m, i) for m in range(9) for i in range(9) if game.micro[m][i] == X)
         legal = set(game.legal_moves())
         picks = [r for r in _ultimate_book().get(x_move, ()) if r in legal]
         if picks:

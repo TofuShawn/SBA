@@ -197,7 +197,9 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells_in,
         int32_t pick = -1;
 
         /* tier 0: immediate game win; tier 1: plain micro win */
-        int32_t win_m = -1, win_i = -1, game_win_m = -1, game_win_i = -1;
+        /* game_win_i is not needed here: a completed macro line returns
+         * the winner immediately instead of picking a move. */
+        int32_t win_m = -1, win_i = -1, game_win_m = -1;
         for (int32_t k = 0; k < n_legal; k++) {
             int32_t m = legal_m[k], i = legal_i[k];
             if (!sba_wins_micro(cells, m, i, player)) continue;
@@ -212,7 +214,6 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells_in,
                 macro[m] = player;  /* hypothetical claim */
                 if (won_micro && sba_macro_line(macro, player)) {
                     game_win_m = m;
-                    game_win_i = i;
                 }
                 macro[m] = saved;
                 (void)full;
