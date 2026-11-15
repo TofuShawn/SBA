@@ -95,16 +95,15 @@ def encode(game):
                 planes[0 if mark == X else 1, r, c] = 1.0
     else:
         if isinstance(game, rustbridge.RustUltimateGame):
-            # D48: bit-to-plane interleave in numpy — the wrapper hands
-            # over the raw occupancy bits without materializing 9x9 lists
-            planes[0], planes[1] = game.sba_planes()
-        else:
-            for m in range(9):
-                mr, mc = divmod(m, 3)
-                for i, mark in enumerate(game.micro[m]):
-                    if mark:
-                        r, c = divmod(i, 3)
-                        planes[0 if mark == X else 1, mr * 3 + r, mc * 3 + c] = 1.0
+            # D50: the whole tensor is filled in one FFI call — planes,
+            # turn marker and the active-macro block together
+            return torch.as_tensor(game.sba_planes_tensor())
+        for m in range(9):
+            mr, mc = divmod(m, 3)
+            for i, mark in enumerate(game.micro[m]):
+                if mark:
+                    r, c = divmod(i, 3)
+                    planes[0 if mark == X else 1, mr * 3 + r, mc * 3 + c] = 1.0
         if game.active_macro is not None:
             mr, mc = divmod(game.active_macro, 3)
             planes[3, mr * 3:(mr + 1) * 3, mc * 3:(mc + 1) * 3] = 1.0
@@ -398,8 +397,12 @@ def mcts_search(game, model, budget, c_puct=1.5, rollout_weight=None,
                         node.priors = {m: float(probs[move_index(node.state, m)])
                                        for m in moves}
                     for m in moves:
-                        child_state = node.state.clone()
-                        apply_move(child_state, m)
+                        if isinstance(node.state, rustbridge.RustUltimateGame):
+                            # D50: clone + apply in one FFI round trip
+                            child_state = node.state.clone_apply(*m)
+                        else:
+                            child_state = node.state.clone()
+                            apply_move(child_state, m)
                         node.children.append(SearchNode(child_state, m))
                     node.untried = []
     counts = {child.move: child.visits for child in root.children}

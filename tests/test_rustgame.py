@@ -166,3 +166,50 @@ def test_self_play_smoke_runs_on_the_rust_layer():
     assert all(tuple(s.shape) == (4, 9, 9) for s in states)
     # every policy target is a normalized distribution over the 81 cells
     assert all(abs(float(t.sum()) - 1.0) < 1e-3 for t in targets)
+
+
+def _random_positions(rng, n):
+    for _ in range(n):
+        py, ru = _play(rng)
+        yield py, ru
+
+
+def test_serialize_ffi_matches_cengine_packing():
+    """D50 fast path: sba_ffi() must equal cengine.serialize_ultimate's
+    list contract, cell for cell, across random positions."""
+    from native import cengine
+    rng = random.Random(SEED + 3)
+    for py, ru in _random_positions(rng, 30):
+        cells, macro, player, active = cengine.serialize_ultimate(py)
+        ca, ma, ru_player, ru_active = ru.sba_ffi()
+        assert list(ca) == cells
+        assert list(ma) == macro
+        assert ru_player == player and ru_active == active
+
+
+def test_planes_tensor_matches_encode():
+    """D50 fast path: one FFI call fills the whole 4x9x9 tensor — must be
+    identical to alphazero.encode on the reference implementation."""
+    rng = random.Random(SEED + 4)
+    for py, ru in _random_positions(rng, 30):
+        expected = alphazero.encode(py).numpy()
+        assert (ru.sba_planes_tensor() == expected).all()
+
+
+def test_clone_apply_matches_clone_plus_make_move():
+    """D50 fast path: the PUCT expansion's one-call clone+apply must land
+    in exactly the same state as clone() + make_move(), mirrors included."""
+    rng = random.Random(SEED + 5)
+    for py, ru in _random_positions(rng, 30):
+        lm = py.legal_moves()
+        if not lm:
+            continue
+        mv = rng.choice(lm)
+        py_child = py.clone()
+        py_child.make_move(*mv)
+        ru_child = ru.clone_apply(*mv)
+        _assert_parity(py_child, ru_child)
+    ru = _fresh_pair()[1]
+    ru.make_move(4, 4)
+    with pytest.raises(ValueError, match='illegal move'):
+        ru.clone_apply(4, 4)                 # occupied → null handle

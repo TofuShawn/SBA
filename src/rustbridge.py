@@ -92,6 +92,19 @@ def _load():
         lib.sba_game_state.argtypes = [ctypes.c_void_p,
                                        ctypes.POINTER(SbaState)]
         lib.sba_game_state.restype = None
+        lib.sba_game_serialize.argtypes = [ctypes.c_void_p,
+                                           ctypes.POINTER(ctypes.c_int32),
+                                           ctypes.POINTER(ctypes.c_int32),
+                                           ctypes.POINTER(ctypes.c_int32),
+                                           ctypes.POINTER(ctypes.c_int32)]
+        lib.sba_game_serialize.restype = ctypes.c_int32
+        lib.sba_game_planes.argtypes = [ctypes.c_void_p,
+                                        ctypes.POINTER(ctypes.c_float)]
+        lib.sba_game_planes.restype = ctypes.c_int32
+        lib.sba_game_clone_apply.argtypes = [ctypes.c_void_p, ctypes.c_int32,
+                                             ctypes.c_int32,
+                                             ctypes.POINTER(ctypes.c_int32)]
+        lib.sba_game_clone_apply.restype = ctypes.c_void_p
         if lib.sba_game_abi() != ABI:
             return None
         _LIB = lib
@@ -247,19 +260,41 @@ class RustUltimateGame:
                 out.append(EMPTY)
         return out
 
-    # ------------------------------------------------- fast encode input
+    # ------------------------------------------------- fast bulk exports
 
-    def sba_planes(self):
-        """(px, po) as float32 (9, 9) grids for alphazero.encode — the
-        bit-to-plane interleave runs in numpy instead of an 81-cell loop."""
+    def sba_ffi(self):
+        """(cells, macro, player, active) as FFI-ready ctypes arrays —
+        cengine's serialize fast path: one Rust call replaces the per-cell
+        Python property materialization on the stage-1 self-play path."""
+        cells = (ctypes.c_int32 * 81)()
+        macro = (ctypes.c_int32 * 9)()
+        player = ctypes.c_int32()
+        active = ctypes.c_int32()
+        _LIB.sba_game_serialize(self._h, cells, macro,
+                                ctypes.byref(player), ctypes.byref(active))
+        return cells, macro, player.value, active.value
+
+    def sba_planes_tensor(self):
+        """The whole 4x9x9 encode tensor as float32 numpy — one Rust call
+        fills all four planes (alphazero.encode adopts it wholesale)."""
         import numpy as np
-        st = self._state()
-        shift = np.arange(9, dtype=np.uint16)
+        buf = np.zeros(324, dtype=np.float32)
+        rc = _LIB.sba_game_planes(
+            self._h, buf.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+        if rc != 0:
+            raise RuntimeError('sba_game_planes failed')
+        return buf.reshape(4, 9, 9)
 
-        def grid(v):
-            bits = ((np.array(v, dtype=np.uint16).reshape(9, 1)
-                     >> shift) & 1).astype(np.float32)
-            # [macro, cell] -> [macro_row, macro_col, cell_row, cell_col]
-            return bits.reshape(3, 3, 3, 3).transpose(0, 2, 1, 3).reshape(9, 9)
-
-        return grid(st.px), grid(st.po)
+    def clone_apply(self, m, i):
+        """clone + make_move in one FFI round trip — the PUCT expansion
+        loop's hot path. The mirror fields advance in lockstep (the Rust
+        side returns the child's routing macro)."""
+        child = type(self).__new__(type(self))
+        active = ctypes.c_int32()
+        child._h = _LIB.sba_game_clone_apply(self._h, m, i,
+                                             ctypes.byref(active))
+        if not child._h:
+            raise ValueError('clone_apply: illegal move')
+        child.current = O if self.current == X else X
+        child.active_macro = active.value if active.value >= 0 else None
+        return child

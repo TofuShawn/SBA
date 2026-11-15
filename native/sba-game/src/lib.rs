@@ -299,3 +299,119 @@ pub extern "C" fn sba_game_state(g: *const SbaGame, out: *mut SbaState) {
     st.active = g.active;
     st.result = raw_result(g);
 }
+
+/// Pack the sba_engine.dll ABI in one call (cells[81]: 0 empty / 1 X /
+/// 2 O; macro[9]: 0 open / 1 X / 2 O / 3 drawn-full; player 1 X / 2 O;
+/// active -1..8) — replaces the wrapper's per-cell Python property
+/// materialization on the stage-1 self-play path.
+#[no_mangle]
+pub extern "C" fn sba_game_serialize(
+    g: *const SbaGame,
+    out_cells: *mut i32,
+    out_macro: *mut i32,
+    out_player: *mut i32,
+    out_active: *mut i32,
+) -> i32 {
+    if g.is_null()
+        || out_cells.is_null()
+        || out_macro.is_null()
+        || out_player.is_null()
+        || out_active.is_null()
+    {
+        return -1;
+    }
+    let g = unsafe { &*g };
+    for k in 0..81usize {
+        let (m, i) = (k / 9, k % 9);
+        let v = if g.px[m] >> i & 1 != 0 {
+            1
+        } else if g.po[m] >> i & 1 != 0 {
+            2
+        } else {
+            0
+        };
+        unsafe { *out_cells.add(k) = v };
+    }
+    for m in 0..9usize {
+        let v = if g.mx >> m & 1 != 0 {
+            1
+        } else if g.mo >> m & 1 != 0 {
+            2
+        } else if g.px[m] | g.po[m] == FULL9 {
+            3
+        } else {
+            0
+        };
+        unsafe { *out_macro.add(m) = v };
+    }
+    unsafe {
+        *out_player = if g.current == 0 { 1 } else { 2 };
+        *out_active = g.active;
+    }
+    OK
+}
+
+/// Fill the whole 4x9x9 encode tensor (324 floats, row-major, the layout
+/// alphazero.encode defines): plane 0 = X marks, plane 1 = O marks,
+/// plane 2 = 1.0 when X to move, plane 3 = the active macro block
+/// (0 everywhere on free choice). One call replaces the numpy interleave.
+#[no_mangle]
+pub extern "C" fn sba_game_planes(g: *const SbaGame, out: *mut f32) -> i32 {
+    if g.is_null() || out.is_null() {
+        return -1;
+    }
+    let g = unsafe { &*g };
+    let planes = unsafe { std::slice::from_raw_parts_mut(out, 324) };
+    for m in 0..9usize {
+        let (mr, mc) = (m / 3, m % 3);
+        for i in 0..9usize {
+            let (ir, ic) = (i / 3, i % 3);
+            let idx = mr * 27 + ir * 9 + mc * 3 + ic;
+            planes[idx] = if g.px[m] >> i & 1 != 0 { 1.0 } else { 0.0 };
+            planes[81 + idx] = if g.po[m] >> i & 1 != 0 { 1.0 } else { 0.0 };
+        }
+    }
+    let turn = if g.current == 0 { 1.0 } else { 0.0 };
+    for p in planes[162..243].iter_mut() {
+        *p = turn;
+    }
+    for p in planes[243..324].iter_mut() {
+        *p = 0.0;
+    }
+    if g.active >= 0 {
+        let (mr, mc) = ((g.active as usize) / 3, (g.active as usize) % 3);
+        for dr in 0..3usize {
+            for dc in 0..3usize {
+                planes[243 + mr * 27 + dr * 9 + mc * 3 + dc] = 1.0;
+            }
+        }
+    }
+    OK
+}
+
+/// Clone + apply in one round trip (the PUCT expansion loop does
+/// clone-then-apply across the boundary for every child node). Returns
+/// the child handle, or null when the move is illegal. Writes the
+/// child's routing macro (-1 = free choice) so the Python mirror stays
+/// in lockstep without a second call.
+#[no_mangle]
+pub extern "C" fn sba_game_clone_apply(
+    src: *const SbaGame,
+    m: i32,
+    i: i32,
+    out_active: *mut i32,
+) -> *mut SbaGame {
+    if src.is_null() || out_active.is_null() {
+        return std::ptr::null_mut();
+    }
+    let child = Box::into_raw(Box::new(unsafe { *src }));
+    let rc = sba_game_apply(child, m, i);
+    if rc != OK {
+        unsafe { drop(Box::from_raw(child)) };
+        return std::ptr::null_mut();
+    }
+    unsafe {
+        *out_active = (*child).active;
+    }
+    child
+}

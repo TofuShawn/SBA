@@ -207,6 +207,17 @@ def _arrays(cells, macro):
     return (ctypes.c_int32 * 81)(*cells), (ctypes.c_int32 * 9)(*macro)
 
 
+def _serialized_arrays(state):
+    """(ca, ma, player, active) FFI-ready. The D50 fast path hands ctypes
+    arrays straight from the Rust wrapper (one sba_game_serialize call);
+    every other game implementation packs through the list contract."""
+    if type(state).__name__ == 'RustUltimateGame':
+        return state.sba_ffi()
+    cells, macro, player, active = serialize_ultimate(state)
+    ca, ma = _arrays(cells, macro)
+    return ca, ma, player, active
+
+
 def rollout_state(state, pattern=False, rng_seed=None, opts=None):
     """One native rollout to terminal; returns 'X' / 'O' / 'D' (None if the
     DLL is missing, or when a legacy DLL cannot serve an opts-driven policy:
@@ -225,8 +236,7 @@ def rollout_state(state, pattern=False, rng_seed=None, opts=None):
         fn = lib.sba_rollout_random
     else:
         fn = lib.sba_rollout_pattern if cfg['use_pattern'] else lib.sba_rollout
-    cells, macro, player, active = serialize_ultimate(state)
-    ca, ma = _arrays(cells, macro)
+    ca, ma, player, active = _serialized_arrays(state)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     return _XO[fn(ca, ma, player, active, seed)]
 
@@ -245,8 +255,7 @@ def rollout_trace(state, rng_seed=None, pattern=False, opts=None):
     if pattern:
         cfg['use_pattern'] = True
     c_opts = make_opts(cfg)
-    cells, macro, player, active = serialize_ultimate(state)
-    ca, ma = _arrays(cells, macro)
+    ca, ma, player, active = _serialized_arrays(state)
     out_moves = (ctypes.c_int32 * 256)()
     out_len = ctypes.c_int32(0)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
@@ -278,8 +287,7 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None,
     if use_pattern:
         cfg['use_pattern'] = True
     c_opts = make_opts(cfg)
-    cells, macro, player, active = serialize_ultimate(state)
-    ca, ma = _arrays(cells, macro)
+    ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
     count = ctypes.c_int32(0)
     moves = (ctypes.c_int32 * 81)()
@@ -326,8 +334,7 @@ def minimax_ultimate(state, depth, opts=None):
     if lib is None or not _has_engine:
         return None
     c_opts = make_opts(opts)
-    cells, macro, player, active = serialize_ultimate(state)
-    ca, ma = _arrays(cells, macro)
+    ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
     lib.sba_minimax_ultimate(ca, ma, player, active, depth,
                              ctypes.byref(c_opts), ctypes.byref(best))
@@ -348,8 +355,7 @@ def flat_mcts(state, per_move, use_pattern=False, rng_seed=None, opts=None):
     if use_pattern:
         cfg['use_pattern'] = True
     c_opts = make_opts(cfg)
-    cells, macro, player, active = serialize_ultimate(state)
-    ca, ma = _arrays(cells, macro)
+    ca, ma, player, active = _serialized_arrays(state)
     best = ctypes.c_int32(-1)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     lib.sba_flat_mcts(ca, ma, player, active, per_move, seed,
