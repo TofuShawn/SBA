@@ -26,12 +26,10 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from SBA import main  # noqa: E402
-import config  # noqa: E402
 
-# the $SBA_CONFIG override is applied at the entry so no engine module has
-# to read the environment for a file path
-if os.environ.get('SBA_CONFIG'):
-    config._CONFIG_PATH = config._writable_path(os.environ['SBA_CONFIG'])
+# $SBA_CONFIG is honoured inside config.py at import time — by the time
+# this line runs, CONFIG is already loaded from the right file, and every
+# other entry point (src/SBA.py included) inherits the same behaviour.
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))

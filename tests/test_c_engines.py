@@ -122,6 +122,66 @@ def test_dispatch_raves_fall_back_to_python(monkeypatch):
         set_engine_config()
 
 
+def test_tree_reuse_switch_gates_the_c_mcts_path(monkeypatch):
+    """tree_reuse=false must gate BOTH ends of the C reuse cycle: no prev
+    handed to cengine and no arena parked in _C_PREV (the D53 fix — the
+    switch used to be read by the Python tree only)."""
+    import cbridge
+    seen = []
+    real = _ce().mcts_search
+
+    def spy(state, it, **kw):
+        seen.append(kw.get('prev'))
+        return real(state, it, **kw)
+
+    monkeypatch.setattr(_ce(), 'mcts_search', spy)
+    set_engine_config({'engine': {'tree_reuse': False}})
+    try:
+        g = _out_of_book()
+        assert cbridge._c_mcts_move(g, 200) in g.legal_moves()
+        assert cbridge._c_mcts_move(g, 200) in g.legal_moves()
+        assert seen == [None, None]
+        assert cbridge._C_PREV.get('MCTS') is None
+    finally:
+        set_engine_config()
+        cbridge._C_PREV.clear()
+    # switch on: the second search receives the first one's arena
+    g = _out_of_book()
+    assert cbridge._c_mcts_move(g, 200) in g.legal_moves()
+    assert cbridge._c_mcts_move(g, 200) in g.legal_moves()
+    assert seen[2] is None and seen[3] is not None
+    cbridge._C_PREV.clear()
+
+
+def test_tree_reuse_switch_gates_the_c_rave_path(monkeypatch):
+    """Same gate on the RAVE/GRAVE wrapper — it shares the _C_PREV slots
+    and had the same unconditional-reuse bug."""
+    import cbridge
+    seen = []
+    real = _ce().rave_search
+
+    def spy(state, it, **kw):
+        seen.append(kw.get('prev'))
+        return real(state, it, **kw)
+
+    monkeypatch.setattr(_ce(), 'rave_search', spy)
+    set_engine_config({'engine': {'tree_reuse': False}})
+    try:
+        g = _out_of_book()
+        assert cbridge._c_rave_grave_move(g, 200, grave=False) in g.legal_moves()
+        assert cbridge._c_rave_grave_move(g, 200, grave=False) in g.legal_moves()
+        assert seen == [None, None]
+        assert cbridge._C_PREV.get('RAVE') is None
+    finally:
+        set_engine_config()
+        cbridge._C_PREV.clear()
+    g = _out_of_book()
+    assert cbridge._c_rave_grave_move(g, 200, grave=False) in g.legal_moves()
+    assert cbridge._c_rave_grave_move(g, 200, grave=False) in g.legal_moves()
+    assert seen[2] is None and seen[3] is not None
+    cbridge._C_PREV.clear()
+
+
 def test_c_minimax_pro_dispatch_and_normal_delegation(monkeypatch):
     """Pro dispatch: C backend under c_minimax for Ultimate; NormalGame
     delegates to the Python Pro (which routes to the full 3x3 solve)."""

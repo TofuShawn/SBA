@@ -185,7 +185,11 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     threads = (int(cfg_engine('workers', 8) or 1)
                if cfg_engine('multithreaded', False) else 1)
     threads = max(1, min(threads, max(1, budget // 400)))
-    prev = _C_PREV.get('MCTS')
+    # the switch gates BOTH ends of the reuse cycle: no prev passed in, and
+    # the fresh arena is dropped on return (the _CTree finalizer frees it) —
+    # storing it would pin a dead arena between moves
+    reuse = cfg_engine('tree_reuse', True)
+    prev = _C_PREV.get('MCTS') if reuse else None
 
     results = [None]
     if threads <= 1:
@@ -221,7 +225,7 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
                 e[0] += v
                 e[1] += w
                 e[3] += dr
-    if tree is not None:
+    if tree is not None and reuse:
         _C_PREV['MCTS'] = tree
     if not merged:
         return None
@@ -264,14 +268,17 @@ def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
     if not _ce.available(engine=True):
         return None
     key = 'GRAVE' if grave else 'RAVE'
-    prev = _C_PREV.get(key)
+    # tree_reuse gates both ends here too (same contract as _c_mcts_move)
+    reuse = cfg_engine('tree_reuse', True)
+    prev = _C_PREV.get(key) if reuse else None
     fn = _ce.grave_search if grave else _ce.rave_search
     res = fn(game, budget, k=int(cfg_engine('rave_k', 150)),
              opts=_c_search_opts(), prev=prev)
     if res is None or res[0] is None:
         return None
     best_move, stats, tree = res
-    _C_PREV[key] = tree
+    if tree is not None and reuse:
+        _C_PREV[key] = tree
     if trace is not None:
         root_visits = sum(s[1] for s in stats) or 1
         top = sorted(stats, key=lambda s: -s[1])[:3]

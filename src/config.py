@@ -37,6 +37,16 @@ def _writable_path(path):
     return rp
 
 
+# the $SBA_CONFIG override: applied HERE at import time, not in the entry
+# shims. By the time a shim's `from SBA import main` returns, CONFIG below
+# has already been loaded from _CONFIG_PATH — an entry-time mutation would
+# leave reads on the old file while save_engine_config (which reads
+# _CONFIG_PATH at call time) writes the new one. Import time is one place
+# that every entry point hits identically.
+if os.environ.get('SBA_CONFIG'):
+    _CONFIG_PATH = _writable_path(os.environ['SBA_CONFIG'])
+
+
 # ============================================================
 # Engine configuration (config.toml)
 # ============================================================
