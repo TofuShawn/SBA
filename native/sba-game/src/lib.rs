@@ -22,6 +22,13 @@
 //! No panics cross the boundary: every index is validated or comes from a
 //! fixed 0..9 loop, and no function unwraps an Option/Result.
 
+// This crate IS the FFI boundary: every export is called from ctypes with
+// caller-owned buffers, so pointer validity is the caller's contract and
+// the docs above. clippy 1.99 wants `unsafe fn` on every extern that
+// dereferences one — we keep the exports safe-signatured and state the
+// trust boundary here once, instead of 19 per-function attributes.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 pub const ABI: i32 = 1;
 
 // result() codes
