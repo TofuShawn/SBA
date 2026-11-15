@@ -55,13 +55,20 @@ def test_train_tui_event_updates():
                            'stage': 2, 'lr': 9e-4, 'loss': 1.1,
                            'positions': 80, 'temp': 0.8,
                            'eval': (2, 1, 1), 'elapsed': 2.5})
-            await pilot.pause()          # let RichLog flush its pending writes
+            await pilot.pause()
             assert app.query_one('#bar').progress == 2
             assert app.query_one('#loss-spark').data[-1] == 1.1
             assert app.query_one('#wr-spark').data[-1] == 62.5
             assert 'positions 80' in app._stats_text
-            log_text = '\n'.join(
-                str(line.text) for line in app.query_one('#log').lines)
+            # RichLog flushes its writes on its own refresh cycle — poll for
+            # the content instead of trusting one pause on a loaded CI box
+            log_text = ''
+            for _ in range(40):
+                log_text = '\n'.join(
+                    str(line.text) for line in app.query_one('#log').lines)
+                if 'checkpoint -> m.pt' in log_text:
+                    break
+                await asyncio.sleep(0.05)
             assert 'checkpoint -> m.pt' in log_text
             assert 'eval game 2: win=2 draw=1 loss=1 (62%)' in log_text
     asyncio.run(_run())
