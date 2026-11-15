@@ -1,0 +1,14 @@
+{
+  "name": "sba-static-build",
+  "private": true,
+  "type": "module",
+  "description": "把 docs/ 的 HTML 報告建成零外部依賴的靜態版（LaTeX→inline SVG、highlight.js 預先上色、Chart.js→inline SVG），供無法執行 JavaScript 的檢視器（例如 Obsidian 的 HTML viewer 外掛）閱讀。",
+  "scripts": {
+    "build:report": "node build-static.mjs ../AlphaZero_UTTT_Technical_Report.html ../static/AlphaZero_UTTT_Technical_Report.html",
+    "build:design": "node build-static.mjs ../Transformer-AZ-AMAF-Design.html ../static/Transformer-AZ-AMAF-Design.html"
+  },
+  "dependencies": {
+    "highlight.js": "^11.12.0",
+    "mathjax-full": "^3.2.2"
+  }
+}
