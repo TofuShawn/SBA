@@ -1,0 +1,265 @@
+# Copyright (c) 2026 TofuShawn
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""rustbridge — the ctypes boundary to native/sba_game.dll (D48, Rust
+Phase 1: the game LOGISTICS layer).
+
+RustUltimateGame duck-types the UltimateGame interface (legal_moves /
+make_move / result / clone / current / active_macro / micro / macro) on
+top of the Rust bitboard state, so self-play, encode() and the engines
+need no changes; game.py stays the reference implementation and the
+fallback (`available()` gates the switch, `engine.rust_game` in
+config.toml). The parity fuzz in tests/test_rustgame.py keeps the two
+implementations identical — error texts included.
+"""
+
+import ctypes
+import os
+
+from game import EMPTY, LINES, O, X
+
+ABI = 1
+
+_ERR_OVER = -1
+_ERR_RANGE = -2
+_ERR_ROUTED = -3
+_ERR_MACRO_CLOSED = -4
+_ERR_OCCUPIED = -5
+
+# sba_game_apply error code -> the same text UltimateGame would raise
+_ERR_TEXT = {
+    _ERR_OVER: 'game is over',
+    _ERR_RANGE: 'cell out of range',
+    _ERR_ROUTED: 'move must be in the routed macro',
+    _ERR_MACRO_CLOSED: 'macro is not open',
+    _ERR_OCCUPIED: 'cell is occupied',
+}
+
+_RES_CODES = {0: None, 1: X, 2: O, 3: 'D'}
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LIB_PATH = os.path.join(_ROOT, 'native',
+                         'sba_game.dll' if os.name == 'nt' else 'sba_game.so')
+
+_LIB = None
+_TRIED = False
+
+
+class SbaState(ctypes.Structure):
+    """Mirror of the Rust SbaState dump — field order IS the ABI
+    (rust cdylib native/sba-game/src/lib.rs #[repr(C)] SbaState)."""
+    _fields_ = [
+        ('px', ctypes.c_uint16 * 9),
+        ('po', ctypes.c_uint16 * 9),
+        ('mx', ctypes.c_uint16),
+        ('mo', ctypes.c_uint16),
+        ('current', ctypes.c_uint8),
+        ('active', ctypes.c_int32),
+        ('result', ctypes.c_int32),
+    ]
+
+
+def _load():
+    global _LIB, _TRIED
+    if _TRIED:
+        return _LIB
+    _TRIED = True
+    if not os.path.isfile(_LIB_PATH):
+        return None
+    try:
+        lib = ctypes.CDLL(_LIB_PATH)
+        lib.sba_game_abi.argtypes = []
+        lib.sba_game_abi.restype = ctypes.c_int32
+        lib.sba_game_new.argtypes = []
+        lib.sba_game_new.restype = ctypes.c_void_p
+        lib.sba_game_load.argtypes = [ctypes.POINTER(SbaState)]
+        lib.sba_game_load.restype = ctypes.c_void_p
+        lib.sba_game_clone.argtypes = [ctypes.c_void_p]
+        lib.sba_game_clone.restype = ctypes.c_void_p
+        lib.sba_game_free.argtypes = [ctypes.c_void_p]
+        lib.sba_game_free.restype = None
+        lib.sba_game_apply.argtypes = [ctypes.c_void_p, ctypes.c_int32,
+                                       ctypes.c_int32]
+        lib.sba_game_apply.restype = ctypes.c_int32
+        lib.sba_game_result.argtypes = [ctypes.c_void_p]
+        lib.sba_game_result.restype = ctypes.c_int32
+        lib.sba_game_macro_open.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+        lib.sba_game_macro_open.restype = ctypes.c_int32
+        lib.sba_game_legal.argtypes = [ctypes.c_void_p,
+                                       ctypes.POINTER(ctypes.c_int32),
+                                       ctypes.c_int32]
+        lib.sba_game_legal.restype = ctypes.c_int32
+        lib.sba_game_state.argtypes = [ctypes.c_void_p,
+                                       ctypes.POINTER(SbaState)]
+        lib.sba_game_state.restype = None
+        if lib.sba_game_abi() != ABI:
+            return None
+        _LIB = lib
+    except OSError:
+        _LIB = None
+    return _LIB
+
+
+def available():
+    """True when the Rust state layer is built and ABI-compatible."""
+    return _load() is not None
+
+
+class RustUltimateGame:
+    """UltimateGame duck-type over the Rust bitboard state.
+
+    The handle is the authoritative state; `current` / `active_macro`
+    are Python mirrors updated in make_move so the search loops read
+    plain attributes exactly like UltimateGame (no ctypes call per read).
+    """
+
+    __slots__ = ('_h', 'current', 'active_macro')
+
+    def __init__(self):
+        lib = _load()
+        if lib is None:
+            raise RuntimeError('sba_game native library not available '
+                               '(build it with `python native/build.py`)')
+        self._h = lib.sba_game_new()
+        self.current = X
+        self.active_macro = None
+
+    def __del__(self):
+        h = getattr(self, '_h', None)
+        if h and _LIB is not None:
+            try:
+                _LIB.sba_game_free(h)
+            except Exception:  # interpreter teardown must never raise
+                pass
+
+    @classmethod
+    def from_game(cls, game):
+        """Adopt an UltimateGame / BitUltimateGame position."""
+        lib = _load()
+        if lib is None:
+            raise RuntimeError('sba_game native library not available')
+        st = SbaState()
+        for m in range(9):
+            for i in range(9):
+                c = game.micro[m][i]
+                if c == X:
+                    st.px[m] |= 1 << i
+                elif c == O:
+                    st.po[m] |= 1 << i
+            w = game.macro[m]
+            if w == X:
+                st.mx |= 1 << m
+            elif w == O:
+                st.mo |= 1 << m
+        st.current = 0 if game.current == X else 1
+        st.active = -1 if game.active_macro is None else game.active_macro
+        g = cls.__new__(cls)
+        g._h = lib.sba_game_load(ctypes.byref(st))
+        if not g._h:
+            raise RuntimeError('sba_game_load failed')
+        g.current = game.current
+        g.active_macro = game.active_macro
+        return g
+
+    # ------------------------------------------------- hot-path interface
+
+    def clone(self):
+        g = type(self).__new__(type(self))
+        g._h = _LIB.sba_game_clone(self._h)
+        g.current = self.current
+        g.active_macro = self.active_macro
+        return g
+
+    def make_move(self, m, i):
+        rc = _LIB.sba_game_apply(self._h, m, i)
+        if rc != 0:
+            raise ValueError(_ERR_TEXT.get(rc, 'invalid move'))
+        # mirrors advance in lockstep with the handle (same rules)
+        self.current = O if self.current == X else X
+        self.active_macro = i if self.macro_open(i) else None
+
+    def legal_moves(self):
+        buf = (ctypes.c_int32 * 81)()
+        n = _LIB.sba_game_legal(self._h, buf, 81)
+        return [(v // 9, v % 9) for v in buf[:n]]
+
+    # ------------------------------------------------- read-only surface
+
+    def _state(self):
+        st = SbaState()
+        _LIB.sba_game_state(self._h, ctypes.byref(st))
+        return st
+
+    def result(self):
+        return _RES_CODES.get(_LIB.sba_game_result(self._h))
+
+    def winner(self):
+        r = _RES_CODES.get(_LIB.sba_game_result(self._h))
+        return r if r in (X, O) else None
+
+    def is_over(self):
+        return self.result() is not None
+
+    def is_full(self):
+        return all(not self.macro_open(m) for m in range(9))
+
+    def macro_open(self, m):
+        return bool(_LIB.sba_game_macro_open(self._h, m))
+
+    def micro_winner(self, m):
+        st = self._state()
+        for a, b, c in LINES:
+            line = (1 << a) | (1 << b) | (1 << c)
+            if st.px[m] & line == line:
+                return X
+            if st.po[m] & line == line:
+                return O
+        return None
+
+    @property
+    def micro(self):
+        st = self._state()
+        out = []
+        for m in range(9):
+            row = []
+            for i in range(9):
+                if (st.px[m] >> i) & 1:
+                    row.append(X)
+                elif (st.po[m] >> i) & 1:
+                    row.append(O)
+                else:
+                    row.append(EMPTY)
+            out.append(row)
+        return out
+
+    @property
+    def macro(self):
+        st = self._state()
+        out = []
+        for m in range(9):
+            if (st.mx >> m) & 1:
+                out.append(X)
+            elif (st.mo >> m) & 1:
+                out.append(O)
+            elif st.px[m] | st.po[m] == 0x1FF:
+                out.append('D')
+            else:
+                out.append(EMPTY)
+        return out
+
+    # ------------------------------------------------- fast encode input
+
+    def sba_planes(self):
+        """(px, po) as float32 (9, 9) grids for alphazero.encode — the
+        bit-to-plane interleave runs in numpy instead of an 81-cell loop."""
+        import numpy as np
+        st = self._state()
+        shift = np.arange(9, dtype=np.uint16)
+
+        def grid(v):
+            bits = ((np.array(v, dtype=np.uint16).reshape(9, 1)
+                     >> shift) & 1).astype(np.float32)
+            # [macro, cell] -> [macro_row, macro_col, cell_row, cell_col]
+            return bits.reshape(3, 3, 3, 3).transpose(0, 2, 1, 3).reshape(9, 9)
+
+        return grid(st.px), grid(st.po)

@@ -52,6 +52,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import rustbridge
+from config import cfg_engine
+
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 MODEL_DIR = os.path.join(HERE, 'models')
@@ -91,12 +94,17 @@ def encode(game):
                 r, c = divmod(i, 3)
                 planes[0 if mark == X else 1, r, c] = 1.0
     else:
-        for m in range(9):
-            mr, mc = divmod(m, 3)
-            for i, mark in enumerate(game.micro[m]):
-                if mark:
-                    r, c = divmod(i, 3)
-                    planes[0 if mark == X else 1, mr * 3 + r, mc * 3 + c] = 1.0
+        if isinstance(game, rustbridge.RustUltimateGame):
+            # D48: bit-to-plane interleave in numpy — the wrapper hands
+            # over the raw occupancy bits without materializing 9x9 lists
+            planes[0], planes[1] = game.sba_planes()
+        else:
+            for m in range(9):
+                mr, mc = divmod(m, 3)
+                for i, mark in enumerate(game.micro[m]):
+                    if mark:
+                        r, c = divmod(i, 3)
+                        planes[0 if mark == X else 1, mr * 3 + r, mc * 3 + c] = 1.0
         if game.active_macro is not None:
             mr, mc = divmod(game.active_macro, 3)
             planes[3, mr * 3:(mr + 1) * 3, mc * 3:(mc + 1) * 3] = 1.0
@@ -483,6 +491,11 @@ def make_game(game_type):
     if game_type == 'normal':
         from game import NormalGame
         return NormalGame()
+    # D48: the Rust state layer carries self-play logistics when built
+    # (engine.rust_game); game.py stays the reference implementation and
+    # the fallback whenever the cdylib is missing or the switch is off
+    if cfg_engine('rust_game', True) and rustbridge.available():
+        return rustbridge.RustUltimateGame()
     from game import UltimateGame
     return UltimateGame()
 

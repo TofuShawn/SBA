@@ -237,9 +237,14 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
                                               rollouts and the minimax family live in
                                               sba_engine.dll (~37x; built via
                                               native/build.py, auto-fallback to Python)
+    native/sba-game (Rust) --- > src/rustbridge.py  state layer for AZ self-play (D48):
+                                              clone/apply/legal/result on packed
+                                              bitboards in sba_game.dll|so; built
+                                              when cargo exists, game.py stays the
+                                              reference + fallback
     static/ (qss·fonts·bg) --- > src/qtui.py  stylesheets, bundled OFL fonts, backdrops
     tests/ -------------------                headless pytest: rules, AI sanity,
-                                              C engine, AZ recipe
+                                              C engine, AZ recipe, Rust parity
 ```
 
 Reading-route highlights, condensed from the retired

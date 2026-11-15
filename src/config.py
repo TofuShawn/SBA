@@ -49,6 +49,7 @@ _CFG_DEFAULTS = {
         'symmetry': True, 'object_pool': True, 'bitboard': False,
         'c_rollout_pattern': False,
         'c_mcts': True, 'c_minimax': True,
+        'rust_game': True,        # D48: Rust state layer for AZ self-play
         'multithreaded': False, 'use_lmr': True, 'use_killers': True,
         'use_aspiration': True, 'use_eval_ordering': True,
         'uct_c': 1.4, 'rave_k': 150, 'tt_max': 300000,

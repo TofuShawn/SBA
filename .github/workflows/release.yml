@@ -51,11 +51,13 @@ jobs:
             echo "mingw gcc not installed"; exit 1; }
           echo "C:\ProgramData\mingw64\mingw64\bin" >> "$GITHUB_PATH"
 
-      - name: Build native engine (sba_engine.dll)
+      - name: Build native engines (sba_engine.dll + sba_game.dll)
         run: python native/build.py
 
-      - name: Smoke-load the engine
-        run: python -c "import ctypes; ctypes.CDLL('native/sba_engine.dll'); print('engine ok')"
+      - name: Smoke-load the engines
+        run: |
+          python -c "import ctypes; ctypes.CDLL('native/sba_engine.dll'); print('engine ok')"
+          python -c "import ctypes, os; p='native/sba_game.dll'; os.path.isfile(p) and ctypes.CDLL(p); print('game layer ok (built)' if os.path.isfile(p) else 'game layer absent (no cargo)')"
 
       - name: Resolve release tag
         id: tag
@@ -79,15 +81,17 @@ jobs:
           # the venv-bootstrap start.bat (mirrors the SBA.py entry point)
           if git cat-file -e HEAD:start.bat 2>/dev/null; then
             python - "$ZIP" <<'PY'
-          import sys, zipfile
+          import os, sys, zipfile
           with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
               z.write('start.bat', 'start.bat')
               z.write('native/sba_engine.dll', 'native/sba_engine.dll')
-          print('packed: tracked start.bat + engine')
+              if os.path.isfile('native/sba_game.dll'):
+                  z.write('native/sba_game.dll', 'native/sba_game.dll')
+          print('packed: tracked start.bat + engines')
           PY
           else
             python - "$ZIP" <<'PY'
-          import sys, zipfile
+          import os, sys, zipfile
           lines = [
               '@echo off',
               'setlocal',
@@ -107,7 +111,9 @@ jobs:
           with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
               z.writestr('start.bat', '\r\n'.join(lines) + '\r\n')
               z.write('native/sba_engine.dll', 'native/sba_engine.dll')
-          print('packed: generated start.bat + engine')
+              if os.path.isfile('native/sba_game.dll'):
+                  z.write('native/sba_game.dll', 'native/sba_game.dll')
+          print('packed: generated start.bat + engines')
           PY
           fi
           sha256sum "$ZIP" > "$ZIP".sha256
