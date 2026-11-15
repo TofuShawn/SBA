@@ -488,9 +488,17 @@ def make_game(game_type):
 
 
 def _save_model(model, size, channels, blocks, path):
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or '.', exist_ok=True)
     torch.save({'state_dict': model.state_dict(), 'size': size,
                 'channels': channels, 'blocks': blocks}, path)
+
+
+def _ckpt_path(save_path, game):
+    """Numbered checkpoint next to the canonical model file (D46): the
+    scale curve needs EVERY ckpt_every point on disk — the old code
+    overwrote one path and the 600/2000/6000 curve points were lost."""
+    stem, ext = os.path.splitext(save_path)
+    return '%s_%04d%s' % (stem, game, ext or '.pt')
 
 
 
@@ -879,8 +887,8 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             model.eval()
             ckpt_at = ''
             if save and ckpt_every and it % ckpt_every == 0:
-                _save_model(model, size, channels, blocks, save_path)
-                ckpt_at = save_path
+                ckpt_at = _ckpt_path(save_path, it)
+                _save_model(model, size, channels, blocks, ckpt_at)
                 if on_event:
                     on_event({'type': 'ckpt', 'game': it, 'path': save_path})
                 if not quiet:
@@ -1040,8 +1048,8 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
             model.eval()
             ckpt_at = ''
             if save and ckpt_every and done % ckpt_every == 0:
-                _save_model(model, size, channels, blocks, save_path)
-                ckpt_at = save_path
+                ckpt_at = _ckpt_path(save_path, done)
+                _save_model(model, size, channels, blocks, ckpt_at)
                 if on_event:
                     on_event({'type': 'ckpt', 'game': done,
                               'path': save_path})

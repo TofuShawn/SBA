@@ -77,7 +77,12 @@ def test_mcts_root_dirichlet_noise(monkeypatch):
 
 
 def test_train_ckpt_every_saves(monkeypatch, tmp_path):
+    """D46: ckpt_every writes NUMBERED checkpoints (the scale curve needs
+    every point on disk) and the final save still lands on the canonical
+    path; a numbered file round-trips through weights_only=True."""
+    import torch
     target = tmp_path / 'az_ultimate.pt'
+    ck2 = tmp_path / 'az_ultimate_0002.pt'
     monkeypatch.setattr(alphazero, 'model_path', lambda game_type: str(target))
     monkeypatch.setattr(
         alphazero, 'alphazero_move',
@@ -85,7 +90,11 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
     alphazero.train('ultimate', games=3, sims=2, eval_every=99, eval_games=1,
                     quiet=True, save=True, ckpt_every=2,
                     channels=32, blocks=2)
-    assert target.exists()
+    assert target.exists()                       # final canonical save
+    assert ck2.exists()                          # the game-2 curve point
+    ck = torch.load(str(ck2), map_location='cpu', weights_only=True)
+    assert ck['channels'] == 32 and ck['blocks'] == 2
+    assert len(ck['state_dict']) > 0
 
 
 def test_train_parallel_workers(monkeypatch):
