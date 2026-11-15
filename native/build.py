@@ -70,11 +70,14 @@ def build_rust():
                   'skipped (`rustup target add x86_64-pc-windows-gnu` in WSL '
                   'enables it)')
             return 0
-        # the manifest path travels as a positional argument ($1), never
-        # spliced into the command string (Mimosa: command injection)
-        cmd = ['wsl', 'bash', '-lc',
-               'cargo build --release --target x86_64-pc-windows-gnu '
-               '--manifest-path "$1"', 'sba-build', wsl_path(RUST_MANIFEST)]
+        # wsl.exe JOINS its arguments before exec, which destroys `bash -lc
+        # script arg` positional passing — invoke cargo by its absolute
+        # login-PATH location instead: pure argv, no shell string, nothing
+        # to splice (Mimosa: command injection)
+        cargo_path = have.stdout.strip()
+        cmd = ['wsl', cargo_path, 'build', '--release',
+               '--target', 'x86_64-pc-windows-gnu',
+               '--manifest-path', wsl_path(RUST_MANIFEST)]
         produced = os.path.join(RUST_DIR, 'target', 'x86_64-pc-windows-gnu',
                                 'release', RUST_PRODUCED)
     print('building rust:', ' '.join(cmd) if not cmd[0] == 'wsl' else cmd[2])

@@ -44,6 +44,23 @@ _LIB_PATH = os.path.join(_ROOT, 'native',
 _LIB = None
 _TRIED = False
 
+# deferred handle frees (D52): the AZ search tree churns thousands of
+# wrapper states per game; freeing each in __del__ costs one ctypes call
+# per object, which profiled slower than the Python game's refcount
+# deallocation. Handles accumulate here and release in one batch.
+_DEAD_HANDLES = []
+_FREE_BATCH = 512
+
+
+def _flush_handles():
+    lib = _LIB
+    if lib is None:
+        return
+    freed = len(_DEAD_HANDLES)
+    for i in range(freed):
+        lib.sba_game_free(_DEAD_HANDLES[i])
+    del _DEAD_HANDLES[:freed]   # handles appended mid-loop stay queued
+
 
 class SbaState(ctypes.Structure):
     """Mirror of the Rust SbaState dump — field order IS the ABI
@@ -138,12 +155,15 @@ class RustUltimateGame:
         self.active_macro = None
 
     def __del__(self):
+        # batch the frees: a PUCT expansion creates ~thousands of wrapper
+        # states per game and a per-object FFI free measured 30% slower than
+        # the Python game in the stage-2 mix (the AZ tree churns states).
+        # Handles park in _DEAD_HANDLES until the threshold flush.
         h = getattr(self, '_h', None)
-        if h and _LIB is not None:
-            try:
-                _LIB.sba_game_free(h)
-            except Exception:  # interpreter teardown must never raise
-                pass
+        if h:
+            _DEAD_HANDLES.append(h)
+            if len(_DEAD_HANDLES) >= _FREE_BATCH:
+                _flush_handles()
 
     @classmethod
     def from_game(cls, game):
