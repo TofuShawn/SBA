@@ -493,6 +493,23 @@ def _save_model(model, size, channels, blocks, path):
                 'channels': channels, 'blocks': blocks}, path)
 
 
+
+def _writable_path(path):
+    """Guard for local write helpers: repo or system-temp only (see
+    ai._writable_path for the rationale - scan path-traversal findings)."""
+    import os
+    import tempfile
+    here = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.dirname(here)
+    rp = os.path.realpath(str(path))                      # 1. 规范化
+    if '..' in rp.split(os.sep):                          # 2. 禁止 ..
+        raise ValueError('path may not contain ..: %s' % path)
+    roots = (os.path.realpath(root), os.path.realpath(tempfile.gettempdir()))
+    if not any(rp == r or rp.startswith(r + os.sep) for r in roots):
+        raise ValueError('write path outside repo/temp: %s' % path)  # 3. 限目录
+    return rp
+
+
 class _TrainingCsv:
     """Per-iteration training-curve logger (D41): one CSV row per completed
     game, flushed immediately so a killed run still leaves usable data.
@@ -507,7 +524,8 @@ class _TrainingCsv:
     def __init__(self, path, resume=False):
         import csv as _csv
         self._append = bool(resume) and os.path.exists(path)
-        self._f = open(path, 'a' if self._append else 'w', newline='',
+        safe = _writable_path(path)   # 规范化 + 禁止 .. + 限 repo/temp
+        self._f = open(safe, 'a' if self._append else 'w', newline='',
                        encoding='utf-8')
         self._w = _csv.writer(self._f)
         if not self._append:
@@ -689,7 +707,8 @@ def _mp_worker_init(results_q):
         log_path = os.path.join(MODEL_DIR, '..', 'logs',
                                 'mp-worker-%d.log' % os.getpid())
         os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
-        sink = open(os.path.abspath(log_path), 'w', buffering=1)
+        safe_log = _writable_path(os.path.abspath(log_path))
+        sink = open(safe_log, 'w', buffering=1)   # 规范化 + 禁止 .. + 限 repo/temp
         sys.stdout = sink
         sys.stderr = sink
         atexit.register(sink.close)
@@ -729,7 +748,7 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         torch.manual_seed(seed)
     size = 3 if game_type == 'normal' else 9
     if resume:
-        ckpt = torch.load(resume, map_location='cpu')
+        ckpt = torch.load(resume, map_location='cpu', weights_only=True)
         size = ckpt['size']
         channels = ckpt.get('channels', 128)
         blocks = ckpt.get('blocks', 5)
@@ -1086,7 +1105,7 @@ def load_model(game_type):
     path = model_path(game_type)
     if not os.path.exists(path):
         return None
-    ckpt = torch.load(path, map_location='cpu')
+    ckpt = torch.load(path, map_location='cpu', weights_only=True)
     model = AZNet(ckpt['size'],
                   ckpt.get('channels', 32), ckpt.get('blocks', 3)).to(DEVICE)
     model.load_state_dict(ckpt['state_dict'])

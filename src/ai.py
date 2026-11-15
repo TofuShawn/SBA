@@ -21,6 +21,7 @@ Maintenance notes:
 import logging
 import math
 import os
+import tempfile
 import random
 import sys
 import threading
@@ -36,6 +37,22 @@ log = logging.getLogger('ai')
 
 # repo root: src/ holds the modules, tracked data (config.toml) stays there
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _writable_path(path):
+    """Guard for local write helpers: this is a single-user CLI/desktop
+    tool, so the only paths it may create files under are the repo
+    itself or the system temp directory (tests use tmp_path). Paths
+    outside both are refused before any open() - the scan findings for
+    path traversal at these sites."""
+    rp = os.path.realpath(str(path))                      # 1. 规范化
+    if '..' in rp.split(os.sep):                          # 2. 禁止 ..
+        raise ValueError('path may not contain ..: %s' % path)
+    roots = (os.path.realpath(ROOT), os.path.realpath(tempfile.gettempdir()))
+    if not any(rp == r or rp.startswith(r + os.sep) for r in roots):
+        raise ValueError('write path outside repo/temp: %s' % path)  # 3. 限目录
+    return rp
+
 
 
 # ============================================================
@@ -257,6 +274,7 @@ def save_engine_config(overrides=None):
                 out.extend(f'{a[1]} = {a[2]}' for a in rest)
         text = '\n'.join(out) + '\n'
 
+    path = _writable_path(path)
     tmp = path + '.tmp'
     try:
         with open(tmp, 'w', encoding='utf-8') as fh:
@@ -997,6 +1015,7 @@ def write_tablebase_file(path=None):
     raw = bytearray(b'\xFF' * (3 ** 9))
     for key, val in table.items():
         raw[key] = _TB_VALUE_BYTE[val]
+    path = _writable_path(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'wb') as f:
         f.write(bytes(raw))

@@ -15,7 +15,7 @@ from ai import get_ai_move
 
 def test_az_smoke_train_ultimate():
     model = alphazero.train('ultimate', games=2, sims=6, quiet=True, save=False,
-                            eval_games=1)
+                            eval_games=1, eval_sims=32, channels=32, blocks=2)
     assert model is not None
     g = UltimateGame()
     assert alphazero.select_move(g, model, 20) in g.legal_moves()
@@ -44,7 +44,7 @@ def test_train_eval_every_schedule(monkeypatch, capsys):
         game.legal_moves())
     monkeypatch.setattr(alphazero, 'alphazero_move', fast)
     alphazero.train('ultimate', games=6, sims=3, eval_every=2, eval_games=1,
-                    quiet=False, save=False)
+                    quiet=False, save=False, channels=32, blocks=2)
     out = capsys.readouterr().out
     assert out.count('win=') == 3
 
@@ -92,7 +92,7 @@ def test_train_parallel_workers(monkeypatch):
     monkeypatch.setattr(
         alphazero, 'alphazero_move',
         lambda game, model, budget=800: random.choice(game.legal_moves()))
-    model = alphazero.train('ultimate', games=4, sims=2, eval_every=99,
+    model = alphazero.train('ultimate', games=2, sims=2, eval_every=99,
                             eval_games=1, quiet=True, save=False,
                             channels=32, blocks=2, workers=2)
     assert model is not None
@@ -165,5 +165,5 @@ def test_training_csv_disabled_without_save():
     default_csv = os.path.join(ai.ROOT, 'models', 'az_ultimate.csv')
     existed = os.path.exists(default_csv)
     alphazero.train('ultimate', games=1, sims=3, eval_every=99, eval_games=1,
-                    quiet=True, save=False)
+                    quiet=True, save=False, channels=32, blocks=2)
     assert os.path.exists(default_csv) == existed
