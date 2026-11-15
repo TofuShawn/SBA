@@ -273,41 +273,55 @@ Reading-route highlights, condensed from the retired
 
 ## Native C engine / 原生 C 引擎
 
-All engine hot paths run in C since D25–D30 (`python native/build.py` builds
+All engine hot paths run in C since D25–D51 (`python native/build.py` builds
 `native/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
-it automatically). Measured on this machine / 全部引擎熱路徑已下沉 C
-（`native/build.py` 編譯；缺失時自動回退 Python，僅速度下降）：
+it automatically) and the game state runs in Rust since D48/D50
+(`native/sba_game.dll`, cargo; the Python game stays the reference and the
+fallback). Measured on this machine / 全部引擎熱路徑已下沉 C（`native/build.py`
+編譯；缺失時自動回退 Python，僅速度下降），遊戲狀態層下沉 Rust（D48/D50）：
 
 | Metric / 指標 | Python | C (1 thread) | C (threads, D30) |
 |---|---|---|---|
 | MCTS rollout (per playout) | 0.51 ms | 0.029 ms (17.7x) | — |
-| MCTS 800 sims (full search) | ~530 ms | 14 ms (37x) | 3.4 ms @ 8T (3.6x wall) |
-| MCTS 3200 sims | — | 53 ms | 9.2 ms @ 8T (5.8x wall) |
+| MCTS 800 sims (full search, symmetry on) | ~530 ms | 12.9 ms (41x) | 3.4 ms @ 8T (3.6x wall) |
+| MCTS 3200 sims | — | 51.2 ms | 9.2 ms @ 8T (5.8x wall) |
 | Heuristic rollout (AZ leaf value) | 0.47 ms | 0.028 ms (16.9x) | — |
-| MCTS@1600 vs Basic (16 games) | 87.5% | 96.9% (parallel + reuse) | — |
 
-Extras: tree reuse carries the warm subtree between moves (diff-walk, auto
-fresh on rewind); settings page toggles every switch (D28); pattern rollout
-variant kept off by default (D26 A/B: no gain at 4.4x cost).
+| Rust state layer / Rust 狀態層（D52） | vs Python game |
+|---|---|
+| playout loop (state ops) | 2.14x |
+| fullgame (legal + encode + clone per ply) | 1.64x |
+| AZ self-play stage-1 (C-tree dominated) | ~parity (1.04x) |
+
+AZ self-play runs ~7–9 s/game @80 sims (128ch/5blocks, 1 worker) — the loop
+is NN-forward-bound, so state-layer gains are bounded by Amdahl / AZ 自對弈
+約 7–9 秒一局（80 sims、單 worker）——瓶頸在神經網路前向，狀態層加速受
+Amdahl 上限約束。
+
+Extras: tree reuse carries the warm subtree between moves on BOTH the C and
+Python paths (the `tree_reuse` switch gates both ends, D53); settings page
+toggles every switch (D28); pattern rollout variant kept off by default
+(D26 A/B: no gain at 4.4x cost).
 
 ---
 
 ## Benchmarks / 實測基準
 
-n = 20; the 95% CI is roughly ±22% — for ranking only
-n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。
+n = 20; the 95% CI is roughly ±22% — for ranking only. Re-measured 2026-11-15
+on the C engines (D51)
+n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C 引擎（D51）重測。
 
 ### All engines vs Basic (Ultimate, 20 games, MCTS@1600) / 全部引擎 vs Basic（終極 · 20 局 · MCTS@1600）
 
 | Engine / 引擎 | W / D / L | Score / 得分率 |
 |---|---|---|
+| Solver\*@1600 | 20 / 0 / 0 | **100%** |
+| MCTS+GRAVE@1600 | 20 / 0 / 0 | **100%** |
+| MCTS@1600 | 20 / 0 / 0 | **100%** |
 | Minimax (depth 4) | 19 / 1 / 0 | **97.5%** |
 | MCTS+RAVE@1600 | 19 / 1 / 0 | **97.5%** |
-| Solver\*@1600 | 19 / 1 / 0 | **97.5%** |
-| Minimax Pro (depth 4) | 18 / 2 / 0 | **95.0%** |
-| MCTS+GRAVE@1600 | 18 / 2 / 0 | **95.0%** |
-| MCTS@1600 | 19 / 0 / 1 | **95.0%** |
-| Flat MCTS@1600 | 9 / 10 / 1 | 70.0% |
+| Flat MCTS@1600 | 18 / 2 / 0 | **95.0%** |
+| Minimax Pro (depth 4) | 17 / 3 / 0 | 92.5% |
 | Random | 1 / 2 / 17 | 10.0% |
 
 \* On Ultimate, Solver is a plain MCTS fallback — it only truly solves Normal /
@@ -318,10 +332,10 @@ n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。
 | Engine / 引擎 | W / D / L | Score / 得分率 |
 |---|---|---|
 | Flat MCTS@1600 | 8 / 10 / 2 | 65.0% |
-| Minimax Pro (depth 4) | 4 / 16 / 0 | 60.0% |
-| Minimax (depth 4) | 1 / 19 / 0 | 52.5% |
-| MCTS@1600 | 1 / 19 / 0 | 52.5% |
-| Solver (exact) | 0 / 20 / 0 | 50.0% |
+| Minimax (depth 4) | 2 / 18 / 0 | 55.0% |
+| Solver (exact) | 2 / 18 / 0 | 55.0% |
+| Minimax Pro (depth 4) | 0 / 20 / 0 | 50.0% |
+| MCTS@1600 | 0 / 20 / 0 | 50.0% |
 | MCTS+GRAVE@1600 | 0 / 20 / 0 | 50.0% |
 | MCTS+RAVE@1600 | 0 / 20 / 0 | 50.0% |
 | Random | 0 / 1 / 19 | 2.5% |
@@ -330,11 +344,13 @@ n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。
 
 | Matchup / 對戰（30 局） | Score / 得分率 |
 |---|---|
-| Minimax vs MCTS@800 | **63.3%（Minimax）** |
-| Minimax vs MCTS@2000 | **40.0%（MCTS）** |
+| Minimax vs MCTS@800 | **48.3%（Minimax）** |
+| Minimax vs MCTS@2000 | **23.3%（MCTS 76.7%）** |
 
-Crossover around 1200–1600 sims — MCTS has no depth cap, so it wins as the buget grows (D20) 
-交叉點約 1200–1600 sims——MCTS 無深度上限，預算越高越強（D20）。
+At 800 sims the matchup is a coin flip; by 2000 MCTS wins ~77% — with the
+C trees (D51) the crossover sits near 600–800 sims (D20)
+800 sims 時已是五五波、2000 sims 時 MCTS 勝約 77%——C 樹（D51）之後交叉點
+下移至約 600–800 sims（D20）。
 
 ### MCTS family round-robin (Ultimate, 20 games/pair, all engines@1600) / MCTS 家族循環賽（全引擎@1600）
 
@@ -344,9 +360,9 @@ All three share one playout policy: the plain win/block heuristic kernel
 
 | A vs B / 對戰 | W / D / L | Score / 得分率 |
 |---|---|---|
-| MCTS vs MCTS+RAVE | 6 / 2 / 12 | 35.0% |
-| MCTS vs MCTS+GRAVE | 10 / 4 / 6 | 60.0% |
-| MCTS+RAVE vs MCTS+GRAVE | 9 / 5 / 6 | 57.5% |
+| MCTS vs MCTS+RAVE | 13 / 3 / 4 | **72.5%** |
+| MCTS vs MCTS+GRAVE | 17 / 1 / 2 | **87.5%** |
+| MCTS+RAVE vs MCTS+GRAVE | 3 / 8 / 9 | 35.0% |
 
 ---
 
@@ -379,6 +395,4 @@ The bundled UI fonts are distributed under the **SIL Open Font License 1.1**; th
 
 - [Inter](https://github.com/rsms/inter) — © 2020 The Inter Project Authors（`static/fonts/Inter-*.ttf`）
 - [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) — © 2020 The JetBrains Mono Project Authors（`static/fonts/JetBrainsMono-*.ttf`）
-
-Both families declare no Reserved Font Name, so the bundled static instances keep the original names / 兩者皆未宣告 Reserved Font Name，故內嵌的靜態實例沿用原名。Provenance notes: `static/fonts/README.md`.
 
