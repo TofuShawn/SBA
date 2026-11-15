@@ -267,6 +267,11 @@ pub extern "C" fn sba_game_legal(g: *const SbaGame, out: *mut i32, cap: i32) -> 
         if (g.px[m] | g.po[m]) >> i & 1 != 0 {
             continue;
         }
+        // closed macros (won or drawn-full) are not playable, even when
+        // empty cells remain — UltimateGame.legal_moves skips them FIRST
+        if !g.macro_open(m) {
+            continue;
+        }
         if g.active >= 0 && g.macro_open(g.active as usize) && m != g.active as usize {
             continue;
         }

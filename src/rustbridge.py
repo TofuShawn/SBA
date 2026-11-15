@@ -241,7 +241,7 @@ class RustUltimateGame:
                 out.append(X)
             elif (st.mo >> m) & 1:
                 out.append(O)
-            elif st.px[m] | st.po[m] == 0x1FF:
+            elif (st.px[m] | st.po[m]) == 0x1FF:   # parens: | binds looser than ==
                 out.append('D')
             else:
                 out.append(EMPTY)
