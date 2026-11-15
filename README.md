@@ -301,7 +301,8 @@ Amdahl 上限約束。
 Extras: tree reuse carries the warm subtree between moves on BOTH the C and
 Python paths (the `tree_reuse` switch gates both ends, D53); settings page
 toggles every switch (D28); pattern rollout variant kept off by default
-(D26 A/B: no gain at 4.4x cost).
+(D26; re-validated 2026-11-15 on the current C trees — 85% vs 92.5%
+vs-Basic, 3.9x rollout cost: still no gain).
 
 ---
 
