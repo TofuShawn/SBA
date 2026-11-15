@@ -1,6 +1,6 @@
 # SBA - Basically Awful (Qt + TUI) / 基本上很糟（Qt + 終端機）
 
-**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 Textual **終端機版**兩種介面，Arknights: Endfield 風格的工業 console 主題。內建 **7 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
+**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 Textual **終端機版**兩種介面，Arknights: Endfield 風格的工業 console 主題。內建 **8 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
 
 > The name is a joke. The game is actually (mostly) fine.
 > 名字是開玩笑的，遊戲其實（大致上）還不錯。
@@ -11,7 +11,7 @@
 
 - **Two game types / 兩種棋盤**：classic 3x3 Tic Tac Toe（經典井字棋）和 9x9 Ultimate Tic Tac Toe（終極井字棋）
 - **Three modes / 三種模式**：Player vs Player（玩家對戰）、Player vs Computer（人機對戰）、Computer vs Computer（電腦對戰）
-- **9 selectable AI engines / 九種可選 AI 引擎**：
+- **8 selectable AI engines / 八種可選 AI 引擎**：
   - `Random` - random legal move / 隨機走棋
   - `Basic` - win if possible, block, prefer center/corners / 能贏就贏、會擋棋、偏好中心與角落
   - `Minimax` - classic alpha-beta search / 經典極小化極大搜尋（普通模式完美、終極模式限深度）
@@ -30,7 +30,7 @@
 - **Arknights: Endfield field-console theme / 終末地工業 console 主題**：訊號黃 × 炭灰、deck 標籤、瞄準括號、落子蓋章與勝利線動畫（可「減少動態」）
 - **Settings page / 設定頁**：引擎開關全數圖形化，保存寫回 `config.toml`
 - **History card / 歷史卡**：點擊任一步直接回放該局面
-- **Headless pytest suite / 無頭 pytest 測試**（75 tests）
+- **Headless pytest suite / 無頭 pytest 測試**（138 tests）
 
 ---
 
@@ -168,12 +168,14 @@ All engine switches and parameters live in **`config.toml`**（repo root）: MCT
 rollout heuristic, tree reuse, dynamic UCT, opening book, micro tablebase,
 LMR/killer/aspiration, symmetry, object pool, bitboard, multithreaded MCTS,
 UCT/RAVE constants, and session defaults（`mcts_budget`, `minimax_depth`）.
-Missing keys fall back to code defaults; `$SBA_CONFIG` points the
-`python sba.py` entry at another file
-to override / 所有引擎開關與參數集中在 `config.toml`（repo 根目錄）：啟發式 rollout、
+Missing keys fall back to code defaults. `$SBA_CONFIG` points every entry at
+another file to override; because that file is both read and written, the
+override must live **inside this repo or the system temp directory** (the
+same path guard covers config saves) / 所有引擎開關與參數集中在 `config.toml`（repo 根目錄）：啟發式 rollout、
 樹重用、動態 UCT、開局書、micro 殘局表、LMR/killer/aspiration、對稱性、物件池、
 bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mcts_budget`、
-`minimax_depth`）。缺省鍵自動回退程式碼預設；可用環境變數 `SBA_CONFIG` 指向其他檔案。
+`minimax_depth`）。缺省鍵自動回退程式碼預設；可用環境變數 `SBA_CONFIG` 指向其他檔案，
+但該檔案同時會被讀取與寫回，因此必須位於**本倉庫或系統暫存目錄內**（與設定寫入共用同一道路徑防護）。
 
 ---
 

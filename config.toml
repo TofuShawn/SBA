@@ -1,5 +1,5 @@
 # SBA engine configuration / 引擎設定
-# Loaded by ai.py via tomllib; missing keys fall back to code defaults.
+# Loaded by src/config.py via tomllib; missing keys fall back to code defaults.
 # Point $SBA_CONFIG at another file to use a different configuration.
 
 [engine]

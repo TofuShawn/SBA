@@ -20,7 +20,7 @@
 - [第 7 章：Minimax —— 窮舉搜索](#第-7-章minimax--窮舉搜索)
 - [第 8 章：MCTS —— 蒙特卡洛樹搜索](#第-8-章mcts--蒙特卡洛樹搜索)
 - [第 9 章：優化技巧（進階）](#第-9-章優化技巧進階)
-- [第 10 章：配置文件（對應 sba.toml）](#第-10-章配置文件對應-sbatoml)
+- [第 10 章：配置文件（對應 config.toml）](#第-10-章配置文件對應-configtoml)
 - [第 11 章：桌面圖形界面（PySide6）](#第-11-章桌面圖形界面pyside6)
 - [第 12 章：測試（pytest）](#第-12-章測試pytest)
 - [第 13 章：AlphaZero 概念入門](#第-13-章alphazero-概念入門)
@@ -69,7 +69,7 @@ my_tictactoe/
 ├── game.py       # 遊戲規則（第 3、4 章）
 ├── ai.py         # AI 引擎（第 5-8 章）
 ├── main.py       # 文字版入口（第 2 章）
-├── sba.toml      # 配置（第 10 章）
+├── config.toml      # 配置（第 10 章）
 ├── ui.py         # 圖形界面（第 11 章）
 └── tests/
     └── test_game.py   # 測試（第 12 章）
@@ -270,7 +270,7 @@ score['O'] = 5              # 修改或新增
 'X' in score                # True —— 判斷鍵是否存在
 ```
 
-後面 AI 的"局面→分數"緩存（置換表）、配置文件（sba.toml）全是字典。
+後面 AI 的"局面→分數"緩存（置換表）、配置文件（config.toml）全是字典。
 
 ### 1.9 小練習
 
@@ -996,7 +996,7 @@ def best_mcts_move(root):
 
 ### 8.7 爲什麼 MCTS 對終極井字棋有效？
 
-終極棋盤第一步有 81 個選擇，Minimax 精確搜索會爆炸。MCTS 的模擬天然"專注"：好的分支訪問多、統計準；壞分支自動被冷落。迭代次數就是"思考時間"，可隨時調整（項目默認 1600，見 sba.toml）。
+終極棋盤第一步有 81 個選擇，Minimax 精確搜索會爆炸。MCTS 的模擬天然"專注"：好的分支訪問多、統計準；壞分支自動被冷落。迭代次數就是"思考時間"，可隨時調整（項目默認 800，見 config.toml）。
 
 ### 8.8 項目裏的增強（先認識名字）
 
@@ -1150,7 +1150,7 @@ def is_line_win(x_mask, line):
 位板**理論上**快很多（clone 只複製 4 個整數、勝利判斷常數時間）。
 但項目實測（`docs/decisions.md` D12）：MCTS 已經用啓發式 rollout 之後，
 位板**沒有帶來額外可測的加速**，所以它保留下來主要因爲接口統一、省內存、
-值得學習——而不是"快 10 倍"。`sba.toml` 裏 `bitboard = true` 開着，但**不要憑感覺優化，要量**。
+值得學習——而不是"快 10 倍"。`config.toml` 裏 `bitboard` 預設關閉（`false`），但**不要憑感覺優化，要量**。
 
 ### 9.2 對象池（NodePool）
 
@@ -1183,7 +1183,7 @@ class NodePool:
 
 ### 9.4 開局書（Opening Book）
 
-開局不需要算，直接查表。項目 `ULTIMATE_BOOK`（ai.py 第 1181 行）：X 第一步走哪裏 → O 應該回哪裏，人工挑選的好應手，省下開局的大量搜索時間。配置化後放在 sba.toml 的 `[engine.opening_book_ultimate]` 段。
+開局不需要算，直接查表。項目 `ULTIMATE_BOOK`（ai.py 第 1181 行）：X 第一步走哪裏 → O 應該回哪裏，人工挑選的好應手，省下開局的大量搜索時間。配置化後放在 config.toml 的 `[engine.opening_book_ultimate]` 段。
 
 ### 9.5 搜索工程技巧全家桶（Minimax Pro 用了全套）
 
@@ -1196,7 +1196,7 @@ class NodePool:
 
 ---
 
-## 第 10 章：配置文件（對應 sba.toml）
+## 第 10 章：配置文件（對應 config.toml）
 
 ### 10.1 爲什麼要配置
 
@@ -1208,7 +1208,7 @@ uct_c = 1.4
 rollout_heuristic = true
 
 [session]
-mcts_budget = 1600
+mcts_budget = 800
 ```
 
 ### 10.2 讀取（Python 3.11+ 內置 tomllib）
@@ -1218,7 +1218,7 @@ import tomllib
 
 def load_config():
     try:
-        with open('sba.toml', 'rb') as fh:
+        with open('config.toml', 'rb') as fh:
             return tomllib.load(fh)     # → 嵌套 dict
     except Exception:
         return {}                       # 文件沒了就空 dict
@@ -1504,7 +1504,7 @@ git pull                   # 之後每次開工先拉最新
 ### 14.6 提交信息怎麼寫
 
 一句話說清"做了什麼"：`feat:` 新功能、`fix:` 修 bug、`docs:` 文檔。
-例如項目真實歷史：`fix(ai): align workers default with sba.toml (8)`。
+例如項目真實歷史：`fix(ai): align workers default with sba.toml (8)`（當時還叫 `sba.toml`，D28 起更名為 `config.toml`）。
 
 ### 14.7 分支（先懂概念）
 
