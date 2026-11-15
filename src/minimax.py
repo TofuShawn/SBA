@@ -5,12 +5,12 @@
 depth-limited variant and Minimax Pro (negamax + TT + killers + LMR)."""
 
 import math
+import random
 import threading
 import time
 
 from game import (NormalGame, apply_move)
 from config import cfg_engine
-import random
 
 from analysis import blocks_immediate_win, eval_ultimate
 from cbridge import _tt_key

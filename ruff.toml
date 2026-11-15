@@ -1,7 +1,6 @@
-# Ruff — start lenient: the pyflakes class only (F + syntax errors).
-# Wider families stay off until a dedicated style pass: E7 alone currently
-# carries ~17 cosmetic findings, and E741 flags the DOMAIN constant `O`
-# (the second player mark) which the whole codebase cannot rename.
+# Ruff — F (pyflakes) + E9 (syntax) + E7 (naming/multiline basics).
+# E741 is per-file-ignored where `O` IS the domain constant: the second
+# player's mark cannot be renamed to satisfy a linter.
 line-length = 100
 
 exclude = [
@@ -10,7 +9,7 @@ exclude = [
 ]
 
 [lint]
-select = ["F", "E9"]
+select = ["F", "E9", "E7"]
 
 [lint.per-file-ignores]
 # the facade re-exports the whole engine surface on purpose (from ai import
@@ -19,4 +18,6 @@ select = ["F", "E9"]
 # the MIOpen env pins MUST run before `import torch` (they redirect the
 # kernel cache off the network drive) — the imports after them are E402 by
 # design, moving them up breaks the fix
-"src/alphazero.py" = ["E402"]
+"src/alphazero.py" = ["E402", "E741"]
+# `O` is the second player's mark — the domain names the constant
+"src/game.py" = ["E741"]

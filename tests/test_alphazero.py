@@ -40,8 +40,8 @@ def test_az_dispatch_and_terminal_values():
 
 
 def test_train_eval_every_schedule(monkeypatch, capsys):
-    fast = lambda game, model, budget=800, batch_size=16: random.choice(
-        game.legal_moves())
+    def fast(game, model, budget=800, batch_size=16):
+        return random.choice(game.legal_moves())
     monkeypatch.setattr(alphazero, 'alphazero_move', fast)
     alphazero.train('ultimate', games=6, sims=3, eval_every=2, eval_games=1,
                     quiet=False, save=False, channels=32, blocks=2)

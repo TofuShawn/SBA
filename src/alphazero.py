@@ -257,8 +257,8 @@ def _c_rollout_value(g):
     try:
         from native import cengine as _ce
         r = _ce.rollout_state(g)
-    except Exception:
-        return None
+    except Exception:  # noqa: BLE001 - best-effort probe: the caller
+        return None    # falls back to the Python rollout regardless
     if r is None:
         return None
     if r == 'D':
@@ -736,8 +736,8 @@ def _mp_worker_init(results_q):
         sys.stdout = sink
         sys.stderr = sink
         atexit.register(sink.close)
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 - redirect is cosmetic: a failed
+        pass           # sink only means worker output stays on the console
 
 
 def _mp_play_game(idx, weights, size, channels, blocks, sims,
@@ -786,7 +786,9 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
         model = AZNet(size, channels, blocks).to(DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr,
                                  weight_decay=weight_decay)
-    make_game_fn = lambda: make_game(game_type)
+    def make_game_fn():
+        return make_game(game_type)
+
     start = time.time()
     save_path = save_path or model_path(game_type)
     use_network = stage == 2
@@ -923,18 +925,18 @@ def train(game_type, games=300, sims=80, eval_every=25, eval_games=20,
             if it % max(1, eval_every) == 0 or it == games:
                 el = time.time() - start
                 ev = evaluate()
-                w, d, l = ev
+                w, d, loss = ev
                 if not quiet:
                     line = ('eval game %d/%d - win=%d draw=%d loss=%d - loss=%.3f'
                             ' - %.0fs - AZ@100 vs %s@%d'
-                            % (it, games, w, d, l, total_loss / steps_per_game,
+                            % (it, games, w, d, loss, total_loss / steps_per_game,
                                el, eval_ai, eval_sims))
                     if progress:
                         progress.console.print(line)
                     else:
                         print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
                               '  [eval: AZ@100 vs %s@%d]'
-                              % (game_type, it, games, w, d, l,
+                              % (game_type, it, games, w, d, loss,
                                  total_loss / steps_per_game, el, eval_ai, eval_sims),
                               flush=True)
             if csv_log:
@@ -1083,17 +1085,17 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                     on_event({'type': 'eval_start', 'game': done})
                 el = time.time() - start
                 ev = evaluate()
-                w, d, l = ev
+                w, d, loss = ev
                 if not quiet:
                     line = ('eval game %d/%d - win=%d draw=%d loss=%d - '
                             'loss=%.3f - %.0fs'
-                            % (done, games, w, d, l,
+                            % (done, games, w, d, loss,
                                total_loss / steps_per_game, el))
                     if progress:
                         progress.console.print(line)
                     else:
                         print('[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)'
-                              % (game_type, done, games, w, d, l,
+                              % (game_type, done, games, w, d, loss,
                                  total_loss / steps_per_game, el), flush=True)
             if csv_log:
                 # workers report the per-task index; its temperature schedule

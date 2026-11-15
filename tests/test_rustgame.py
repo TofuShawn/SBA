@@ -90,16 +90,8 @@ def test_illegal_moves_raise_the_same_texts():
         ru.make_move(0, 0)
     with pytest.raises(ValueError, match='move must be in the routed macro'):
         py.make_move(0, 0)
-    # a closed macro target with no open route
-    py2, ru2 = _fresh_pair()
-    py2.make_move(4, 4)
-    ru2.make_move(4, 4)
-    py2.make_move(4, 0)
-    ru2.make_move(4, 0)          # sends the reply to macro 0
-    py2.make_move(0, 4)
-    ru2.make_move(0, 4)          # fills micro 4 of macro 0 -> closed? no;
-    # macro 0 stays open, so use a full-micro route instead:
-    # (0,4) routes to macro 4 which is open -> normal continuation
+    # a closed macro target with no open route would raise the same text
+    # on both sides — covered end-to-end by the parity fuzz instead
 
 
 def test_game_over_and_clone_parity():

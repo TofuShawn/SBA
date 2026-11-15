@@ -14,6 +14,7 @@ Maintenance notes:
 """
 
 import argparse
+import functools
 import logging
 import math
 import os
@@ -1248,7 +1249,7 @@ class MenuPage(EndfieldPage):
         lay.setContentsMargins(0, 0, 0, 0)
         lab = QLabel(str(slider.value()))
         lab.setObjectName('muted')
-        slider.valueChanged.connect(lambda v, l=lab: l.setText(str(v)))
+        slider.valueChanged.connect(lambda v, lb=lab: lb.setText(str(v)))
         lay.addWidget(slider, 1)
         lay.addWidget(lab)
         return wrapper
@@ -1580,7 +1581,8 @@ class GamePage(EndfieldPage):
         self.az_hatch.setFixedHeight(64)
         self.az_hatch.setAlignment(Qt.AlignCenter)
         self.az_hatch.setWordWrap(True)
-        self.az_hatch.paintEvent = lambda e, lbl=self.az_hatch, fn=self._paint_hatch:             fn(lbl, e)
+        self.az_hatch.paintEvent = functools.partial(self._paint_hatch,
+                                                     self.az_hatch)
         self.az_hatch.show()
         az_lay.addWidget(self.az_hatch)
         hint = QLabel(t('Click a move to highlight it', '點擊棋步可在棋盤上標示'))

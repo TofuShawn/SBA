@@ -47,8 +47,8 @@ def _crash_log(where, tb):
             f.write('=== %s %s ===\n' % (where, time.strftime('%F %T')))
             f.write(tb)
         return path
-    except Exception:
-        return None
+    except Exception:  # noqa: BLE001 - the crash log itself is best-effort;
+        return None    # never let diagnostics break the error report
 
 
 def _field(label, widget):
@@ -365,13 +365,13 @@ class TrainTUI(App):
             self._loss_hist = self._loss_hist[-200:]
             ev_eval = ev.get('eval')
             if ev_eval:
-                w, d, l = ev_eval
-                self._wr_hist.append(100.0 * (w + 0.5 * d) / max(1, w + d + l))
+                w, d, loss = ev_eval
+                self._wr_hist.append(100.0 * (w + 0.5 * d) / max(1, w + d + loss))
                 self._wr_hist = self._wr_hist[-200:]
                 self.query_one('#log', RichLog).write(
                     f"[bold]eval[/bold] game {ev['game']}: win={w} "
-                    f"draw={d} loss={l} "
-                    f"({100.0 * (w + 0.5 * d) / max(1, w + d + l):.0f}%)")
+                    f"draw={d} loss={loss} "
+                    f"({100.0 * (w + 0.5 * d) / max(1, w + d + loss):.0f}%)")
             self.query_one('#loss-spark', Sparkline).data = self._loss_hist
             self.query_one('#wr-spark', Sparkline).data = self._wr_hist
             self._stats_text = (f"game {ev['game']}/{ev['games']} · "

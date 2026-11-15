@@ -331,7 +331,9 @@ def _d4_perms():
             p[i] = r * 3 + c
         return p
 
-    identity = lambda rc: rc
+    def identity(rc):
+        return rc
+
     return [transform(f) for f in (
         identity, rot, lambda rc: rot(rot(rc)), lambda rc: rot(rot(rot(rc))),
         ref, lambda rc: ref(rot(rc)), lambda rc: ref(rot(rot(rc))),

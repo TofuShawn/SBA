@@ -368,7 +368,7 @@ class Board(Static):
                 txt.append('\n')
             txt.append(line, style=SUB)
         for line_idx, c0, c1, style in self._ranges:
-            start = sum(len(l) + 1 for l in self._lines[:line_idx]) + c0
+            start = sum(len(ln) + 1 for ln in self._lines[:line_idx]) + c0
             end = start + (c1 - c0)
             txt.stylize(style, start, min(end, len(txt)))
         return txt

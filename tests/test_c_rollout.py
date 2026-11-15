@@ -390,8 +390,10 @@ def test_c_tree_symmetry_dedups_root():
         assert len(off_stats) == 81
         assert 0 < len(on_stats) < len(off_stats) // 2
     finally:
-        if off_tree: off_tree.close()
-        if on_tree: on_tree.close()
+        if off_tree:
+            off_tree.close()
+        if on_tree:
+            on_tree.close()
 
 
 def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
@@ -404,7 +406,8 @@ def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
             g, 1000, rng_seed=7,
             opts=_opts(uct_c=c, dynamic_uct=0, symmetry=0))
         top.append(sorted((s[1] for s in stats), reverse=True)[:3])
-        if tree: tree.close()
+        if tree:
+            tree.close()
     assert top[0] != top[1]
 
     g2 = UltimateGame()
@@ -415,7 +418,8 @@ def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
         mv, _, tree = _ce.mcts_search(
             g2, 1200, rng_seed=99, opts=_opts(dynamic_uct=dynamic, symmetry=0))
         best.append(mv)
-        if tree: tree.close()
+        if tree:
+            tree.close()
     assert best[0] != best[1]
 
 

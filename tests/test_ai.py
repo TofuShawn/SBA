@@ -311,8 +311,8 @@ def test_cvc_termination():
         game = NormalGame() if gt == 'normal' else UltimateGame()
         guard = 0
         while not game.is_over() and guard < 500:
-            ai = ax if game.current == X else ao
-            apply_move(game, get_ai_move(game, ai, 300))
+            engine = ax if game.current == X else ao
+            apply_move(game, get_ai_move(game, engine, 300))
             guard += 1
         assert game.is_over() and guard <= 500
 
