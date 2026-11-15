@@ -118,7 +118,7 @@ jobs:
           fi
           sha256sum "$ZIP" > "$ZIP".sha256
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: SBA-windows-x64
           path: dist/*
