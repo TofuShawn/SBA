@@ -6,15 +6,13 @@ Owns the DLL handles, state serialization, the search-switch
 snapshot and the C tree reuse cache. Engines call into this; the
 deny-stub tests patch here."""
 
-import math
-import os
 import random
 import sys
 import threading
 
 from game import (BitUltimateGame, EMPTY, LINES, NormalGame, O, X,
-                  apply_move, micro_win_line)
-from config import ROOT, cfg_engine, log
+                  apply_move)
+from config import ROOT, cfg_engine
 
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)   # the native/ package lives at the repo root

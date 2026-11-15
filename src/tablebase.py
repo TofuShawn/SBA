@@ -9,7 +9,8 @@ import os
 import random
 
 from game import EMPTY, LINES, NormalGame, O, X
-from config import ROOT, _writable_path, log
+from config import ROOT, _writable_path
+from mcts import mcts_move
 
 
 _TABLEBASE = None

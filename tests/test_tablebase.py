@@ -11,7 +11,6 @@ import random
 
 import pytest
 
-import ai
 import tablebase
 from ai import (_TABLEBASE_PATH, _board_key, _build_tablebase_dfs,
                 _read_tablebase_file, build_tablebase, get_ai_move,

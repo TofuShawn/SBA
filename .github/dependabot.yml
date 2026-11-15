@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # action version bumps (checkout / setup-python / upload-artifact)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # runtime + dev manifests (requirements*.txt): PySide6, textual, rich,
+  # pytest, ruff. torch is not listed in them (CI installs the CPU wheel
+  # from the PyTorch index) so dependabot cannot drag the CUDA bundle in.
+  # The Rust crate has zero dependencies — nothing for cargo to watch.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

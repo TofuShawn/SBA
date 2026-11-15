@@ -22,7 +22,7 @@ import time
 
 try:
     from PySide6.QtCore import (QEasingCurve, QPropertyAnimation, QPointF, QRectF,
-                                QSettings, QSize, Qt, QThread, QTimer,
+                                QSettings, Qt, QThread, QTimer,
                                 QVariantAnimation, QAbstractAnimation, Signal)
     from PySide6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QFontMetrics,
                                QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap,
@@ -32,8 +32,8 @@ try:
         QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
         QGraphicsBlurEffect, QGraphicsOpacityEffect, QGraphicsPixmapItem,
         QGraphicsScene, QListWidget, QListWidgetItem, QMainWindow, QProgressBar,
-        QPushButton, QScrollArea, QSizePolicy, QSlider, QSpinBox,
-        QStackedWidget, QStyle, QVBoxLayout, QWidget,
+        QPushButton, QScrollArea, QSlider, QSpinBox,
+        QStackedWidget, QVBoxLayout, QWidget,
     )
 except ImportError:
     print('PySide6 is not installed for this Python interpreter.')
@@ -45,8 +45,7 @@ from game import (
     NormalGame, UltimateGame, apply_move, micro_win_line,
 )
 from ai import (get_ai_move, analyze_position, position_win_rates, move_text,
-                az_policy_priors, cfg_engine, cfg_session, save_engine_config,
-                _CFG_DEFAULTS as AI_DEFAULTS)
+                az_policy_priors, cfg_engine, save_engine_config)
 from SBA import (
     AI_OPTIONS, REASON_TEXT, current_side_type, is_ai_turn, log,
     new_session, side_label, side_types, t,
@@ -2146,7 +2145,6 @@ class GamePage(EndfieldPage):
             return
         rewound = self.step_idx < len(self.session.get('moves', []))
         ai_turn = not self.game.is_over() and is_ai_turn(self.session)
-        paused = self.session.get('cvc_paused', False)
         self.revert_btn.setEnabled(self.step_idx > 0)
         self.pause_btn.setEnabled(True)
         self._update_pause_icon()

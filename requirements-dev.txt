@@ -1,0 +1,4 @@
+# Dev-only tooling (the CI lint step); runtime deps live in requirements.txt.
+# torch is deliberately NOT here — CI installs the CPU wheel from the
+# PyTorch index, and Dependabot must not drag the CUDA bundle into that.
+ruff==0.17.5

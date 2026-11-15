@@ -9,11 +9,9 @@ the research reference."""
 import math
 import random
 
-from game import (EMPTY, NormalGame, O, UltimateGame, X, apply_move,
-                  apply_clone_result)
-from config import cfg_engine, log
+from game import (EMPTY, NormalGame, O, X, apply_move)
+from config import cfg_engine
 from cbridge import (_c_search_opts, _ce, _py_rollout_state, _rollout_move,
-                     _tt_key, move_text,
                      _tt_key, move_text)
 
 

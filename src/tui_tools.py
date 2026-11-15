@@ -14,7 +14,6 @@ the Pilot smoke needs the app to leave after the work lands.
 """
 
 import os
-import sys
 import time
 import traceback
 
@@ -452,7 +451,6 @@ def run_bench(args):
 def run_train(args):
     """--train-tui handler: the same flags as --train-az."""
     import SBA
-    import alphazero
     app = TrainTUI(
         games=int(SBA._flag_value('--games', 300, args)),
         sims=int(SBA._flag_value('--sims', 80, args)),

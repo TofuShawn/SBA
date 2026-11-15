@@ -43,6 +43,7 @@ def test_trace_has_top_candidates_and_pick():
         g = _out_of_book_position()
         trace = {}
         move = get_ai_move(g, 'MCTS', 200, 3, trace=trace)
+        assert move in g.legal_moves()
         assert trace['engine'] == 'MCTS'
         assert trace['budget'] == 200
         assert trace['picked_text']  # engine-layer text for the chosen move

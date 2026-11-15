@@ -40,6 +40,18 @@ jobs:
           pip install numpy
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
+      # lenient lint (pyflakes class, see ruff.toml) — seconds, fails fast
+      - name: Lint (ruff)
+        run: |
+          pip install -r requirements-dev.txt
+          ruff check .
+
+      # advisory until the first green run (the crate has never been
+      # compiled in this environment) — then flip continue-on-error off
+      - name: Clippy (advisory)
+        continue-on-error: true
+        run: cargo clippy --release --manifest-path native/sba-game/Cargo.toml -- -D warnings
+
       # PySide6 (the offscreen BoardWidget test) needs an EGL/GL stack on
       # the ubuntu runner; without it the import raises and collection fails
       - name: Install OpenGL/EGL (Linux)

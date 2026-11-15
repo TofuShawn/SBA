@@ -4,7 +4,6 @@ import math
 import random
 import threading
 
-import pytest
 
 import ai
 import mcts
@@ -320,15 +319,15 @@ def test_cvc_termination():
 
 def test_pvc_termination():
     for gt in ('normal', 'ultimate'):
-        for ai in ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
-                   'MCTS+RAVE', 'MCTS+GRAVE', 'Solver'):
+        for engine in ('Random', 'Basic', 'Minimax', 'Minimax Pro', 'MCTS',
+                       'MCTS+RAVE', 'MCTS+GRAVE', 'Solver'):
             game = NormalGame() if gt == 'normal' else UltimateGame()
             guard = 0
             while not game.is_over() and guard < 500:
                 if game.current == X:
                     apply_move(game, random.choice(game.legal_moves()))
                 else:
-                    apply_move(game, get_ai_move(game, ai, 300))
+                    apply_move(game, get_ai_move(game, engine, 300))
                 guard += 1
             assert game.is_over() and guard <= 500
 

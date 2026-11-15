@@ -1267,9 +1267,9 @@ class GameScreen(Screen):
             f'{t("depth", "深度")} {s.get("minimax_depth", 4)}')
         x_type, o_type = side_types(s)
         self.query_one('#info-x', Static).update(
-            Text(f'✕ ', style=f'bold {X_COLOR}') + side_label(x_type))
+            Text('✕ ', style=f'bold {X_COLOR}') + side_label(x_type))
         self.query_one('#info-o', Static).update(
-            Text(f'○ ', style=f'bold {O_COLOR}') + side_label(o_type))
+            Text('○ ', style=f'bold {O_COLOR}') + side_label(o_type))
 
     def _render_history(self):
         s = self.session
@@ -1291,7 +1291,7 @@ class GameScreen(Screen):
     def _render_help(self):
         s = self.session
         extra = (' · p ' + t('pause/resume', '暫停/繼續')) if s['mode'] == 'cvc' else ''
-        help_text = (f'b ' + t('revert', '悔棋')
+        help_text = ('b ' + t('revert', '悔棋')
                      + extra
                      + ' · 1-9 ' + t('best move', '最佳步')
                      + ' · ←/→[/] ' + t('history', '歷史')
@@ -1316,7 +1316,6 @@ class GameScreen(Screen):
         again.set_class(game is not None and game.is_over(), 'show')
 
     def _show_result(self):
-        s = self.session
         result = self._game().result()
         log.info('Game over: %s', result)
         self._update_controls()

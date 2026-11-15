@@ -9,7 +9,6 @@ import numpy as np
 import torch
 
 import alphazero
-from game import UltimateGame
 
 
 def _one_hot_state(size, idx, plane=0):

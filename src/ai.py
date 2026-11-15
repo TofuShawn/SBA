@@ -19,7 +19,7 @@ import threading
 
 from game import (BitUltimateGame, EMPTY, NormalGame, O, UltimateGame, X,
                   apply_move, apply_clone_result)
-from config import (_CFG_DEFAULTS, ROOT, cfg_engine, cfg_session, log,
+from config import (_CFG_DEFAULTS, ROOT, cfg_engine, cfg_session,
                     save_engine_config, set_engine_config)
 from cbridge import (_C_PREV, _c_mcts_move, _c_rollout_state, _c_search_opts,
                      _ce, _get_c_rollout, _get_c_rollout_pattern,
@@ -42,7 +42,7 @@ from tablebase import (_TABLEBASE, _TABLEBASE_PATH, _TB_BYTE_VALUE,
 from analysis import (_c_ultt_analysis, _fork_count, _rates_from_root,
                       _rates_from_stats, analyze_position,
                       blocks_immediate_win, compute_analysis, eval_ultimate,
-                      move_text, position_win_rate, position_win_rates,
+                      position_win_rate, position_win_rates,
                       reason_for_move)
 
 if ROOT not in sys.path:

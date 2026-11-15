@@ -4,12 +4,12 @@
 """books — static-knowledge engines: the Basic heuristic and the
 Normal/Ultimate opening books."""
 
-from game import (EMPTY, NormalGame, O, UltimateGame, X, apply_clone_result,
+from game import (EMPTY, NormalGame, O, X, apply_clone_result,
                   apply_move)
 import math
 import random
 
-from config import _CFG_DEFAULTS, cfg_engine, cfg_session, log
+from config import _CFG_DEFAULTS, cfg_engine
 
 
 def get_basic_move(game):

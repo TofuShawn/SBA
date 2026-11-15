@@ -8,13 +8,12 @@ import math
 import threading
 import time
 
-from game import (EMPTY, LINES, NormalGame, O, X, UltimateGame,
-                  apply_move)
-from config import cfg_engine, log
+from game import (NormalGame, apply_move)
+from config import cfg_engine
 import random
 
 from analysis import blocks_immediate_win, eval_ultimate
-from cbridge import _ce, _tt_key
+from cbridge import _tt_key
 
 
 def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):
@@ -126,12 +125,6 @@ def _get_killers():
     if killers is None:
         killers = _tls.killers = {}
     return killers
-
-def _tt_key(game):
-    if isinstance(game, NormalGame):
-        return ''.join(c or '.' for c in game.board)
-    return (''.join(c or '.' for row in game.micro for c in row)
-            + '|' + str(game.active_macro) + game.current)
 
 def _move_order_score(game, move):
     player = game.current

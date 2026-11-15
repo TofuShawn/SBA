@@ -5,13 +5,11 @@
 overlays, best-move analysis and the reason classifier (D3/D24)."""
 
 from game import (EMPTY, LINES, NormalGame, O, UltimateGame, X,
-                  apply_clone_result, apply_move, count_threats)
-from config import cfg_engine, log
-import math
+                  apply_move, count_threats)
+from config import cfg_engine
 
-from cbridge import (_C_PREV, _c_search_opts, _ce, BitUltimateGame,
-                     move_text)
-from mcts import _best_mcts_move, mcts_search
+from cbridge import (_C_PREV, _c_search_opts, _ce, BitUltimateGame)
+from mcts import mcts_search
 from tablebase import _board_key, build_micro_tablebase, build_tablebase
 
 
@@ -290,11 +288,3 @@ def position_win_rate(game, mcts_budget):
     """Whole-game win rate (draw counts 0.5) for the side to move, 0..1."""
     x, d, o = position_win_rates(game, mcts_budget)
     return (x + 0.5 * d) if game.current == X else (o + 0.5 * d)
-
-def move_text(move):
-    if isinstance(move, int):
-        r, c = divmod(move, 3)
-        return f'({r + 1},{c + 1})'
-    m, i = move
-    r, c = divmod(i, 3)
-    return f'B{m + 1} ({r + 1},{c + 1})'
