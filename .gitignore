@@ -12,6 +12,9 @@ models/
 
 # Windows launcher (local convenience script)
 start.bat
+start-tui.bat
+start-train-tui.bat
+start-bench-tui.bat
 
 # Temp report fragments (local paste sources, not part of the repository)
 _rep_text.txt
@@ -33,3 +36,20 @@ logs/
 docs/static-build/node_modules/
 native/*.dll
 native/*.o
+
+# Private local notes
+.priv/
+
+
+# Mimosa plugin state
+.mimosa/
+
+# Rust state layer build artifacts (D48) — only the crate sources are tracked
+native/sba-game/target/
+
+# ruff cache (D49 lint gate)
+.ruff_cache/
+
+# report build OUTPUTS (regenerable via docs/static-build) — local only
+docs/share/
+docs/static/

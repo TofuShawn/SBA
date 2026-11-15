@@ -1,0 +1,13 @@
+# Line-ending policy: LF everywhere in the repository, LF in working trees.
+# Windows cmd scripts are the exception — cmd.exe misparses LF-only files.
+* text=auto eol=lf
+*.bat eol=crlf
+*.png binary
+*.ico binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.dll binary
+*.pt binary
+*.bin binary
