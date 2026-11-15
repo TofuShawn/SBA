@@ -12,6 +12,7 @@ import random
 import pytest
 
 import ai
+import tablebase
 from ai import (_TABLEBASE_PATH, _board_key, _build_tablebase_dfs,
                 _read_tablebase_file, build_tablebase, get_ai_move,
                 set_engine_config, solver_move, write_tablebase_file)
@@ -43,8 +44,10 @@ def test_committed_file_matches_a_fresh_solve(dfs_table):
 
 
 def test_loader_falls_back_to_dfs_without_file(dfs_table, monkeypatch, tmp_path):
-    monkeypatch.setattr(ai, '_TABLEBASE', None)
-    monkeypatch.setattr(ai, '_TABLEBASE_PATH', str(tmp_path / 'absent.bin'))
+    # patch the OWNING module (D47 split): ai only re-exports snapshots
+    monkeypatch.setattr(tablebase, '_TABLEBASE', None)
+    monkeypatch.setattr(tablebase, '_TABLEBASE_PATH',
+                        str(tmp_path / 'absent.bin'))
     assert build_tablebase() == dfs_table
 
 
@@ -54,14 +57,14 @@ def test_corrupt_or_truncated_file_is_rejected(dfs_table, monkeypatch, tmp_path)
     bad = tmp_path / 'bad_byte.bin'
     raw[40] = 0x7F                       # neither a value code nor the sentinel
     bad.write_bytes(bytes(raw))
-    monkeypatch.setattr(ai, '_TABLEBASE', None)
-    monkeypatch.setattr(ai, '_TABLEBASE_PATH', str(bad))
+    monkeypatch.setattr(tablebase, '_TABLEBASE', None)
+    monkeypatch.setattr(tablebase, '_TABLEBASE_PATH', str(bad))
     assert _read_tablebase_file() is None
     assert build_tablebase() == dfs_table
 
     trunc = tmp_path / 'truncated.bin'
     trunc.write_bytes(bytes(raw[:100]))
-    monkeypatch.setattr(ai, '_TABLEBASE_PATH', str(trunc))
+    monkeypatch.setattr(tablebase, '_TABLEBASE_PATH', str(trunc))
     assert _read_tablebase_file() is None
 
 

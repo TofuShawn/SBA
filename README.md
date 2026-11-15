@@ -168,7 +168,8 @@ All engine switches and parameters live in **`config.toml`**（repo root）: MCT
 rollout heuristic, tree reuse, dynamic UCT, opening book, micro tablebase,
 LMR/killer/aspiration, symmetry, object pool, bitboard, multithreaded MCTS,
 UCT/RAVE constants, and session defaults（`mcts_budget`, `minimax_depth`）.
-Missing keys fall back to code defaults; point `$SBA_CONFIG` at another file
+Missing keys fall back to code defaults; `$SBA_CONFIG` points the
+`python sba.py` entry at another file
 to override / 所有引擎開關與參數集中在 `config.toml`（repo 根目錄）：啟發式 rollout、
 樹重用、動態 UCT、開局書、micro 殘局表、LMR/killer/aspiration、對稱性、物件池、
 bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mcts_budget`、
@@ -198,11 +199,18 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
                               |
       ENGINE LAYER            v
   +------------------------------------------------------+
-  | src/ai.py  [2]                                       |
-  | all engines + assistant analysis (get_ai_move,       |
-  | analyze_position); one search -> best moves          |
-  | AND (X, draw, O) win rates (D15)                     |
-  | ~1900 lines                                          |
+  | src/ai.py  [2]  facade (D47): get_ai_move dispatch,  |
+  |   the AlphaZero bridge, cache reset; re-exports the  |
+  |   whole engine surface (from ai import ... kept)     |
+  |   engine modules:                                    |
+  |   src/config.py    ROOT, config.toml load/save, guard|
+  |   src/cbridge.py   ctypes boundary to sba_engine.dll |
+  |   src/books.py     Basic heuristic + opening books   |
+  |   src/mcts.py      UCT / RAVE / GRAVE trees (Python) |
+  |   src/minimax.py   alpha-beta + Minimax Pro (TT/LMR) |
+  |   src/tablebase.py persisted Normal solve + Solver   |
+  |   src/analysis.py  assistant analysis + win rates    |
+  | ~2200 lines across 8 modules                         |
   +---------+--------------------------------------------+
             |
             |  lazy import (loads torch only when selected)
@@ -224,8 +232,8 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
   +------------------------------------------------------+
 
   SIDE CAR (no layer — loads in from the side)
-    config.toml -------------- > src/ai.py    every engine switch + session defaults (D11)
-    native/cengine.py + dll -- > src/ai.py    C backends (D25-D30): full MCTS tree,
+    config.toml -------------- > src/config.py  every engine switch + session defaults (D11)
+    native/cengine.py + dll -- > src/cbridge.py C backends (D25-D30, D37): full MCTS tree,
                                               rollouts and the minimax family live in
                                               sba_engine.dll (~37x; built via
                                               native/build.py, auto-fallback to Python)
@@ -238,7 +246,7 @@ Reading-route highlights, condensed from the retired
 `docs/reading-guide.md` / 閱讀要點：
 
 - **[1] `src/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
-- **[2] `src/ai.py`**：按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
+- **[2] `src/ai.py`（門面）**：引擎分居 `mcts.py` / `minimax.py` / `tablebase.py` / `analysis.py` / `books.py`；按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
 - **[3] `src/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
 - **[4] `src/SBA.py`**：總覽地圖，最後讀。
 - **[5] UI**：兩端共用 [1]–[4]；`src/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。

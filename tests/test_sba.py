@@ -4,6 +4,7 @@ import logging
 import tomllib
 
 import ai
+import config
 from SBA import new_session, side_types
 from ai import cfg_session, set_engine_config, save_engine_config
 
@@ -54,7 +55,7 @@ def test_save_only_rewrites_explicit_keys(tmp_path, monkeypatch):
     table or [session] values it was never given — and the in-memory CONFIG
     must agree with the file immediately (no split until restart)."""
     path = _config_file(tmp_path, _HAND_MANAGED)
-    monkeypatch.setenv('SBA_CONFIG', str(path))
+    monkeypatch.setattr(config, '_CONFIG_PATH', str(path))
     save_engine_config({'engine': {'symmetry': True, 'workers': 4}})
     disk = tomllib.loads(path.read_text(encoding='utf-8'))
     assert disk['engine']['uct_c'] == 2.0
@@ -70,7 +71,7 @@ def test_save_only_rewrites_explicit_keys(tmp_path, monkeypatch):
 
 def test_save_rewrites_floats(tmp_path, monkeypatch):
     path = _config_file(tmp_path, _HAND_MANAGED)
-    monkeypatch.setenv('SBA_CONFIG', str(path))
+    monkeypatch.setattr(config, '_CONFIG_PATH', str(path))
     save_engine_config({'engine': {'uct_c': 2.5}})
     disk = tomllib.loads(path.read_text(encoding='utf-8'))
     assert disk['engine']['uct_c'] == 2.5
@@ -79,7 +80,7 @@ def test_save_rewrites_floats(tmp_path, monkeypatch):
 
 def test_restore_defaults_keeps_hand_managed_tables(tmp_path, monkeypatch):
     path = _config_file(tmp_path, _HAND_MANAGED)
-    monkeypatch.setenv('SBA_CONFIG', str(path))
+    monkeypatch.setattr(config, '_CONFIG_PATH', str(path))
     save_engine_config()  # "Restore Defaults"
     disk = tomllib.loads(path.read_text(encoding='utf-8'))
     assert disk['engine']['opening_book_ultimate'] == {'4,4': [[4, 0], [4, 2]]}
@@ -90,7 +91,7 @@ def test_restore_defaults_keeps_hand_managed_tables(tmp_path, monkeypatch):
 def test_save_refuses_to_overwrite_broken_toml(tmp_path, monkeypatch, caplog):
     broken = 'BROKEN = = =\n'
     path = _config_file(tmp_path, broken)
-    monkeypatch.setenv('SBA_CONFIG', str(path))
+    monkeypatch.setattr(config, '_CONFIG_PATH', str(path))
     with caplog.at_level(logging.WARNING):
         save_engine_config({'engine': {'symmetry': False}})
     assert path.read_text(encoding='utf-8') == broken

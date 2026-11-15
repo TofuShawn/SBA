@@ -7,6 +7,8 @@ import threading
 import pytest
 
 import ai
+import mcts
+import analysis
 from ai import (
     get_basic_move, minimax_move_normal, mcts_move, solver_move,
     minimax_pro_move, mcts_rave_move, mcts_grave_move, build_tablebase,
@@ -200,7 +202,7 @@ def test_symmetry():
     g = UltimateGame()
     apply_move(g, (4, 4))
     apply_move(g, (4, 2))
-    keys = {ai._ultt_sym_key(g, t) for t in range(8)}
+    keys = {mcts._ultt_sym_key(g, t) for t in range(8)}
     assert len(keys) > 1
 
 
@@ -364,7 +366,7 @@ def test_dynamic_uct_uses_this_search_visits(monkeypatch):
         calls.append((rv, it))
         return c
 
-    monkeypatch.setattr(ai, '_uct_scale', spy)
+    monkeypatch.setattr(mcts, '_uct_scale', spy)
     g = NormalGame()
     m1 = get_ai_move(g, 'MCTS', 40)
     apply_move(g, m1)
@@ -431,7 +433,7 @@ def test_analyze_ultimate_bitboard_path(monkeypatch):
             built.append(True)
             return real_from(BitUltimateGame, game)
 
-    monkeypatch.setattr(ai, 'BitUltimateGame', _SpyBit)
+    monkeypatch.setattr(analysis, 'BitUltimateGame', _SpyBit)
     gu = UltimateGame()
     items, rates = analyze_position(gu, 200)
     assert built, 'bitboard=True never constructed a BitUltimateGame'
