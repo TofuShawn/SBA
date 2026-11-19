@@ -18,13 +18,14 @@ early_stop = false          # stop a dominant search early (A5) / 提早終止
 
 # --- opening book & endgame tablebase / 開局書與殘局庫 ---
 opening_book = true         # curated first plies (Normal 2 plies, Ultimate 1 ply) / 開局書
-micro_tablebase = true      # exact 3x3 micro values inside eval_ultimate / micro 殘局表
+micro_tablebase = true      # exact 3x3 micro values in eval_ultimate (Python) and eval_ultt (C Minimax) / micro 殘局表：Python 與 C 的靜態評估皆使用
 
 # --- search refinements / 剪枝細化 ---
 use_lmr = true              # late-move reductions in Minimax Pro (B3) / LMR
 use_killers = true          # killer-move ordering in Minimax Pro (B3) / Killer Move
 use_aspiration = true       # aspiration window at the root (B3) / Aspiration Window
 use_eval_ordering = true    # eval-based root move ordering in Minimax Pro (root only) / Minimax Pro 根節點用靜態評估排序
+pro_time_ms = 8000          # wall-clock cap per Minimax Pro move, ms (D51; C backend) / Minimax Pro 每步時限（毫秒）
 
 # --- performance / 效能 ---
 symmetry = true            # D4 root dedup on the canonical resulting position (C1) — both the C tree and the Python MCTS root (D37) / 對稱性消除：C 樹與 Python MCTS 根節點皆生效（D37），key 為落子後盤面的正則形

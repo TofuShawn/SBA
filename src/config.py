@@ -10,6 +10,7 @@ reset to keep the graph acyclic)."""
 import contextlib
 import logging
 import os
+import re
 import tempfile
 import tomllib
 
@@ -26,7 +27,7 @@ _CONFIG_PATH = os.path.join(ROOT, "config.toml")
 _ALLOWED_ROOTS = (os.path.realpath(ROOT), os.path.realpath(tempfile.gettempdir()))
 
 
-def _writable_path(path):
+def writable_path(path):
     """Normalize a path and refuse anything the tool may not create files
     under: repo or system temp only, no '..' segments (path-traversal
     guard for the write helpers; reads use the same rule)."""
@@ -42,6 +43,11 @@ def _writable_path(path):
     return rp
 
 
+# kept so older call sites / external scripts do not break; new code uses
+# the public name above
+_writable_path = writable_path
+
+
 # the $SBA_CONFIG override: applied HERE at import time, not in the entry
 # shims. By the time a shim's `from SBA import main` returns, CONFIG below
 # has already been loaded from _CONFIG_PATH — an entry-time mutation would
@@ -50,7 +56,7 @@ def _writable_path(path):
 # that every entry point hits identically.
 if os.environ.get("SBA_CONFIG"):
     try:
-        _CONFIG_PATH = _writable_path(os.environ["SBA_CONFIG"])
+        _CONFIG_PATH = writable_path(os.environ["SBA_CONFIG"])
     except ValueError as exc:
         # Say what the allowed locations are: the override file is BOTH
         # read and written, so it is subject to the same guard as saves.
@@ -86,6 +92,7 @@ _CFG_DEFAULTS = {
         "use_killers": True,
         "use_aspiration": True,
         "use_eval_ordering": True,
+        "pro_time_ms": 8000,  # Minimax Pro per-move wall-clock cap (D51)
         "uct_c": 1.4,
         "rave_k": 150,
         "tt_max": 300000,
@@ -96,17 +103,32 @@ _CFG_DEFAULTS = {
     "session": {"mcts_budget": 800, "minimax_depth": 4},
 }
 
+# "significantly visited" threshold, shared by every engine and by the
+# assistant panel: a child needs at least
+# max(MIN_VISIT_FLOOR, budget // MIN_VISIT_DIVISOR) visits before it may be
+# called the best move. One definition, so the recommendation shown in the
+# UI and the move the engine plays cannot disagree.
+MIN_VISIT_FLOOR = 5
+MIN_VISIT_DIVISOR = 100
+
+# early-stop heuristic (mcts.py): after EARLY_STOP_AT of the budget, stop
+# when the leader holds EARLY_STOP_SHARE of the visits and wins
+# EARLY_STOP_WR of them.
+EARLY_STOP_AT = 0.7
+EARLY_STOP_SHARE = 0.6
+EARLY_STOP_WR = 0.55
+
 
 def _load_config():
     """Load config.toml as a dict; missing/broken file -> {}."""
-    path = _writable_path(_CONFIG_PATH)  # 规范化 + 禁止 .. + 限 repo/系统暂存目录
+    path = writable_path(_CONFIG_PATH)  # 规范化 + 禁止 .. + 限 repo/系统暂存目录
     try:
         with open(path, "rb") as fh:
             return tomllib.load(fh)
     except Exception as exc:
         # a broken TOML must not silently masquerade as "all defaults" — the
         # next save_engine_config would overwrite the user's file with them
-        log.warning("config.toml failed to load (%s); using code defaults", exc)
+        log.warning("%s failed to load (%s); using code defaults", path, exc)
         return {}
 
 
@@ -124,11 +146,6 @@ def set_engine_config(overrides=None):
         base["engine"].update(overrides.get("engine", {}))
         base["session"].update(overrides.get("session", {}))
     CONFIG = base
-    # allow tests to flip c_rollout and re-resolve the DLL state
-    # (late import: cbridge depends on this module)
-    from cbridge import _reset_dll_state
-
-    _reset_dll_state()
 
 
 def cfg_engine(name, default=None):
@@ -139,20 +156,158 @@ def cfg_session(name, default=None):
     return CONFIG.get("session", {}).get(name, _CFG_DEFAULTS["session"].get(name, default))
 
 
+# ============================================================
+# TOML persistence
+#
+# A regex is not a TOML parser, so the rewrite is deliberately narrow:
+#   * only [engine] / [session] scalar keys are touched;
+#   * the key line must sit INSIDE its own section (the text is split on
+#     section headers first, so a same-named key in another section is
+#     never rewritten);
+#   * the value pattern accepts every legal spelling -- sign, digit
+#     separators, hex/oct/bin -- so a hand-written `300_000` is matched
+#     instead of being mistaken for a missing key (that mistake used to
+#     append a duplicate key and destroy the file);
+#   * the result is re-parsed and compared against the overrides before
+#     anything is written; a mismatch aborts the save.
+# ============================================================
+
+_SECTION_RE = re.compile(r"^\[([^\]]+)\]\s*$")
+
+# one legal TOML scalar: bool, int (with separators / radix prefixes) or
+# float (incl. exponent). Used only to consume the value we are replacing.
+_SCALAR_RE = (
+    r"(?:true|false"
+    r"|[+-]?(?:0[xX][0-9A-Fa-f_]+|0[oO][0-7_]+|0[bB][01_]+"
+    r"|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?"
+    r"|\.\d[\d_]*(?:[eE][+-]?\d+)?))"
+)
+
+
+def _toml_literal(value):
+    """Render a scalar the way TOML spells it; None for hand-managed types."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    return None
+
+
+def _split_sections(text):
+    """Split into segments: a preamble (header None) plus one per [section]."""
+    segments = []
+    cur = {"header": None, "lines": []}
+    for line in text.splitlines():
+        match = _SECTION_RE.match(line.strip())
+        if match:
+            segments.append(cur)
+            cur = {"header": match.group(1), "lines": [line]}
+        else:
+            cur["lines"].append(line)
+    segments.append(cur)
+    return segments
+
+
+def _rewrite_text(text, overrides):
+    """Rewrite only the given keys, each inside its own [section].
+
+    Returns the new text. Keys with no line to rewrite are appended at the
+    end of their own section (creating the section if the file lacks it).
+    """
+    wanted = {}
+    for section in ("engine", "session"):
+        for key, value in overrides.get(section, {}).items():
+            literal = _toml_literal(value)
+            if literal is not None:
+                wanted.setdefault(section, {})[key] = literal
+
+    segments = _split_sections(text)
+    seen_sections = {seg["header"] for seg in segments if seg["header"]}
+    for seg in segments:
+        section = seg["header"]
+        if section not in wanted:
+            continue
+        pending = dict(wanted[section])
+        body = seg["lines"][1:]  # lines[0] is the [section] header
+        for idx, line in enumerate(body):
+            for key, literal in list(pending.items()):
+                pattern = re.compile(
+                    r"^(\s*" + re.escape(key) + r"\s*=\s*)(" + _SCALAR_RE + r")(\s*(?:#.*)?)$"
+                )
+                match = pattern.match(line)
+                if match:
+                    body[idx] = match.group(1) + literal + match.group(3)
+                    del pending[key]
+                    break
+        # anything not found belongs at the end of this section, not at the
+        # end of the file (which may be a different section entirely)
+        body.extend(f"{key} = {literal}" for key, literal in pending.items())
+        seg["lines"] = seg["lines"][:1] + body
+
+    for section in ("engine", "session"):
+        if section in wanted and section not in seen_sections:
+            segments.append(
+                {
+                    "header": section,
+                    "lines": [f"[{section}]"] + [f"{k} = {v}" for k, v in wanted[section].items()],
+                }
+            )
+
+    return "\n".join(line for seg in segments for line in seg["lines"]).rstrip("\n") + "\n"
+
+
+def _verify_text(text, overrides):
+    """Re-parse the rewritten text and check every override landed.
+
+    Returns None when the text is valid and every scalar matches, else a
+    human-readable reason. This is what makes the regex safe: a wrong
+    rewrite can never reach the disk.
+    """
+    try:
+        parsed = tomllib.loads(text)
+    except Exception as exc:
+        return "rewritten text is not valid TOML: %s" % exc
+    for section in ("engine", "session"):
+        for key, value in overrides.get(section, {}).items():
+            if _toml_literal(value) is None:
+                continue
+            got = parsed.get(section, {}).get(key, "<missing>")
+            if type(got) is not type(value) or got != value:
+                return "%s.%s came out as %r, expected %r" % (section, key, got, value)
+    return None
+
+
+def _atomic_write(path, text):
+    """Write via a sibling temp file + os.replace: a crash mid-write must
+    leave the previous TOML intact."""
+    fd, tmp = tempfile.mkstemp(
+        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+
+
 def save_engine_config(overrides=None):
     """Apply overrides at runtime AND persist them to config.toml (D28).
 
     The file is the source of truth: only the keys explicitly handed in are
-    rewritten, so hand-managed values (floats, the opening-book table,
-    [session] tweaks) survive a Settings save. A broken TOML is never
-    overwritten -- it is reported and left for the user to repair. Comment
-    lines survive: each key line is rewritten in place via regex.
+    rewritten, so hand-managed values (the opening-book table, [session]
+    tweaks) survive a Settings save. Comment lines survive too.
+
+    A broken TOML is never overwritten, and a rewrite that fails to verify
+    is never written at all -- the previous file stays untouched and the
+    reason is logged.
 
     Reads config._CONFIG_PATH at call time (tests repoint it at tmp_path).
     """
-    import re
-
-    path = _writable_path(_CONFIG_PATH)  # 规范化 + 禁止 .. + 限 repo/系统暂存目录
+    path = writable_path(_CONFIG_PATH)
     try:
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
@@ -191,55 +346,10 @@ def save_engine_config(overrides=None):
         },
     }
 
-    appended = []
-    for section in ("engine", "session"):
-        for key, val in overrides.get(section, {}).items():
-            if isinstance(val, bool):
-                literal = "true" if val else "false"
-                value_re = r"(?:true|false)"
-            elif isinstance(val, int):
-                literal, value_re = str(val), r"-?\d+"
-            elif isinstance(val, float):
-                literal = repr(val)
-                value_re = r"-?[0-9.]+(?:[eE][+-]?\d+)?"
-            else:
-                continue  # tables / strings are hand-managed, never rewritten
-            pattern = rf"(?m)^(\s*{re.escape(key)}\s*=\s*){value_re}(\s*(?:#.*)?)$"
-            text, n = re.subn(pattern, lambda m, lit=literal: m.group(1) + lit + m.group(2), text)
-            if not n:
-                appended.append((section, key, literal))
-
-    if appended:
-        out, seen = [], set()
-        for line in text.rstrip("\n").split("\n"):
-            out.append(line)
-            m = re.match(r"^\[([^\]]+)\]", line.strip())
-            if m:
-                sec = m.group(1)
-                seen.add(sec)
-                out.extend(f"{a[1]} = {a[2]}" for a in appended if a[0] == sec)
-                appended = [a for a in appended if a[0] != sec]
-        for sec in ("engine", "session"):
-            rest = [a for a in appended if a[0] == sec]
-            if rest:
-                if sec not in seen:
-                    out.append(f"[{sec}]")
-                out.extend(f"{a[1]} = {a[2]}" for a in rest)
-        text = "\n".join(out) + "\n"
-
-    # bounded write: _writable_path has normalized the target and limited it
-    # to the repo or the system temp dir. Write to a sibling temp file and
-    # os.replace() it — a crash mid-write must leave the previous TOML
-    # intact. A partial file is unrecoverable here: _load_config only warns
-    # on broken TOML, and save_engine_config refuses to overwrite one.
-    fd, tmp = tempfile.mkstemp(
-        prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        os.replace(tmp, path)
-    finally:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
+    new_text = _rewrite_text(text, overrides)
+    problem = _verify_text(new_text, overrides)
+    if problem:
+        log.error("save_engine_config: refusing to write %s (%s)", path, problem)
+        return
+    _atomic_write(path, new_text)
     log.info("save_engine_config: written to %s", path)
