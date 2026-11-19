@@ -23,10 +23,13 @@
 //! fixed 0..9 loop, and no function unwraps an Option/Result.
 
 // This crate IS the FFI boundary: every export is called from ctypes with
-// caller-owned buffers, so pointer validity is the caller's contract and
-// the docs above. clippy 1.99 wants `unsafe fn` on every extern that
-// dereferences one — we keep the exports safe-signatured and state the
-// trust boundary here once, instead of 19 per-function attributes.
+// caller-owned buffers, so BUFFER validity is the caller's contract (the
+// docs above). HANDLE liveness, by contrast, is enforced in-crate via the
+// LIVE registry below — a freed or foreign handle comes back as ERR_CLOSED
+// instead of reading freed memory. clippy 1.99 wants `unsafe fn` on every
+// extern that dereferences a pointer — we keep the exports
+// safe-signatured and state the trust boundary here once, instead of 19
+// per-function attributes.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 pub const ABI: i32 = 1;
@@ -44,6 +47,41 @@ pub const ERR_RANGE: i32 = -2;
 pub const ERR_ROUTED: i32 = -3;
 pub const ERR_MACRO_CLOSED: i32 = -4;
 pub const ERR_OCCUPIED: i32 = -5;
+// not part of the make_move order: the handle was NULL or is no longer in
+// the live registry (freed, or never handed out) — a caller bug that must
+// not masquerade as a game error like "cell out of range"
+pub const ERR_CLOSED: i32 = -6;
+
+use std::collections::HashSet;
+use std::sync::Mutex;
+
+/// Addresses this crate has handed out and not yet received back in
+/// `sba_game_free`. A dangling (freed) pointer is indistinguishable from a
+/// live one by value alone, so every export checks membership before
+/// dereferencing: use-after-free becomes a clean `ERR_CLOSED` instead of
+/// silent heap corruption, and a double free becomes a no-op.
+/// (Mutex<Option<..>> because HashSet::new is not const.)
+static LIVE: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
+
+fn with_live<R>(f: impl FnOnce(&mut HashSet<usize>) -> R) -> R {
+    // a poisoned guard means a previous panic held the lock; the set itself
+    // is intact, so recover instead of panicking across the FFI boundary
+    let mut slot = LIVE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let set = slot.get_or_insert_with(HashSet::new);
+    f(set)
+}
+
+fn handle_live(g: *const SbaGame) -> bool {
+    with_live(|set| set.contains(&(g as usize)))
+}
+
+fn handle_track(g: *const SbaGame) {
+    with_live(|set| set.insert(g as usize));
+}
+
+fn handle_untrack(g: *const SbaGame) -> bool {
+    with_live(|set| set.remove(&(g as usize)))
+}
 
 const FULL9: u16 = 0x1FF; // a full micro board (nine cells)
 
@@ -159,7 +197,9 @@ pub extern "C" fn sba_game_abi() -> i32 {
 
 #[no_mangle]
 pub extern "C" fn sba_game_new() -> *mut SbaGame {
-    Box::into_raw(Box::new(SbaGame::fresh()))
+    let g = Box::into_raw(Box::new(SbaGame::fresh()));
+    handle_track(g);
+    g
 }
 
 /// Adopt a caller-built state (rustbridge.RustUltimateGame.from_game).
@@ -169,28 +209,34 @@ pub extern "C" fn sba_game_load(st: *const SbaState) -> *mut SbaGame {
         return std::ptr::null_mut();
     }
     let st = unsafe { &*st };
-    Box::into_raw(Box::new(SbaGame {
+    let g = Box::into_raw(Box::new(SbaGame {
         px: st.px,
         po: st.po,
         mx: st.mx,
         mo: st.mo,
         current: st.current,
         active: st.active,
-    }))
+    }));
+    handle_track(g);
+    g
 }
 
 #[no_mangle]
 pub extern "C" fn sba_game_clone(g: *const SbaGame) -> *mut SbaGame {
-    if g.is_null() {
+    if !handle_live(g) {
         return std::ptr::null_mut();
     }
-    Box::into_raw(Box::new(unsafe { *g }))
+    let clone = Box::into_raw(Box::new(unsafe { *g }));
+    handle_track(clone);
+    clone
 }
 
-/// Free a handle. Only our own handles are ever passed here.
+/// Free a handle. A second free of the same address is a no-op (the
+/// registry already dropped it), which turns the classic double-free into
+/// nothing at all.
 #[no_mangle]
 pub extern "C" fn sba_game_free(g: *mut SbaGame) {
-    if !g.is_null() {
+    if handle_untrack(g) {
         unsafe { drop(Box::from_raw(g)) };
     }
 }
@@ -199,8 +245,8 @@ pub extern "C" fn sba_game_free(g: *mut SbaGame) {
 /// (game over -> range -> routing -> occupied), then apply.
 #[no_mangle]
 pub extern "C" fn sba_game_apply(g: *mut SbaGame, m: i32, i: i32) -> i32 {
-    if g.is_null() {
-        return ERR_RANGE;
+    if !handle_live(g) {
+        return ERR_CLOSED;
     }
     let g = unsafe { &mut *g };
     // _assert_playable: result() is not None (a full-drawn board included)
@@ -240,15 +286,17 @@ pub extern "C" fn sba_game_apply(g: *mut SbaGame, m: i32, i: i32) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn sba_game_result(g: *const SbaGame) -> i32 {
-    if g.is_null() {
-        return ONGOING;
+    if !handle_live(g) {
+        return ERR_CLOSED;
     }
     raw_result(unsafe { &*g })
 }
 
 #[no_mangle]
 pub extern "C" fn sba_game_macro_open(g: *const SbaGame, m: i32) -> i32 {
-    if g.is_null() || !(0..9).contains(&m) {
+    // a dead handle reports "not open" (0) — the boolean contract has no
+    // error channel, and no caller acts on a dead handle's answer anyway
+    if !handle_live(g) || !(0..9).contains(&m) {
         return 0;
     }
     unsafe { &*g }.macro_open(m as usize) as i32
@@ -259,7 +307,7 @@ pub extern "C" fn sba_game_macro_open(g: *const SbaGame, m: i32) -> i32 {
 /// can detect truncation (rustbridge always passes 81 — the maximum).
 #[no_mangle]
 pub extern "C" fn sba_game_legal(g: *const SbaGame, out: *mut i32, cap: i32) -> i32 {
-    if g.is_null() || (out.is_null() && cap > 0) || cap < 0 {
+    if !handle_live(g) || (out.is_null() && cap > 0) || cap < 0 {
         return -1;
     }
     let g = unsafe { &*g };
@@ -293,7 +341,7 @@ pub extern "C" fn sba_game_legal(g: *const SbaGame, out: *mut i32, cap: i32) -> 
 /// Dump the full state (encode-from-bits; result precomputed).
 #[no_mangle]
 pub extern "C" fn sba_game_state(g: *const SbaGame, out: *mut SbaState) {
-    if g.is_null() || out.is_null() {
+    if !handle_live(g) || out.is_null() {
         return;
     }
     let g = unsafe { &*g };
@@ -319,7 +367,7 @@ pub extern "C" fn sba_game_serialize(
     out_player: *mut i32,
     out_active: *mut i32,
 ) -> i32 {
-    if g.is_null()
+    if !handle_live(g)
         || out_cells.is_null()
         || out_macro.is_null()
         || out_player.is_null()
@@ -364,8 +412,8 @@ pub extern "C" fn sba_game_serialize(
 /// (0 everywhere on free choice). One call replaces the numpy interleave.
 #[no_mangle]
 pub extern "C" fn sba_game_planes(g: *const SbaGame, out: *mut f32) -> i32 {
-    if g.is_null() || out.is_null() {
-        return -1;
+    if !handle_live(g) || out.is_null() {
+        return ERR_CLOSED;
     }
     let g = unsafe { &*g };
     let planes = unsafe { std::slice::from_raw_parts_mut(out, 324) };
@@ -408,13 +456,16 @@ pub extern "C" fn sba_game_clone_apply(
     i: i32,
     out_active: *mut i32,
 ) -> *mut SbaGame {
-    if src.is_null() || out_active.is_null() {
+    if !handle_live(src) || out_active.is_null() {
         return std::ptr::null_mut();
     }
     let child = Box::into_raw(Box::new(unsafe { *src }));
+    // the child must be tracked BEFORE apply — the registry check inside
+    // sba_game_apply would otherwise reject our own fresh handle
+    handle_track(child);
     let rc = sba_game_apply(child, m, i);
     if rc != OK {
-        unsafe { drop(Box::from_raw(child)) };
+        sba_game_free(child); // untrack + drop in one step
         return std::ptr::null_mut();
     }
     unsafe {

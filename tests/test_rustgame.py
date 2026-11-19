@@ -221,3 +221,21 @@ def test_clone_apply_matches_clone_plus_make_move():
     ru.make_move(4, 4)
     with pytest.raises(ValueError, match="illegal move"):
         ru.clone_apply(4, 4)  # occupied → null handle
+
+
+def test_freed_handles_are_caught_not_reused():
+    """Freed and foreign handles must come back as ERR_CLOSED — a caller
+    bug — and never masquerade as a game error like 'cell out of range'.
+    Before the live-handle registry, a freed handle still read as a valid
+    (empty) game, so apply() happily 'succeeded' on freed memory."""
+    lib = rustbridge._load()
+    handle = lib.sba_game_new()
+    lib.sba_game_free(handle)
+    assert lib.sba_game_apply(handle, 4, 4) == rustbridge._ERR_CLOSED
+    # a double free is a no-op, and the handle stays dead afterwards
+    lib.sba_game_free(handle)
+    assert lib.sba_game_apply(handle, 4, 4) == rustbridge._ERR_CLOSED
+    # freeing a handle that never existed must also be a no-op
+    lib.sba_game_free(handle + 8)
+    # and null comes back the same way
+    assert lib.sba_game_apply(None, 4, 4) == rustbridge._ERR_CLOSED

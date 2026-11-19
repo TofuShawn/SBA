@@ -17,6 +17,7 @@ import atexit
 import contextlib
 import ctypes
 import os
+import threading
 
 from game import EMPTY, LINES, O, X
 
@@ -27,6 +28,8 @@ _ERR_RANGE = -2
 _ERR_ROUTED = -3
 _ERR_MACRO_CLOSED = -4
 _ERR_OCCUPIED = -5
+# not part of the make_move order: the handle was already freed (caller bug)
+_ERR_CLOSED = -6
 
 # sba_game_apply error code -> the same text UltimateGame would raise
 _ERR_TEXT = {
@@ -35,6 +38,7 @@ _ERR_TEXT = {
     _ERR_ROUTED: "move must be in the routed macro",
     _ERR_MACRO_CLOSED: "macro is not open",
     _ERR_OCCUPIED: "cell is occupied",
+    _ERR_CLOSED: "handle is not live (already freed?)",
 }
 
 _RES_CODES = {0: None, 1: X, 2: O, 3: "D"}
@@ -51,22 +55,32 @@ _TRIED = False
 # deallocation. Handles accumulate here and release in one batch.
 _DEAD_HANDLES = []
 _FREE_BATCH = 512
+# guards the swap below. Two threads flushing at once used to compute the
+# same `freed` count and then free whatever occupied those slots after the
+# other thread had already truncated the list — a live handle could be
+# freed twice (Rust Box::from_raw on the same pointer = heap corruption).
+_FREE_LOCK = threading.Lock()
 
 
 def _flush_handles():
     """Release queued handles. Registered with atexit so the last batch
     (fewer than _FREE_BATCH) is freed on a clean interpreter exit instead
     of waiting for the OS to reclaim it.
+
+    The queue is swapped out under a lock and freed outside it: each thread
+    gets its own list, so a concurrent append can never be mistaken for a
+    handle that was already released.
     """
+    global _DEAD_HANDLES
     lib = _LIB
     if lib is None:
         return
-    freed = len(_DEAD_HANDLES)
-    for i in range(freed):
+    with _FREE_LOCK:
+        handles, _DEAD_HANDLES = _DEAD_HANDLES, []
+    for handle in handles:
         # the DLL may already be gone at teardown
         with contextlib.suppress(Exception):
-            lib.sba_game_free(_DEAD_HANDLES[i])
-    del _DEAD_HANDLES[:freed]  # handles appended mid-loop stay queued
+            lib.sba_game_free(handle)
 
 
 atexit.register(_flush_handles)
@@ -176,10 +190,14 @@ class RustUltimateGame:
         # the Python game in the stage-2 mix (the AZ tree churns states).
         # Handles park in _DEAD_HANDLES until the threshold flush.
         h = getattr(self, "_h", None)
-        if h:
-            _DEAD_HANDLES.append(h)
-            if len(_DEAD_HANDLES) >= _FREE_BATCH:
-                _flush_handles()
+        if not h:
+            return
+        queue = globals().get("_DEAD_HANDLES")
+        if queue is None:  # interpreter teardown already dropped the module
+            return
+        queue.append(h)
+        if len(queue) >= _FREE_BATCH:
+            _flush_handles()
 
     @classmethod
     def from_game(cls, game):
