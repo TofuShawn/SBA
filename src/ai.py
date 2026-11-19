@@ -29,6 +29,8 @@ from game import (
 )
 from config import (
     _CFG_DEFAULTS,
+    MIN_VISIT_DIVISOR,
+    MIN_VISIT_FLOOR,
     ROOT,
     cfg_engine,
     cfg_session,
@@ -235,15 +237,21 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     if ai_type == "MCTS":
         root = mcts_search(search_game, budget, prev_root=prev, pool=pool, on_progress=on_progress)
     elif ai_type == "MCTS+RAVE":
-        root = mcts_rave_search(search_game, budget, prev_root=prev)
+        root = mcts_rave_search(search_game, budget, prev_root=prev, on_progress=on_progress)
     else:
-        root = mcts_grave_search(search_game, budget, prev_root=prev)
+        root = mcts_grave_search(search_game, budget, prev_root=prev, on_progress=on_progress)
     move = _best_mcts_move(root, game, budget)
+    if move is None:
+        # the root never expanded (zero budget): hand back None so the
+        # caller can fall back, instead of crashing on apply_move(None)
+        if pool is not None:
+            pool.release(root)
+        return None
     # Thinking trace: top candidates by visit share (read BEFORE any pool
     # release / tree-reuse bookkeeping — nodes may be recycled afterwards).
     if trace is not None:
         root_visits = root.visits or 1
-        min_visits = max(5, budget // 100)
+        min_visits = max(MIN_VISIT_FLOOR, budget // MIN_VISIT_DIVISOR)
         cands = [c for c in root.children if c.visits >= min_visits]
         cands.sort(key=lambda c: -c.visits)
         trace["top"] = [
@@ -335,6 +343,10 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=Non
       'note'} so UIs can display what the engine considered.
     """
     move = _get_ai_move_impl(game, ai_type, mcts_budget, minimax_depth, on_progress, trace)
+    if move is None:
+        # last-resort fallback: never hand the UI a None move on a live board
+        legal = game.legal_moves()
+        move = random.choice(legal) if legal else None
     if trace is not None:
         trace.setdefault("engine", ai_type)
         trace["picked_text"] = move_text(move)
@@ -344,6 +356,11 @@ def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=Non
 def _get_ai_move_impl(
     game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=None, trace=None
 ):
+    # a zero/negative budget is a legal setting (the UI slider, --iters 0)
+    # but it means "no search at all": the trees would have no children.
+    # Clamp here so every engine sees a budget it can actually run.
+    mcts_budget = max(1, int(mcts_budget))
+    minimax_depth = max(1, int(minimax_depth))
     if trace is not None:
         trace["budget"] = mcts_budget
         trace["depth"] = minimax_depth

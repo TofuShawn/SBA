@@ -190,6 +190,29 @@ def _c_ultt_analysis(game, mcts_budget):
     return items, _rates_from_stats(stats)
 
 
+def _normal_best(game, table):
+    """Exact negamax value for the side to move (Normal is fully solved)."""
+    best = -1
+    for m in game.legal_moves():
+        board = game.board[:]
+        board[m] = game.current
+        best = max(best, -table[_board_key(board)])
+    return best
+
+
+def _normal_rates(game, best):
+    """(X win, draw, O win) from the side-to-move's exact value.
+
+    One implementation for both callers: the nested ternaries used to be
+    written out twice, and the X / O branches are easy to transpose.
+    """
+    if best > 0:
+        return (1.0, 0.0, 0.0) if game.current == X else (0.0, 0.0, 1.0)
+    if best == 0:
+        return (0.0, 1.0, 0.0)
+    return (0.0, 0.0, 1.0) if game.current == X else (1.0, 0.0, 0.0)
+
+
 def analyze_position(game, mcts_budget):
     """(items, rates) for the current position from ONE analysis.
 
@@ -211,27 +234,16 @@ def analyze_position(game, mcts_budget):
     items = []
     if isinstance(game, NormalGame):
         table = build_tablebase()
+        best = -1
         for m in game.legal_moves():
             board = game.board[:]
             board[m] = player
             val = -table[_board_key(board)]
+            best = max(best, val)
             pct = 1.0 if val > 0 else (0.5 if val == 0 else 0.0)
             items.append({"move": m, "pct": pct, "reason": reason_for_move(game, m)})
         items.sort(key=lambda it: -it["pct"])
-        best = -1
-        for m in game.legal_moves():
-            board = game.board[:]
-            board[m] = game.current
-            best = max(best, -table[_board_key(board)])
-        if game.current == X:
-            rates = (
-                (1.0, 0.0, 0.0) if best > 0 else ((0.0, 1.0, 0.0) if best == 0 else (0.0, 0.0, 1.0))
-            )
-        else:
-            rates = (
-                (0.0, 0.0, 1.0) if best > 0 else ((0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0))
-            )
-        return items, rates
+        return items, _normal_rates(game, best)
     else:
         c_analysis = _c_ultt_analysis(game, mcts_budget)
         if c_analysis is not None:
@@ -276,16 +288,7 @@ def position_win_rates(game, mcts_budget):
         return (0.0, 1.0, 0.0)
     if isinstance(game, NormalGame):
         table = build_tablebase()
-        best = -1
-        for m in game.legal_moves():
-            board = game.board[:]
-            board[m] = game.current
-            best = max(best, -table[_board_key(board)])
-        if game.current == X:
-            return (
-                (1.0, 0.0, 0.0) if best > 0 else ((0.0, 1.0, 0.0) if best == 0 else (0.0, 0.0, 1.0))
-            )
-        return (0.0, 0.0, 1.0) if best > 0 else ((0.0, 1.0, 0.0) if best == 0 else (1.0, 0.0, 0.0))
+        return _normal_rates(game, _normal_best(game, table))
     c_analysis = _c_ultt_analysis(game, mcts_budget)
     if c_analysis is not None:
         return c_analysis[1]

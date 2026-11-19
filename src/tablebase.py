@@ -9,7 +9,7 @@ import os
 import random
 
 from game import EMPTY, LINES, NormalGame, O, X
-from config import ROOT, _writable_path
+from config import ROOT, writable_path
 from mcts import mcts_move
 
 
@@ -122,7 +122,7 @@ def write_tablebase_file(path=None):
     raw = bytearray(b"\xff" * (3**9))
     for key, val in table.items():
         raw[key] = _TB_VALUE_BYTE[val]
-    path = _writable_path(path)
+    path = writable_path(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(bytes(raw))

@@ -222,7 +222,8 @@ class BitUltimateGame:
         return ((self.x | self.o) >> (m * 9)) & 0x1FF
 
     @staticmethod
-    def _win_mask(mask):
+    def _has_win_line(mask):
+        """True when `mask` (9 bits) contains a complete winning line."""
         for a, b, c in LINES:
             line = (1 << a) | (1 << b) | (1 << c)
             if mask & line == line:
@@ -231,9 +232,9 @@ class BitUltimateGame:
 
     def micro_winner(self, m):
         base = m * 9
-        if self._win_mask((self.x >> base) & 0x1FF):
+        if self._has_win_line((self.x >> base) & 0x1FF):
             return X
-        if self._win_mask((self.o >> base) & 0x1FF):
+        if self._has_win_line((self.o >> base) & 0x1FF):
             return O
         return None
 

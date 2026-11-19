@@ -15,12 +15,13 @@ is owned by the DLL. _CTree wraps the opaque handle and releases it on GC,
 so tree reuse (D30) still works without Python ever touching C memory.
 """
 
+import contextlib
 import ctypes
+import logging
 import os
 import random
 import threading
 import weakref
-import contextlib
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ENGINE_DLL = os.path.join(_ROOT, "native", "sba_engine.dll")
@@ -28,6 +29,7 @@ _LEGACY_DLL = os.path.join(_ROOT, "native", "sba_rollout.dll")
 
 _lib = None
 _has_engine = False
+log = logging.getLogger("sba.cengine")
 _load_lock = threading.Lock()
 
 _XO = {1: "X", 2: "O", 3: "D"}
@@ -144,8 +146,12 @@ def _load():
             rollout_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32, ctypes.c_uint64]
             state_args = [ptr, ptr, ctypes.c_int32, ctypes.c_int32]
             _bind(lib, "sba_rollout", ctypes.c_int32, rollout_args)
-            _bind(lib, "sba_rollout_pattern", ctypes.c_int32, rollout_args)
             if os.path.basename(path) == "sba_engine.dll":
+                # the pattern / random / trace kernels only exist in the full
+                # engine. Binding them unconditionally made the documented
+                # legacy-DLL fallback die on the very first _bind with an
+                # AttributeError that `except OSError` could not catch.
+                _bind(lib, "sba_rollout_pattern", ctypes.c_int32, rollout_args)
                 _bind(lib, "sba_rollout_random", ctypes.c_int32, rollout_args)
                 _bind(
                     lib,
@@ -244,8 +250,13 @@ def _load():
                 )
                 _has_engine = True
             _lib = lib
-        except OSError:
+        except (OSError, AttributeError) as exc:
+            # AttributeError = a symbol this DLL does not export. Leaving a
+            # half-bound lib in _lib would make every later call fail in a
+            # different place; drop it so the Python engines take over.
+            log.warning("native load failed (%s); falling back to Python", exc)
             _lib = None
+            _has_engine = False
         return _lib
 
 
@@ -329,7 +340,10 @@ def rollout_state(state, pattern=False, rng_seed=None, opts=None):
             return None
         fn = lib.sba_rollout_random
     else:
-        fn = lib.sba_rollout_pattern if cfg["use_pattern"] else lib.sba_rollout
+        # the legacy DLL only exports the plain kernel; asking for the
+        # pattern policy must degrade to it instead of AttributeError
+        use_pattern = cfg["use_pattern"] and _has_engine
+        fn = lib.sba_rollout_pattern if use_pattern else lib.sba_rollout
     ca, ma, player, active = _serialized_arrays(state)
     seed = rng_seed if rng_seed is not None else random.getrandbits(64)
     return _XO[fn(ca, ma, player, active, seed)]

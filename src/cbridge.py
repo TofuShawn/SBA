@@ -11,7 +11,7 @@ import sys
 import threading
 
 from game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
-from config import ROOT, cfg_engine
+from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, ROOT, cfg_engine
 
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)  # the native/ package lives at the repo root
@@ -39,30 +39,15 @@ def _tt_key(game):
     )
 
 
-def _reset_dll_state():
-    """Drop the lazy-DLL resolution state (config.set_engine_config
-    calls this late-imported so tests can flip c_rollout and
-    re-resolve)."""
-    global _C_ROLL_TRIED, _C_ROLL, _C_ROLL_PAT
-    _C_ROLL_TRIED = False
-    _C_ROLL = None
-    _C_ROLL_PAT = None
-
-
-_C_ROLL = True  # legacy test hook: replaced by cengine.available()
-
-_C_ROLL_TRIED = False
-
-_C_ROLL_PAT = None
-
-
 def _get_c_rollout():
-    """Compat wrapper (tests): truthy when the native DLL is usable."""
+    """Compat wrapper — used only by tests/test_c_rollout.py; the engine
+    itself asks cengine.available()."""
     return True if _ce.available() else None
 
 
 def _get_c_rollout_pattern():
-    """Compat wrapper (tests): the pattern-kernel symbol, or None."""
+    """Compat wrapper — used only by tests/test_c_rollout.py; the pattern
+    kernel is selected inside cengine.rollout_state()."""
     _ce._load()
     if _ce._lib is not None and _ce._has_engine:
         return getattr(_ce._lib, "sba_rollout_pattern", None)
@@ -70,7 +55,7 @@ def _get_c_rollout_pattern():
 
 
 def _serialize_ultimate(state):
-    """Compat wrapper (tests): delegates to the cengine interop layer."""
+    """Compat wrapper — used only by tests; delegates to cengine."""
     return _ce.serialize_ultimate(state)
 
 
@@ -234,6 +219,7 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
             else:
                 e[0] += v
                 e[1] += w
+                e[2] += mo  # macro wins: summing only the first thread was silent
                 e[3] += dr
     if tree is not None and reuse:
         _C_PREV["MCTS"] = tree
@@ -243,7 +229,7 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
 
     # best move: highest win-rate among sufficiently visited children,
     # preferring an immediate game win (parity with _best_mcts_move)
-    min_visits = max(5, budget // 100)
+    min_visits = max(MIN_VISIT_FLOOR, budget // MIN_VISIT_DIVISOR)
     cands = [s for s in stats if s[1] >= min_visits] or stats
     best = max(cands, key=lambda s: s[2] / s[1] if s[1] else 0.0)
     move_idx = best[0]
@@ -329,6 +315,7 @@ def _c_minimax_pro(game, depth):
     return _ce.minimax_pro(
         game,
         depth,
+        time_limit_ms=int(cfg_engine("pro_time_ms", 8000)),
         use_lmr=bool(cfg_engine("use_lmr", True)),
         use_killers=bool(cfg_engine("use_killers", True)),
         use_aspiration=bool(cfg_engine("use_aspiration", True)),

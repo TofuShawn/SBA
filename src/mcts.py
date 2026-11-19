@@ -10,7 +10,14 @@ import math
 import random
 
 from game import EMPTY, NormalGame, O, X, apply_move
-from config import cfg_engine
+from config import (
+    EARLY_STOP_AT,
+    EARLY_STOP_SHARE,
+    EARLY_STOP_WR,
+    MIN_VISIT_DIVISOR,
+    MIN_VISIT_FLOOR,
+    cfg_engine,
+)
 from cbridge import _c_search_opts, _ce, _py_rollout_state, _rollout_move, _tt_key, move_text
 
 
@@ -90,6 +97,179 @@ class NodePool:
 _POOL = NodePool()
 
 
+def _outcome(result, mover):
+    """Score of `result` for the player who moved into a node."""
+    if result == mover:
+        return 1.0
+    return 0.5 if result == "D" else 0.0
+
+
+def _amaf_outcome(result, mover):
+    """AMAF score from the perspective of the player to move at the node."""
+    if mover is None:
+        return 1.0 if result == X else (0.5 if result == "D" else 0.0)
+    amaf_p = O if mover == X else X
+    return 1.0 if result == amaf_p else (0.5 if result == "D" else 0.0)
+
+
+def _should_stop_early(root, it, iterations):
+    if not (cfg_engine("early_stop", False) and it >= EARLY_STOP_AT * iterations and root.children):
+        return False
+    top = max(root.children, key=lambda c: c.visits)
+    return (
+        bool(root.visits)
+        and top.visits / root.visits > EARLY_STOP_SHARE
+        and _win_rate(top) > EARLY_STOP_WR
+    )
+
+
+def _report_progress(on_progress, root, it, iterations):
+    top = max(root.children, key=lambda ch: ch.visits)
+    if not (root.visits and top.visits):
+        return
+    on_progress(
+        {
+            "it": it + 1,
+            "iterations": iterations,
+            "best_text": move_text(top.move),
+            "share": top.visits / root.visits,
+            "wr": _win_rate(top),
+        }
+    )
+
+
+def _plain_rollout(state, _moves, opts):
+    """One playout to terminal for plain UCT (no move list needed)."""
+    result = state.result()
+    if result is not None:
+        return result
+    if opts is not None:
+        return _ce.rollout_state(state, opts=opts) or _py_rollout_state(state)
+    while result is None:
+        legal = state.legal_moves()
+        if not legal:
+            break
+        apply_move(state, _rollout_move(state, legal))
+        result = state.result()
+    return result
+
+
+def _trace_rollout(state, moves, opts):
+    """One playout to terminal, recording every move for AMAF/RAVE."""
+    if _ce.available() and not isinstance(state, NormalGame) and state.result() is None:
+        result, seq = _ce.rollout_trace(state, opts=opts)
+        if result is None:
+            result = _py_rollout_state(state)
+        for m in seq:
+            apply_move(state, m)
+            moves.append(m)
+        return result
+    result = state.result()
+    while result is None:
+        legal = state.legal_moves()
+        if not legal:
+            break
+        m = _rollout_move(state, legal)
+        apply_move(state, m)
+        result = state.result()
+        moves.append(m)
+    return result
+
+
+def _backprop_plain(node, result, _moves):
+    while node is not None:
+        node.visits += 1
+        if result == node.mover:
+            node.wins += 1.0
+        elif result == "D":
+            node.wins += 0.5
+            node.draws += 1
+        node = node.parent
+
+
+def _backprop_rave(node, result, moves):
+    while node is not None:
+        node.visits += 1
+        node.wins += _outcome(result, node.mover)
+        if result == "D":
+            node.draws += 1
+        amaf_win = _amaf_outcome(result, node.mover)
+        amaf = node.amaf
+        for m in moves:
+            if m in amaf:
+                amaf[m][0] += 1
+                amaf[m][1] += amaf_win
+            else:
+                amaf[m] = [1, amaf_win]
+        node = node.parent
+
+
+def _backprop_grave(node, result, moves):
+    seen_refs = set()
+    while node is not None:
+        node.visits += 1
+        node.wins += _outcome(result, node.mover)
+        if result == "D":
+            node.draws += 1
+        ref = node.ref if node.ref is not None else node
+        if id(ref) not in seen_refs:
+            seen_refs.add(id(ref))
+            amaf_win = _amaf_outcome(result, node.mover)
+            rave = ref.rave
+            for m in moves:
+                if m in rave:
+                    rave[m][0] += 1
+                    rave[m][1] += amaf_win
+                else:
+                    rave[m] = [1, amaf_win]
+        node = node.parent
+
+
+def _drive(
+    root, root_state, iterations, *, make_child, rollout, backprop, c, k=None, on_progress=None
+):
+    """The one search loop behind UCT / RAVE / GRAVE.
+
+    Selection, expansion, early stop and progress reporting are identical in
+    all three; only three things differ, and they are the arguments:
+      * `make_child(state, move, parent, mover)` — node type (+ pool, + ref);
+      * `rollout(state, moves)` — returns the result and appends the moves it
+        played to `moves` (UCT ignores the list, RAVE/GRAVE score it);
+      * `backprop(node, result, moves)` — plain / AMAF / reference-based.
+    """
+    start_visits = root.visits
+    root_sym = set()
+    report_at = max(1, iterations // 10) if on_progress else 0
+    for it in range(iterations):
+        node = root
+        state = root_state.clone()
+        while True:
+            if bool(node.untried) and _can_expand(node):
+                break
+            if not node.children:
+                break
+            uct = _uct_scale(c, root.visits - start_visits, iterations)
+            node = node.best_child(uct, k) if k is not None else node.best_child(uct)
+            apply_move(state, node.move)
+        rollout_moves = []
+        if node.untried and _can_expand(node):
+            m = _pop_untried(node, root_sym, node is root)
+            if m is not None:
+                mover = state.current
+                apply_move(state, m)
+                child = make_child(state.clone(), m, node, mover)
+                node.children.append(child)
+                node = child
+                rollout_moves.append(m)
+        result = rollout(state, rollout_moves)
+        backprop(node, result, rollout_moves)
+        if _should_stop_early(root, it, iterations):
+            break
+        if report_at and (it + 1) % report_at == 0 and root.children:
+            _report_progress(on_progress, root, it, iterations)
+    return root
+
+
 def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress=None):
     """Plain MCTS. `on_progress(info)` fires ~10 times per search with the
     current best child so UIs can show the engine's thinking (D24)."""
@@ -104,82 +284,45 @@ def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress
             if pool is not None
             else MCTSNode(root_state, None, None, None)
         )
-    start_visits = root.visits
-    root_sym = set()
-    c_roll = None if isinstance(game, NormalGame) else (_ce if _ce.available() else None)
-    c_opts = _c_search_opts() if c_roll is not None else None
-    report_at = max(1, iterations // 10) if on_progress else 0
-    for it in range(iterations):
-        node = root
-        state = root_state.clone()
-        while True:
-            if bool(node.untried) and _can_expand(node):
-                break
-            if not node.children:
-                break
-            node = node.best_child(_uct_scale(c, root.visits - start_visits, iterations))
-            apply_move(state, node.move)
-        if node.untried and _can_expand(node):
-            m = _pop_untried(node, root_sym, node is root)
-            if m is not None:
-                mover = state.current
-                apply_move(state, m)
-                child = (
-                    pool.acquire(state.clone(), m, node, mover)
-                    if pool is not None
-                    else MCTSNode(state.clone(), m, node, mover)
-                )
-                node.children.append(child)
-                node = child
-        result = state.result()
-        if result is None:
-            # A terminal node (the expansion move may have just won the game)
-            # must not go to the C kernel: it only stops for a win it plays
-            # itself and would keep emitting moves on a finished board.
-            if c_roll is not None:
-                result = _ce.rollout_state(state, opts=c_opts) or _py_rollout_state(state)
-            else:
-                while result is None:
-                    moves = state.legal_moves()
-                    if not moves:
-                        break
-                    m = _rollout_move(state, moves)
-                    apply_move(state, m)
-                    result = state.result()
-        while node is not None:
-            node.visits += 1
-            if result == node.mover:
-                node.wins += 1.0
-            elif result == "D":
-                node.wins += 0.5
-                node.draws += 1
-            node = node.parent
-        if cfg_engine("early_stop", False) and it >= 0.7 * iterations and root.children:
-            top = max(root.children, key=lambda c: c.visits)
-            if root.visits and top.visits / root.visits > 0.6 and top.wins / top.visits > 0.55:
-                break
-        if report_at and (it + 1) % report_at == 0 and root.children:
-            top = max(root.children, key=lambda ch: ch.visits)
-            if root.visits and top.visits:
-                on_progress(
-                    {
-                        "it": it + 1,
-                        "iterations": iterations,
-                        "best_text": move_text(top.move),
-                        "share": top.visits / root.visits,
-                        "wr": top.wins / top.visits,
-                    }
-                )
-    return root
+    opts = _c_search_opts() if (not isinstance(game, NormalGame) and _ce.available()) else None
+
+    def make_child(state, move, parent, mover):
+        if pool is not None:
+            return pool.acquire(state, move, parent, mover)
+        return MCTSNode(state, move, parent, mover)
+
+    return _drive(
+        root,
+        root_state,
+        iterations,
+        make_child=make_child,
+        rollout=lambda st, mv: _plain_rollout(st, mv, opts),
+        backprop=_backprop_plain,
+        c=c,
+        on_progress=on_progress,
+    )
+
+
+def _win_rate(node):
+    """wins/visits, 0.0 for an unvisited child (no ZeroDivisionError)."""
+    return node.wins / node.visits if node.visits else 0.0
 
 
 def _best_mcts_move(root, game, iterations):
-    """Pick the best child of a finished MCTS root, preferring an immediate win."""
-    visited = [c for c in root.children if c.visits >= max(5, iterations // 100)]
+    """Pick the best child of a finished MCTS root, preferring an immediate win.
+
+    Returns None when the root has no children — that happens with
+    iterations == 0 (a zero budget is a legal setting), and the callers
+    fall back to another engine or to the opening book.
+    """
+    if not root.children:
+        return None
+    min_visits = max(MIN_VISIT_FLOOR, iterations // MIN_VISIT_DIVISOR)
+    visited = [c for c in root.children if c.visits >= min_visits]
     pool = visited if visited else list(root.children)
-    best = max(pool, key=lambda c: c.wins / c.visits)
+    best = max(pool, key=_win_rate)
     for c in pool:
-        if c.wins / c.visits == best.wins / best.visits:
+        if _win_rate(c) == _win_rate(best):
             g = game.clone()
             apply_move(g, c.move)
             if g.result() == game.current:
@@ -332,10 +475,12 @@ def _diff_move(old_state, new_game):
         return diff[0]
     if not hasattr(old_state, "micro"):
         return None
-    diffs = [
-        (m, i) for m in range(9) for i in range(9) if old_state.micro[m][i] != new_game.micro[m][i]
-    ]
-    if len(diffs) != 1 or new_game.micro[diffs[0][0]][diffs[0][1]] == EMPTY:
+    # hoist the properties: each `.micro` read is one FFI call plus a 9x9
+    # rebuild on the Rust layer, so reading them inside the comprehension
+    # cost 162 calls to find a single differing cell.
+    old_micro, new_micro = old_state.micro, new_game.micro
+    diffs = [(m, i) for m in range(9) for i in range(9) if old_micro[m][i] != new_micro[m][i]]
+    if len(diffs) != 1 or new_micro[diffs[0][0]][diffs[0][1]] == EMPTY:
         return None
     return diffs[0]
 
@@ -423,7 +568,15 @@ class RAVENode:
         return best
 
 
-def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
+def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None, on_progress=None):
+    """RAVE tree (plain-Python fallback for the C engine, D51).
+
+    Deliberately no ``pool=``: AMAF tables live on the nodes, and a pooled
+    node would carry stale per-game statistics into a fresh search. Wiring
+    the pool here needs an amaf reset in ``NodePool.acquire`` (and a GRAVE
+    ref-repair pass) — engine work, not wiring, and this path only serves
+    DLL-less installs.
+    """
     c = cfg_engine("uct_c", 1.4) if c is None else c
     k = cfg_engine("rave_k", 150) if k is None else k
     if prev_root is not None:
@@ -432,76 +585,22 @@ def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None):
     else:
         root_state = game.clone()
         root = RAVENode(root_state, None, None, None)
-    start_visits = root.visits
-    root_sym = set()
-    c_opts = _c_search_opts()
-    for it in range(iterations):
-        node = root
-        state = root_state.clone()
-        while True:
-            if bool(node.untried) and _can_expand(node):
-                break
-            if not node.children:
-                break
-            node = node.best_child(_uct_scale(c, root.visits - start_visits, iterations), k)
-            apply_move(state, node.move)
-        rollout_moves = []
-        if node.untried and _can_expand(node):
-            m = _pop_untried(node, root_sym, node is root)
-            if m is not None:
-                mover = state.current
-                apply_move(state, m)
-                child = RAVENode(state.clone(), m, node, mover)
-                node.children.append(child)
-                node = child
-                rollout_moves.append(m)
-        if _ce.available() and not isinstance(state, NormalGame) and state.result() is None:
-            result, seq = _ce.rollout_trace(state, opts=c_opts)
-            if result is None:
-                result = _py_rollout_state(state)
-            for m in seq:
-                apply_move(state, m)
-                rollout_moves.append(m)
-        else:
-            result = state.result()
-            while result is None:
-                moves = state.legal_moves()
-                if not moves:
-                    break
-                m = _rollout_move(state, moves)
-                apply_move(state, m)
-                result = state.result()
-                rollout_moves.append(m)
-            result = state.result()
-        while node is not None:
-            node.visits += 1
-            win = 1.0 if result == node.mover else (0.5 if result == "D" else 0.0)
-            node.wins += win
-            if result == "D":
-                node.draws += 1
-            # AMAF is scored from the perspective of the player to move at this
-            # node (standard all-moves RAVE), not from the player who moved into it.
-            if node.mover is None:
-                amaf_win = 1.0 if result == X else (0.5 if result == "D" else 0.0)
-            else:
-                amaf_p = O if node.mover == X else X
-                amaf_win = 1.0 if result == amaf_p else (0.5 if result == "D" else 0.0)
-            amaf = node.amaf
-            for m in rollout_moves:
-                if m in amaf:
-                    amaf[m][0] += 1
-                    amaf[m][1] += amaf_win
-                else:
-                    amaf[m] = [1, amaf_win]
-            node = node.parent
-        if cfg_engine("early_stop", False) and it >= 0.7 * iterations and root.children:
-            top = max(root.children, key=lambda c: c.visits)
-            if root.visits and top.visits / root.visits > 0.6 and top.wins / top.visits > 0.55:
-                break
-    return root
+    opts = _c_search_opts()
+    return _drive(
+        root,
+        root_state,
+        iterations,
+        make_child=RAVENode,
+        rollout=lambda st, mv: _trace_rollout(st, mv, opts),
+        backprop=_backprop_rave,
+        c=c,
+        k=k,
+        on_progress=on_progress,
+    )
 
 
 def mcts_rave_move(game, iterations):
+    """Convenience wrapper over mcts_rave_search + _best_mcts_move (tests)."""
     root = mcts_rave_search(game, iterations)
     return _best_mcts_move(root, game, iterations)
 
@@ -563,7 +662,11 @@ class GraveNode:
         return best
 
 
-def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
+def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None, on_progress=None):
+    """GRAVE tree (plain-Python fallback for the C engine, D51). No
+    ``pool=`` for the same reason as ``mcts_rave_search`` — plus GRAVE
+    reference nodes point into the tree, so recycling would need a
+    ref-repair pass on top of the AMAF reset."""
     c = cfg_engine("uct_c", 1.4) if c is None else c
     k = cfg_engine("rave_k", 150) if k is None else k
     if prev_root is not None:
@@ -573,81 +676,29 @@ def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None):
         root_state = game.clone()
         root = GraveNode(root_state, None, None, None)
         root.ref = root
-    start_visits = root.visits
-    root_sym = set()
-    c_opts = _c_search_opts()
-    for it in range(iterations):
-        node = root
-        state = root_state.clone()
-        while True:
-            if bool(node.untried) and _can_expand(node):
-                break
-            if not node.children:
-                break
-            node = node.best_child(_uct_scale(c, root.visits - start_visits, iterations), k)
-            apply_move(state, node.move)
-        rollout_moves = []
-        if node.untried and _can_expand(node):
-            m = _pop_untried(node, root_sym, node is root)
-            if m is not None:
-                mover = state.current
-                apply_move(state, m)
-                child = GraveNode(state.clone(), m, node, mover)
-                ref = node.ref if node.ref is not None else node
-                child.ref = ref if m in ref.rave else node
-                node.children.append(child)
-                node = child
-                rollout_moves.append(m)
-        if _ce.available() and not isinstance(state, NormalGame) and state.result() is None:
-            result, seq = _ce.rollout_trace(state, opts=c_opts)
-            if result is None:
-                result = _py_rollout_state(state)
-            for m in seq:
-                apply_move(state, m)
-                rollout_moves.append(m)
-        else:
-            result = state.result()
-            while result is None:
-                moves = state.legal_moves()
-                if not moves:
-                    break
-                m = _rollout_move(state, moves)
-                apply_move(state, m)
-                result = state.result()
-                rollout_moves.append(m)
-            result = state.result()
-        seen_refs = set()
-        while node is not None:
-            node.visits += 1
-            win = 1.0 if result == node.mover else (0.5 if result == "D" else 0.0)
-            node.wins += win
-            if result == "D":
-                node.draws += 1
-            ref = node.ref if node.ref is not None else node
-            if id(ref) not in seen_refs:
-                seen_refs.add(id(ref))
-                # RAVE is scored from the perspective of the player to move.
-                if node.mover is None:
-                    amaf_win = 1.0 if result == X else (0.5 if result == "D" else 0.0)
-                else:
-                    amaf_p = O if node.mover == X else X
-                    amaf_win = 1.0 if result == amaf_p else (0.5 if result == "D" else 0.0)
-                rave = ref.rave
-                for m in rollout_moves:
-                    if m in rave:
-                        rave[m][0] += 1
-                        rave[m][1] += amaf_win
-                    else:
-                        rave[m] = [1, amaf_win]
-            node = node.parent
-        if cfg_engine("early_stop", False) and it >= 0.7 * iterations and root.children:
-            top = max(root.children, key=lambda c: c.visits)
-            if root.visits and top.visits / root.visits > 0.6 and top.wins / top.visits > 0.55:
-                break
-    return root
+    opts = _c_search_opts()
+
+    def make_child(state, move, parent, mover):
+        child = GraveNode(state, move, parent, mover)
+        ref = parent.ref if parent.ref is not None else parent
+        child.ref = ref if move in ref.rave else parent
+        return child
+
+    return _drive(
+        root,
+        root_state,
+        iterations,
+        make_child=make_child,
+        rollout=lambda st, mv: _trace_rollout(st, mv, opts),
+        backprop=_backprop_grave,
+        c=c,
+        k=k,
+        on_progress=on_progress,
+    )
 
 
 def mcts_grave_move(game, iterations):
+    """Convenience wrapper over mcts_grave_search + _best_mcts_move (tests)."""
     root = mcts_grave_search(game, iterations)
     return _best_mcts_move(root, game, iterations)
 
