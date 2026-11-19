@@ -46,6 +46,8 @@ native/*.o
 
 # Rust state layer build artifacts (D48) — only the crate sources are tracked
 native/sba-game/target/
+# sba-core (D55 Phase A) build artifacts
+native/sba-core/target/
 
 # ruff cache (D49 lint gate)
 .ruff_cache/
