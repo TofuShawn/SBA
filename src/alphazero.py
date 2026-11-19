@@ -25,8 +25,11 @@ Maintenance notes:
 """
 
 import argparse
+import atexit
+import csv
 import math
 import os
+import queue
 import random
 import sys
 import time
@@ -53,9 +56,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import rustbridge
-from config import cfg_engine
+from dataclasses import dataclass
+
+from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine, writable_path
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# How long a multiprocess self-play game may stay silent before the parent
+# assumes its worker died and resubmits it. Generous on purpose: a slow CPU
+# game with a big net is minutes, not an hour.
+MP_GAME_TIMEOUT = 3600.0
 
 MODEL_DIR = os.path.join(HERE, "models")
 X = "X"
@@ -486,7 +496,7 @@ def select_move(game, model, budget=800, temp=0.0, c_puct=1.5, batch_size=BATCH_
     if temp <= 0.01:
         # Robust pick: among sufficiently visited children choose the move with
         # the best value for the side to move; fall back to the most visited.
-        pool = [m for m in moves if counts[m] >= max(5, budget // 100)]
+        pool = [m for m in moves if counts[m] >= max(MIN_VISIT_FLOOR, budget // MIN_VISIT_DIVISOR)]
         if not pool:
             pool = moves
         if len(pool) > 1:
@@ -554,23 +564,6 @@ def _ckpt_path(save_path, game):
     return "%s_%04d%s" % (stem, game, ext or ".pt")
 
 
-def _writable_path(path):
-    """Guard for local write helpers: repo or system-temp only (see
-    ai._writable_path for the rationale - scan path-traversal findings)."""
-    import os
-    import tempfile
-
-    here = os.path.realpath(os.path.dirname(os.path.abspath(__file__)))
-    root = os.path.dirname(here)
-    rp = os.path.realpath(str(path))  # 1. 规范化
-    if ".." in rp.split(os.sep):  # 2. 禁止 ..
-        raise ValueError("path may not contain ..: %s" % path)
-    roots = (os.path.realpath(root), os.path.realpath(tempfile.gettempdir()))
-    if not any(rp == r or rp.startswith(r + os.sep) for r in roots):
-        raise ValueError("write path outside repo/temp: %s" % path)  # 3. 限目录
-    return rp
-
-
 class _TrainingCsv:
     """Per-iteration training-curve logger (D41): one CSV row per completed
     game, flushed immediately so a killed run still leaves usable data.
@@ -594,16 +587,14 @@ class _TrainingCsv:
     ]
 
     def __init__(self, path, resume=False):
-        import csv as _csv
-
         self._append = bool(resume) and os.path.exists(path)
-        safe = _writable_path(path)  # 规范化 + 禁止 .. + 限 repo/temp
+        safe = writable_path(path)  # 规范化 + 禁止 .. + 限 repo/temp
         # Kept open for the whole training run (flushed per row, closed by
         # _TrainingCsv.close) — a `with` block would close it immediately.
         self._f = open(  # noqa: SIM115 - long-lived handle, closed by close()
             safe, "a" if self._append else "w", newline="", encoding="utf-8"
         )
-        self._w = _csv.writer(self._f)
+        self._w = csv.writer(self._f)
         if not self._append:
             self._w.writerow(self.HEADER)
 
@@ -795,19 +786,20 @@ def _mp_worker_init(results_q):
     # spawn children inherit the parent's console; 8 of them spamming
     # MIOpen/torch warnings tears apart a fullscreen TUI - divert to a file
     try:
-        import atexit
-
         log_path = os.path.join(MODEL_DIR, "..", "logs", "mp-worker-%d.log" % os.getpid())
         os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
-        safe_log = _writable_path(os.path.abspath(log_path))
+        safe_log = writable_path(os.path.abspath(log_path))
         # stdout/stderr stay redirected for the worker's lifetime; atexit
         # closes it — a `with` block would restore the streams at once.
         sink = open(safe_log, "w", buffering=1)  # noqa: SIM115
         sys.stdout = sink
         sys.stderr = sink
         atexit.register(sink.close)
-    except Exception:  # noqa: BLE001 - redirect is cosmetic: a failed
-        pass  # sink only means worker output stays on the console
+    except OSError as exc:
+        # the sink is the only thing that keeps 8 workers from tearing
+        # apart a fullscreen TUI; when it cannot be created say so on the
+        # console we failed to redirect, instead of failing silently
+        print("[worker %d] log redirect failed: %s" % (os.getpid(), exc), file=sys.stderr)
 
 
 def _mp_play_game(
@@ -843,6 +835,70 @@ def _mp_play_game(
         _MP_RESULTS_Q.put((idx, (states, targets, zs)))
     except Exception as e:  # noqa: BLE001 - keep the run alive
         _MP_RESULTS_Q.put((idx, e))
+
+
+def _save_ckpt(
+    model, size, channels, blocks, save_path, at, games, on_event, quiet, progress, game_type
+):
+    """Write the numbered checkpoint (D46) and announce it.
+
+    Both trainers call this; the event used to report `save_path` while the
+    file actually written was `ckpt_at`, so the UI listed the same path for
+    every checkpoint.
+    """
+    ckpt_at = _ckpt_path(save_path, at)
+    _save_model(model, size, channels, blocks, ckpt_at)
+    if on_event:
+        on_event({"type": "ckpt", "game": at, "path": ckpt_at})
+    if not quiet:
+        line = "checkpoint %d/%d -> %s" % (at, games, ckpt_at)
+        if progress:
+            progress.console.print("[yellow]" + line + "[/yellow]")
+        else:
+            print("[%s] checkpoint %d/%d -> %s" % (game_type, at, games, ckpt_at), flush=True)
+    return ckpt_at
+
+
+def _optimize_step(model, optimizer, replay, steps_per_game, augment, size, policy_loss):
+    """One game's worth of SGD steps on a replay batch.
+
+    Shared by the single-process and the multiprocess trainer: the two copies
+    used to be identical apart from variable names, so every change to the
+    loss or the augmentation had to be made twice.
+    """
+    model.train()
+    total_loss = 0.0
+    for _ in range(steps_per_game):
+        g_states, g_targets, g_zs = random.choice(replay)
+        n_pos = len(g_states)
+        # Fixed batch size (with replacement when a game is short) keeps one
+        # tensor shape per process: MIOpen only looks up kernels once.
+        batch_idx = np.random.choice(n_pos, 128, replace=True)
+        states_batch = [g_states[i] for i in batch_idx]
+        targets_batch = [g_targets[i] for i in batch_idx]
+        if augment:
+            for j in range(len(batch_idx)):
+                t = random.randrange(8)
+                if t:
+                    states_batch[j], targets_batch[j] = _augment_sample(
+                        states_batch[j], targets_batch[j], t, size
+                    )
+        batch = torch.stack(states_batch).to(DEVICE)
+        target = torch.stack([torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
+        z = torch.tensor([g_zs[i] for i in batch_idx], dtype=torch.float32).to(DEVICE)
+        optimizer.zero_grad()
+        pred_p, pred_v = model(batch)
+        logp = F.log_softmax(pred_p, dim=1)
+        if policy_loss == "kl":
+            loss_p = (target * (target.clamp_min(1e-8).log() - logp)).sum(dim=1).mean()
+        else:
+            loss_p = -(logp * target).sum(dim=1).mean()
+        loss_v = F.mse_loss(pred_v[:, 0], z)
+        (loss_p + loss_v).backward()
+        optimizer.step()
+        total_loss += float((loss_p + loss_v).detach())
+    model.eval()
+    return total_loss
 
 
 def train(
@@ -973,37 +1029,37 @@ def train(
     try:
         if workers > 1:
             return _train_multiprocess(
-                make_game_fn,
-                model,
-                optimizer,
-                evaluate,
-                replay,
-                games,
-                sims,
-                eval_every,
-                lr,
-                save,
-                quiet,
-                steps_per_game,
-                replay_cap,
-                size,
-                channels,
-                blocks,
-                ckpt_every,
-                dirichlet_eps,
-                workers,
-                game_type,
-                start,
-                ROLLOUT_WEIGHT,
-                value_target,
-                use_network,
-                policy_loss,
-                augment,
-                save_path,
-                csv_log,
-                progress,
-                task,
-                on_event,
+                TrainCfg(
+                    games=games,
+                    sims=sims,
+                    eval_every=eval_every,
+                    lr=lr,
+                    save=save,
+                    quiet=quiet,
+                    steps_per_game=steps_per_game,
+                    replay_cap=replay_cap,
+                    size=size,
+                    channels=channels,
+                    blocks=blocks,
+                    ckpt_every=ckpt_every,
+                    dirichlet_eps=dirichlet_eps,
+                    workers=workers,
+                    game_type=game_type,
+                    rollout_weight=ROLLOUT_WEIGHT,
+                    value_target=value_target,
+                    use_network=use_network,
+                    policy_loss=policy_loss,
+                    augment=augment,
+                    save_path=save_path,
+                ),
+                TrainCtx(
+                    model=model,
+                    optimizer=optimizer,
+                    evaluate=evaluate,
+                    replay=replay,
+                    start=start,
+                ),
+                TrainHooks(csv_log=csv_log, progress=progress, task=task, on_event=on_event),
             )
         for it in range(1, games + 1):
             temp = max(0.05, 1.0 - it / games)
@@ -1022,53 +1078,24 @@ def train(
                 replay.pop(0)
             # Linear LR annealing: full rate early, a 5x drop by the final game.
             optimizer.param_groups[0]["lr"] = lr * max(0.2, 1.0 - it / games)
-            model.train()
-            total_loss = 0.0
-            for _ in range(steps_per_game):
-                g_states, g_targets, g_zs = random.choice(replay)
-                n_pos = len(g_states)
-                # Fixed batch size (with replacement when a game is short) keeps
-                # one tensor shape per process: MIOpen only looks up kernels once.
-                idx = np.random.choice(n_pos, 128, replace=True)
-                states_batch = [g_states[i] for i in idx]
-                targets_batch = [g_targets[i] for i in idx]
-                if augment:
-                    for j in range(len(idx)):
-                        t = random.randrange(8)
-                        if t:
-                            states_batch[j], targets_batch[j] = _augment_sample(
-                                states_batch[j], targets_batch[j], t, size
-                            )
-                batch = torch.stack(states_batch).to(DEVICE)
-                target = torch.stack([torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
-                z = torch.tensor([g_zs[i] for i in idx], dtype=torch.float32).to(DEVICE)
-                optimizer.zero_grad()
-                pred_p, pred_v = model(batch)
-                logp = F.log_softmax(pred_p, dim=1)
-                if policy_loss == "kl":
-                    loss_p = (target * (target.clamp_min(1e-8).log() - logp)).sum(dim=1).mean()
-                else:
-                    loss_p = -(logp * target).sum(dim=1).mean()
-                loss_v = F.mse_loss(pred_v[:, 0], z)
-                (loss_p + loss_v).backward()
-                optimizer.step()
-                total_loss += float((loss_p + loss_v).detach())
-            model.eval()
+            total_loss = _optimize_step(
+                model, optimizer, replay, steps_per_game, augment, size, policy_loss
+            )
             ckpt_at = ""
             if save and ckpt_every and it % ckpt_every == 0:
-                ckpt_at = _ckpt_path(save_path, it)
-                _save_model(model, size, channels, blocks, ckpt_at)
-                if on_event:
-                    on_event({"type": "ckpt", "game": it, "path": save_path})
-                if not quiet:
-                    line = "checkpoint %d/%d -> %s" % (it, games, save_path)
-                    if progress:
-                        progress.console.print("[yellow]" + line + "[/yellow]")
-                    else:
-                        print(
-                            "[%s] checkpoint %d/%d -> %s" % (game_type, it, games, save_path),
-                            flush=True,
-                        )
+                ckpt_at = _save_ckpt(
+                    model,
+                    size,
+                    channels,
+                    blocks,
+                    save_path,
+                    it,
+                    games,
+                    on_event,
+                    quiet,
+                    progress,
+                    game_type,
+                )
             if (it % max(1, eval_every) == 0 or it == games) and on_event:
                 on_event({"type": "eval_start", "game": it})
             ev = None
@@ -1159,39 +1186,60 @@ def train(
             progress.stop()
 
 
-def _train_multiprocess(
-    make_game_fn,
-    model,
-    optimizer,
-    evaluate,
-    replay,
-    games,
-    sims,
-    eval_every,
-    lr,
-    save,
-    quiet,
-    steps_per_game,
-    replay_cap,
-    size,
-    channels,
-    blocks,
-    ckpt_every,
-    dirichlet_eps,
-    workers,
-    game_type,
-    start,
-    rollout_weight,
-    value_target,
-    use_network,
-    policy_loss,
-    augment,
-    save_path,
-    csv_log=None,
-    progress=None,
-    task=None,
-    on_event=None,
-):
+@dataclass
+class TrainCfg:
+    """What to train: the 22 knobs that used to be positional arguments.
+
+    Keyword construction is the point. With 28 positional parameters, passing
+    `sims` where `eval_every` belonged silently changed the schedule and no
+    type check could catch it (most of them are ints).
+    """
+
+    games: int
+    sims: int
+    eval_every: int
+    lr: float
+    save: bool
+    quiet: bool
+    steps_per_game: int
+    replay_cap: int
+    size: int
+    channels: int
+    blocks: int
+    ckpt_every: int
+    dirichlet_eps: float
+    workers: int
+    game_type: str
+    rollout_weight: float
+    value_target: str
+    use_network: bool
+    policy_loss: str
+    augment: bool
+    save_path: str
+
+
+@dataclass
+class TrainCtx:
+    """The live objects a trainer mutates."""
+
+    model: object
+    optimizer: object
+    evaluate: object
+    replay: list
+    start: float
+
+
+@dataclass
+class TrainHooks:
+    """Optional observers; every field defaults to "nothing"."""
+
+    csv_log: object = None
+    progress: object = None
+    task: object = None
+    on_event: object = None
+
+
+def _train_multiprocess(cfg, ctx, hooks=None):
     """Multi-process self-play.
 
     A worker pool plays the games (each task carries the latest weights and
@@ -1201,9 +1249,62 @@ def _train_multiprocess(
     """
     import multiprocessing as mp
 
-    ctx = mp.get_context("spawn")
-    results_q = ctx.Queue()
-    pool = ctx.Pool(workers, initializer=_mp_worker_init, initargs=(results_q,))
+    hooks = hooks or TrainHooks()
+    # Unpacked once, for readability only: the signature is the contract,
+    # so the body below stays identical to the single-process trainer.
+    (
+        games,
+        sims,
+        eval_every,
+        lr,
+        save,
+        quiet,
+        steps_per_game,
+        replay_cap,
+        size,
+        channels,
+        blocks,
+        ckpt_every,
+        dirichlet_eps,
+        workers,
+        game_type,
+        rollout_weight,
+        value_target,
+        use_network,
+        policy_loss,
+        augment,
+        save_path,
+    ) = (
+        cfg.games,
+        cfg.sims,
+        cfg.eval_every,
+        cfg.lr,
+        cfg.save,
+        cfg.quiet,
+        cfg.steps_per_game,
+        cfg.replay_cap,
+        cfg.size,
+        cfg.channels,
+        cfg.blocks,
+        cfg.ckpt_every,
+        cfg.dirichlet_eps,
+        cfg.workers,
+        cfg.game_type,
+        cfg.rollout_weight,
+        cfg.value_target,
+        cfg.use_network,
+        cfg.policy_loss,
+        cfg.augment,
+        cfg.save_path,
+    )
+    model, optimizer = ctx.model, ctx.optimizer
+    evaluate, replay, start = ctx.evaluate, ctx.replay, ctx.start
+    csv_log, progress = hooks.csv_log, hooks.progress
+    task, on_event = hooks.task, hooks.on_event
+
+    mpctx = mp.get_context("spawn")
+    results_q = mpctx.Queue()
+    pool = mpctx.Pool(workers, initializer=_mp_worker_init, initargs=(results_q,))
 
     def submit(idx):
         weights = {k: v.cpu() for k, v in model.state_dict().items()}
@@ -1240,133 +1341,142 @@ def _train_multiprocess(
     done = 0
     pos_total = 0
     stage = 2 if use_network else 1
-    while done < games:
-        idx, data = results_q.get()
-        done += 1
-        if progress:
-            progress.advance(task)
-        if isinstance(data, Exception):
-            if on_event:
-                on_event({"type": "worker_failed", "game": idx, "error": str(data)})
-            else:
-                print(
-                    "[%s] self-play worker failed game %d: %s" % (game_type, idx, data), flush=True
-                )
-        else:
-            states, targets, zs = data
-            pos_total += len(states)
-            replay.append((states, targets, zs))
-            if len(replay) > replay_cap:
-                replay.pop(0)
-            optimizer.param_groups[0]["lr"] = lr * max(0.2, 1.0 - done / games)
-            model.train()
-            total_loss = 0.0
-            for _ in range(steps_per_game):
-                g_states, g_targets, g_zs = random.choice(replay)
-                n_pos = len(g_states)
-                # Fixed batch size (with replacement when a game is short)
-                # keeps one tensor shape per process for MIOpen.
-                idx2 = np.random.choice(n_pos, 128, replace=True)
-                states_batch = [g_states[i] for i in idx2]
-                targets_batch = [g_targets[i] for i in idx2]
-                if augment:
-                    for j in range(len(idx2)):
-                        t = random.randrange(8)
-                        if t:
-                            states_batch[j], targets_batch[j] = _augment_sample(
-                                states_batch[j], targets_batch[j], t, size
-                            )
-                batch = torch.stack(states_batch).to(DEVICE)
-                target = torch.stack([torch.as_tensor(tg) for tg in targets_batch]).to(DEVICE)
-                z = torch.tensor([g_zs[i] for i in idx2], dtype=torch.float32).to(DEVICE)
-                optimizer.zero_grad()
-                pred_p, pred_v = model(batch)
-                logp = F.log_softmax(pred_p, dim=1)
-                if policy_loss == "kl":
-                    loss_p = (target * (target.clamp_min(1e-8).log() - logp)).sum(dim=1).mean()
+    # every game still waiting for a result. A worker that dies mid-game
+    # (GPU OOM, driver reset) never puts anything on the queue, so a bare
+    # get() would block the whole run forever; the timeout turns that into
+    # a resubmission instead.
+    pending = set(range(1, games + 1))
+    try:
+        while done < games:
+            try:
+                idx, data = results_q.get(timeout=MP_GAME_TIMEOUT)
+            except queue.Empty:
+                lost = min(pending) if pending else None
+                if lost is None:
+                    break
+                if on_event:
+                    on_event({"type": "worker_lost", "game": lost})
                 else:
-                    loss_p = -(logp * target).sum(dim=1).mean()
-                loss_v = F.mse_loss(pred_v[:, 0], z)
-                (loss_p + loss_v).backward()
-                optimizer.step()
-                total_loss += float((loss_p + loss_v).detach())
-            model.eval()
-            ckpt_at = ""
-            if save and ckpt_every and done % ckpt_every == 0:
-                ckpt_at = _ckpt_path(save_path, done)
-                _save_model(model, size, channels, blocks, ckpt_at)
+                    print(
+                        "[%s] no result for game %d after %ds; resubmitting"
+                        % (game_type, lost, MP_GAME_TIMEOUT),
+                        flush=True,
+                    )
+                submit(lost)
+                continue
+            if idx not in pending:
+                # a duplicate produced by a resubmitted game: the first result
+                # for this index already counted, do not count it twice
+                continue
+            pending.discard(idx)
+            done += 1
+            if progress:
+                progress.advance(task)
+            if isinstance(data, Exception):
                 if on_event:
-                    on_event({"type": "ckpt", "game": done, "path": save_path})
-                if not quiet:
-                    line = "checkpoint %d/%d -> %s" % (done, games, save_path)
-                    if progress:
-                        progress.console.print("[yellow]" + line + "[/yellow]")
-                    else:
-                        print(
-                            "[%s] checkpoint %d/%d -> %s" % (game_type, done, games, save_path),
-                            flush=True,
-                        )
-            ev = None
-            # gauge runs regardless of quiet — quiet mutes the print only
-            if done % max(1, eval_every) == 0 or done == games:
-                if on_event:
-                    on_event({"type": "eval_start", "game": done})
-                el = time.time() - start
-                ev = evaluate()
-                w, d, loss = ev
-                if not quiet:
-                    line = "eval game %d/%d - win=%d draw=%d loss=%d - loss=%.3f - %.0fs" % (
+                    on_event({"type": "worker_failed", "game": idx, "error": str(data)})
+                else:
+                    print(
+                        "[%s] self-play worker failed game %d: %s" % (game_type, idx, data),
+                        flush=True,
+                    )
+            else:
+                states, targets, zs = data
+                pos_total += len(states)
+                replay.append((states, targets, zs))
+                if len(replay) > replay_cap:
+                    replay.pop(0)
+                optimizer.param_groups[0]["lr"] = lr * max(0.2, 1.0 - done / games)
+                total_loss = _optimize_step(
+                    model, optimizer, replay, steps_per_game, augment, size, policy_loss
+                )
+                ckpt_at = ""
+                if save and ckpt_every and done % ckpt_every == 0:
+                    ckpt_at = _save_ckpt(
+                        model,
+                        size,
+                        channels,
+                        blocks,
+                        save_path,
                         done,
                         games,
-                        w,
-                        d,
-                        loss,
-                        total_loss / steps_per_game,
-                        el,
+                        on_event,
+                        quiet,
+                        progress,
+                        game_type,
                     )
-                    if progress:
-                        progress.console.print(line)
-                    else:
-                        print(
-                            "[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)"
-                            % (game_type, done, games, w, d, loss, total_loss / steps_per_game, el),
-                            flush=True,
+                ev = None
+                # gauge runs regardless of quiet — quiet mutes the print only
+                if done % max(1, eval_every) == 0 or done == games:
+                    if on_event:
+                        on_event({"type": "eval_start", "game": done})
+                    el = time.time() - start
+                    ev = evaluate()
+                    w, d, loss = ev
+                    if not quiet:
+                        line = "eval game %d/%d - win=%d draw=%d loss=%d - loss=%.3f - %.0fs" % (
+                            done,
+                            games,
+                            w,
+                            d,
+                            loss,
+                            total_loss / steps_per_game,
+                            el,
                         )
-            if csv_log:
-                # workers report the per-task index; its temperature schedule
-                # mirrors _mp_play_game's
-                csv_log.write(
-                    stage,
-                    done,
-                    time.time() - start,
-                    optimizer.param_groups[0]["lr"],
-                    total_loss / steps_per_game,
-                    pos_total,
-                    max(0.05, 1.0 - idx / games),
-                    ev,
-                    ckpt_at,
-                )
-            if on_event:
-                on_event(
-                    {
-                        "type": "game",
-                        "game": done,
-                        "games": games,
-                        "stage": stage,
-                        "lr": optimizer.param_groups[0]["lr"],
-                        "loss": total_loss / steps_per_game,
-                        "positions": pos_total,
-                        "temp": max(0.05, 1.0 - idx / games),
-                        "eval": ev,
-                        "elapsed": time.time() - start,
-                    }
-                )
-        if next_idx <= games:
-            submit(next_idx)
-            next_idx += 1
+                        if progress:
+                            progress.console.print(line)
+                        else:
+                            print(
+                                "[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)"
+                                % (
+                                    game_type,
+                                    done,
+                                    games,
+                                    w,
+                                    d,
+                                    loss,
+                                    total_loss / steps_per_game,
+                                    el,
+                                ),
+                                flush=True,
+                            )
+                if csv_log:
+                    # workers report the per-task index; its temperature schedule
+                    # mirrors _mp_play_game's
+                    csv_log.write(
+                        stage,
+                        done,
+                        time.time() - start,
+                        optimizer.param_groups[0]["lr"],
+                        total_loss / steps_per_game,
+                        pos_total,
+                        max(0.05, 1.0 - idx / games),
+                        ev,
+                        ckpt_at,
+                    )
+                if on_event:
+                    on_event(
+                        {
+                            "type": "game",
+                            "game": done,
+                            "games": games,
+                            "stage": stage,
+                            "lr": optimizer.param_groups[0]["lr"],
+                            "loss": total_loss / steps_per_game,
+                            "positions": pos_total,
+                            "temp": max(0.05, 1.0 - idx / games),
+                            "eval": ev,
+                            "elapsed": time.time() - start,
+                        }
+                    )
+            if next_idx <= games:
+                submit(next_idx)
+                next_idx += 1
 
-    pool.close()
-    pool.join()
+    finally:
+        # a crash inside the loop must still reap the pool
+        pool.close()
+        pool.join()
     if save:
         _save_model(model, size, channels, blocks, save_path)
         if on_event:
