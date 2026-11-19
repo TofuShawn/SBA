@@ -38,12 +38,12 @@ from game import (
 from ai import (
     get_ai_move,
     analyze_position,
-    position_win_rates,
     move_text,
     cfg_session,
 )
 from SBA import (
     AI_OPTIONS,
+    history_point,
     REASON_TEXT,
     current_side_type,
     is_ai_turn,
@@ -51,6 +51,7 @@ from SBA import (
     new_session,
     side_label,
     side_types,
+    replay_to,
     t,
 )
 
@@ -92,18 +93,6 @@ SUB = "#CAC4D0"
 def _reason_label(code):
     en, zh = REASON_TEXT.get(code, (code, code))
     return f"{en} / {zh}"
-
-
-def _history_point(game):
-    """Win-rate triplet for the current position.
-
-    Exact (Normal tablebase, or any terminal position) is computed inline;
-    a non-terminal Ultimate position defers to the assistant's full-budget
-    search (the None placeholder is filled when the analysis completes).
-    """
-    if isinstance(game, NormalGame) or game.is_over():
-        return tuple(position_win_rates(game, 0))
-    return None
 
 
 def _bar(frac, width=8):
@@ -911,7 +900,7 @@ class GameScreen(Screen):
         s["game_id"] += 1
         s["game"] = NormalGame() if s["game_type"] == "normal" else UltimateGame()
         s["moves"] = []
-        s["history"] = [_history_point(s["game"])]
+        s["history"] = [history_point(s["game"])]
         s["step"] = 0
         s["cvc_paused"] = False
         s["analysis_gen"] += 1
@@ -973,7 +962,7 @@ class GameScreen(Screen):
             del moves[s["step"] :]
             del s["history"][s["step"] + 1 :]
         moves.append(move)
-        s["history"].append(_history_point(game))
+        s["history"].append(history_point(game))
         s["step"] = len(moves)
         s["analysis_gen"] += 1
         s["reason_move"] = None
@@ -1078,9 +1067,7 @@ class GameScreen(Screen):
         if self._ai_worker is not None:
             with contextlib.suppress(Exception):  # noqa: BLE001
                 self._ai_worker.cancel()
-        g = NormalGame() if s["game_type"] == "normal" else UltimateGame()
-        for mv in moves[:k]:
-            apply_move(g, mv)
+        g, k = replay_to(s, k)
         s["game"] = g
         s["step"] = k
         s["cvc_paused"] = s["mode"] == "cvc" and k < len(moves)

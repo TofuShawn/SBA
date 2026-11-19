@@ -8,7 +8,7 @@ import pytest
 
 import ai
 import config
-from SBA import new_session, side_types
+from SBA import bench, new_session, side_types
 from ai import cfg_session, set_engine_config, save_engine_config
 
 
@@ -100,6 +100,46 @@ def test_save_refuses_to_overwrite_broken_toml(tmp_path, monkeypatch, caplog):
         save_engine_config({"engine": {"symmetry": False}})
     assert path.read_text(encoding="utf-8") == broken
     assert "refusing to overwrite" in caplog.text
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_save_preserves_toml_digit_separators(tmp_path, monkeypatch):
+    """A hand-written `300_000` is a legal TOML int. The rewriter must
+    recognise it as the existing value instead of treating the key as
+    missing and appending a duplicate (which used to make the whole file
+    unparsable and silently reset every engine setting)."""
+    path = _config_file(tmp_path, "[engine]\ntt_max = 300_000\nworkers = 8\n")
+    monkeypatch.setattr(config, "_CONFIG_PATH", str(path))
+    save_engine_config({"engine": {"tt_max": 200000}})
+
+    text = path.read_text(encoding="utf-8")
+    disk = tomllib.loads(text)  # must still parse
+    assert disk["engine"]["tt_max"] == 200000
+    assert text.count("tt_max") == 1
+
+
+def test_save_rewrites_the_key_in_its_own_section_only(tmp_path, monkeypatch):
+    """The rewrite is section-bounded: a same-named key in another table
+    must not be touched."""
+    path = _config_file(tmp_path, "[engine]\nworkers = 8\n[session]\nworkers = 4\n")
+    monkeypatch.setattr(config, "_CONFIG_PATH", str(path))
+    save_engine_config({"engine": {"workers": 2}})
+
+    disk = tomllib.loads(path.read_text(encoding="utf-8"))
+    assert disk["engine"]["workers"] == 2
+    assert disk["session"]["workers"] == 4
+
+
+def test_save_refuses_to_write_an_unverified_rewrite(tmp_path, monkeypatch, caplog):
+    """If the rewritten text does not parse or does not carry the values we
+    asked for, the save must abort with the original file intact."""
+    path = _config_file(tmp_path, _HAND_MANAGED)
+    monkeypatch.setattr(config, "_CONFIG_PATH", str(path))
+    monkeypatch.setattr(config, "_rewrite_text", lambda text, overrides: "[engine\nbroken")
+    with caplog.at_level(logging.ERROR):
+        save_engine_config({"engine": {"symmetry": True}})
+    assert path.read_text(encoding="utf-8") == _HAND_MANAGED
+    assert "refusing to write" in caplog.text
     assert not list(tmp_path.glob("*.tmp"))
 
 
@@ -218,3 +258,56 @@ def test_main_bench_flags_read_argv(monkeypatch):
     with pytest.raises(SystemExit) as ei:
         SBA.main(["--bench", "--ai-a", "Nope"])
     assert ei.value.code == 2
+
+
+def test_bench_progress_fires_every_game():
+    """M1 regression: on_progress fires once per game with a monotonically
+    rising cumulative counter — it used to fire once per MATCHUP with
+    game == total, freezing the dashboard bar at the first pair's end."""
+    calls = []
+    rc = bench(
+        games=3,
+        iterations=8,
+        game_type="normal",
+        seed=7,
+        ai_a="Basic",
+        ai_b="Random",
+        on_progress=calls.append,
+        quiet=True,
+    )
+    assert rc == 0
+    assert len(calls) == 3
+    assert [c["game"] for c in calls] == [1, 2, 3]
+    assert all(c["total"] == 3 for c in calls)
+    assert all(c["pct"] >= 0 for c in calls)
+
+    # cumulative across matchups: 3 pairs x 2 games -> 1..6, monotone
+    calls.clear()
+    rc = bench(
+        games=2,
+        iterations=8,
+        game_type="ultimate",
+        seed=7,
+        on_progress=calls.append,
+        quiet=True,
+    )
+    assert rc == 0
+    assert [c["game"] for c in calls] == [1, 2, 3, 4, 5, 6]
+    assert all(c["total"] == 6 for c in calls)
+
+    # games < 1 is rejected before any loop runs (no leaked loop variable)
+    calls.clear()
+    assert (
+        bench(
+            games=0,
+            iterations=8,
+            game_type="normal",
+            seed=7,
+            ai_a="Basic",
+            ai_b="Random",
+            on_progress=calls.append,
+            quiet=True,
+        )
+        == 2
+    )
+    assert calls == []

@@ -34,6 +34,7 @@ from game import (
 from ai import (
     get_ai_move,
     cfg_session,
+    position_win_rates,
 )
 
 log = logging.getLogger("SBA")
@@ -42,7 +43,6 @@ logging.basicConfig(
 )
 
 # Session state helpers (shared with the UI front ends and self-tests)
-SESSIONS = {}
 
 
 def new_session():
@@ -68,6 +68,33 @@ def new_session():
         "analysis_gen": 0,
         "game": None,
     }
+
+
+def history_point(game):
+    """(X win, draw, O win) for the current position, or None.
+
+    Exact (Normal tablebase, or any terminal position) is computed inline;
+    a live Ultimate position defers to the assistant's full-budget search,
+    whose result fills the None placeholder when it completes. Both front
+    ends call this, so they cannot drift apart.
+    """
+    if isinstance(game, NormalGame) or game.is_over():
+        return tuple(position_win_rates(game, 0))
+    return None
+
+
+def replay_to(session, k):
+    """Rebuild the position at history step `k`: returns (game, k).
+
+    Pure session arithmetic — the front ends keep their own side effects
+    (timers, tokens, repaints) but must not re-implement the replay.
+    """
+    moves = session["moves"]
+    k = max(0, min(k, len(moves)))
+    game = NormalGame() if session["game_type"] == "normal" else UltimateGame()
+    for mv in moves[:k]:
+        apply_move(game, mv)
+    return game, k
 
 
 def side_types(s):
@@ -150,14 +177,20 @@ def _flag_arg(name, args, default=None):
 
 
 def _flag_value(name, default, args):
-    """Return the integer following --name, or default."""
+    """Return the integer following --name, or default.
+
+    A non-integer value is a user error, not something to paper over: the
+    old fallback silently ran `--games 20` for `--games abc`, so a benchmark
+    conclusion could rest on a sample size the user never asked for.
+    """
     raw = _flag_arg(name, args)
     if raw is None:
         return default
     try:
         return int(raw)
     except ValueError:
-        return default
+        print("invalid value for --%s: %r" % (name, raw), file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 BENCH_AI_NAMES = (
@@ -203,12 +236,16 @@ def bench(
     和局不會被當作無效樣本，適合比較「多半和棋」的引擎強度。
 
     ``on_progress(dict)`` fires after every game with the running score
-    (a, b, game, total, aw, dw, bw, pct) — the TUI dashboard consumes it;
-    the plain CLI ignores it.
+    (a, b, game, total, aw, dw, bw, pct). ``game`` is the cumulative game
+    number across all matchups and ``total`` is games x matchups, so a
+    progress bar advances monotonically; the plain CLI ignores it.
     """
     random.seed(seed)
     if (ai_a is None) != (ai_b is None):
         print("--ai-a and --ai-b must be given together")
+        return 2
+    if games < 1:
+        print("--games must be at least 1")
         return 2
     if ai_a is not None:
         for name in (ai_a, ai_b):
@@ -228,6 +265,8 @@ def bench(
         title = f"MCTS family benchmark — {game_type} · {games} games/pair · {iterations} sims/move"
     header = ("A", "B", "A wins", "draws", "B wins", "A score%")
     rows = []
+    total_games = games * len(matchups)
+    played = 0
     for a, b in matchups:
         aw = dw = bw = 0
         for k in range(games):
@@ -240,20 +279,21 @@ def bench(
                 dw += 1
             else:
                 bw += 1
+            played += 1
+            if on_progress:
+                on_progress(
+                    {
+                        "a": a,
+                        "b": b,
+                        "game": played,
+                        "total": total_games,
+                        "aw": aw,
+                        "dw": dw,
+                        "bw": bw,
+                        "pct": 100.0 * (aw + 0.5 * dw) / (k + 1),
+                    }
+                )
         pct = 100.0 * (aw + 0.5 * dw) / games
-        if on_progress:
-            on_progress(
-                {
-                    "a": a,
-                    "b": b,
-                    "game": k + 1,
-                    "total": games,
-                    "aw": aw,
-                    "dw": dw,
-                    "bw": bw,
-                    "pct": pct,
-                }
-            )
         pct_cell = (
             f"{pct:.1f}%",
             "bold green" if pct > 55 else ("bold red" if pct < 45 else "bold"),

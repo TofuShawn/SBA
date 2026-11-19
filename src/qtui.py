@@ -90,7 +90,6 @@ from game import (
 from ai import (
     get_ai_move,
     analyze_position,
-    position_win_rates,
     move_text,
     az_policy_priors,
     cfg_engine,
@@ -100,9 +99,11 @@ from SBA import (
     AI_OPTIONS,
     REASON_TEXT,
     current_side_type,
+    history_point,
     is_ai_turn,
     log,
     new_session,
+    replay_to,
     side_label,
     side_types,
     t,
@@ -907,7 +908,15 @@ class BoardWidget(QWidget):
 
     def _paint_ultimate(self, painter):
         n, cell, ox, oy = self._grid()
-        # macro region highlights
+        self._paint_macro_regions(painter, cell, ox, oy)
+        self._paint_micro_cells(painter, cell, ox, oy)
+        self._paint_policy_heat(painter, cell, ox, oy)
+        self._paint_grid(painter, cell, ox, oy)
+        self._paint_target_brackets(painter, cell, ox, oy)
+        self._paint_won_macros(painter, cell, ox, oy)
+
+    def _paint_macro_regions(self, painter, cell, ox, oy):
+        """Tint each macro chunk by state: won (X/O plate) or the active one."""
         for m in range(9):
             rect = self._macro_rect(m, cell, ox, oy)
             if self.game.macro[m] == X:
@@ -920,38 +929,39 @@ class BoardWidget(QWidget):
                 continue
             painter.setPen(Qt.NoPen)
             painter.drawRect(rect)
-        # micro cells
-        macro_centers = []
-        micro_centers = [[] for _ in range(9)]
+
+    def _paint_micro_cells(self, painter, cell, ox, oy):
         for m in range(9):
             mr, mc = divmod(m, 3)
-            macro_rect = self._macro_rect(m, cell, ox, oy)
-            macro_centers.append(macro_rect.center())
             for i in range(9):
                 row = mr * 3 + i // 3
                 col = mc * 3 + i % 3
                 rect = self._cell_rect(row, col, cell, ox, oy)
-                micro_centers[m].append(rect.center())
                 self._paint_cell(
                     painter, rect, self.game.micro[m][i], self.flash_cell == (m, i), cell_id=(m, i)
                 )
-        # D40: AZNet policy heat — the empty cells tinted by prior mass, the
-        # brightest cell being the net's top move (spatial view of the same
-        # ranking the Best Moves list shows as text). Under the grid lines,
-        # over the cell fills.
-        if self._heat:
-            pmax = max(self._heat.values()) or 1.0
-            painter.setPen(Qt.NoPen)
-            for (m, i), p in self._heat.items():
-                if p <= 0 or self.game.micro[m][i] != EMPTY:
-                    continue
-                mr, mc = divmod(m, 3)
-                rect = self._cell_rect(mr * 3 + i // 3, mc * 3 + i % 3, cell, ox, oy)
-                c = QColor(PAL["active_outline"])
-                c.setAlpha(int(30 + 110 * (p / pmax)))
-                painter.setBrush(c)
-                painter.drawRect(rect)
-        # grid lines
+
+    def _paint_policy_heat(self, painter, cell, ox, oy):
+        """D40: AZNet policy heat — the empty cells tinted by prior mass, the
+        brightest cell being the net's top move (spatial view of the same
+        ranking the Best Moves list shows as text). Under the grid lines,
+        over the cell fills."""
+        if not self._heat:
+            return
+        pmax = max(self._heat.values()) or 1.0
+        painter.setPen(Qt.NoPen)
+        for (m, i), p in self._heat.items():
+            if p <= 0 or self.game.micro[m][i] != EMPTY:
+                continue
+            mr, mc = divmod(m, 3)
+            rect = self._cell_rect(mr * 3 + i // 3, mc * 3 + i % 3, cell, ox, oy)
+            c = QColor(PAL["active_outline"])
+            c.setAlpha(int(30 + 110 * (p / pmax)))
+            painter.setBrush(c)
+            painter.drawRect(rect)
+
+    def _paint_grid(self, painter, cell, ox, oy):
+        """Thin micro grid lines, heavy macro lines every three."""
         painter.setPen(QPen(QColor(PAL["grid_line"]), 1))
         for i in range(1, 9):
             x = ox + i * (cell + self.GAP) - self.GAP / 2
@@ -964,79 +974,85 @@ class BoardWidget(QWidget):
             y = oy + i * (cell + self.GAP) - self.GAP / 2
             painter.drawLine(x, oy, x, oy + 9 * cell + 8 * self.GAP)
             painter.drawLine(ox, y, ox + 9 * cell + 8 * self.GAP, y)
-        # yellow targeting brackets on the chunk the player must play in
-        # (Ultimate); drawn on top and slightly outside the chunk so cells
-        # don't cover it
-        if self.game.active_macro is not None and self.game.macro_open(self.game.active_macro):
-            rect = self._macro_rect(self.game.active_macro, cell, ox, oy)
-            self._draw_brackets(
-                painter,
-                rect.adjusted(-2.5, -2.5, 2.5, 2.5),
-                QColor(PAL["active_outline"]),
-                2.5,
-                max(8.0, cell * 0.35),
-            )
-        # macro-level winning line (the "connected" chunks) for the green tint
+
+    def _paint_target_brackets(self, painter, cell, ox, oy):
+        """Yellow targeting brackets on the chunk the player must play in
+        (Ultimate); drawn on top and slightly outside the chunk so cells
+        don't cover it."""
+        if self.game.active_macro is None or not self.game.macro_open(self.game.active_macro):
+            return
+        rect = self._macro_rect(self.game.active_macro, cell, ox, oy)
+        self._draw_brackets(
+            painter,
+            rect.adjusted(-2.5, -2.5, 2.5, 2.5),
+            QColor(PAL["active_outline"]),
+            2.5,
+            max(8.0, cell * 0.35),
+        )
+
+    def _paint_won_macros(self, painter, cell, ox, oy):
+        """Won macro chunks: a flat, opaque field label (no frosted glass — the
+        blurred-under-tint composite read as dirty mottling), plus the big
+        winner badge; clicking fades it into the real cells. `whole` is the
+        macro-level winning line (the "connected" chunks) for the green tint."""
         whole = micro_win_line(self.game.macro)
-        # won macro chunks: a flat, opaque field label (no frosted glass — the
-        # blurred-under-tint composite read as dirty mottling), plus the big
-        # winner badge; clicking fades it into the real cells
         for m in range(9):
-            if self.game.macro[m] in (X, O):
-                winner = self.game.macro[m]
-                rect = self._macro_rect(m, cell, ox, oy)
-                blend = self._reveal_blend if m == self._revealed_macro else 0.0
-                mb = self._mask_blend.get(m, 1.0)  # win-moment fade-in
-                if blend < 1.0:
-                    # flat dark base so nothing bleeds through, then the tint
-                    painter.setPen(Qt.NoPen)
-                    base = QColor("#0D0E10")
-                    base.setAlpha(int(255 * (1.0 - blend) * mb))
-                    if base.alpha() > 0:
-                        painter.setBrush(base)
-                        painter.drawRect(rect)
-                    connected = whole is not None and m in whole
-                    if connected:
-                        fill = QColor(WIN_ACCENT)
-                    else:
-                        fill = QColor(PAL["win_fill_x"] if winner == X else PAL["win_fill_o"])
-                    fill.setAlpha(int(215 * (1.0 - blend) * mb))
-                    if fill.alpha() > 0:
-                        painter.setBrush(fill)
-                        painter.drawRect(rect)
-                    badge_color = QColor(PAL["win_mark"])  # dark ink on the
-                    # colored plate — a yellow badge on a yellow O plate
-                    # vanished; ink on signal colors stays readable
-                    badge_color.setAlpha(int(255 * (1.0 - blend) * mb))
-                    if badge_color.alpha() > 0:
-                        pad = rect.width() * 0.18
-                        badge = QRectF(
-                            rect.left() + pad,
-                            rect.top() + pad,
-                            rect.width() - 2 * pad,
-                            rect.height() - 2 * pad,
-                        )
-                        self._paint_mark(painter, badge, winner, badge_color)
-                # green-highlight the connected winning X/O marks — shown only
-                # after clicking (reveal)
-                line = micro_win_line(self.game.micro[m])
-                if line is not None and blend > 0:
-                    conn = QColor(WIN_ACCENT)
-                    conn.setAlpha(int(255 * blend))
-                    mr, mc = divmod(m, 3)
-                    for idx in line:
-                        cmark = self.game.micro[m][idx]
-                        row = mr * 3 + idx // 3
-                        col = mc * 3 + idx % 3
-                        crect = self._cell_rect(row, col, cell, ox, oy)
-                        self._paint_mark(painter, crect, cmark, conn)
-                # green outline marks the chunks that make the macro win line
-                if whole is not None and m in whole:
-                    edge = QColor(WIN_ACCENT)
-                    edge.setAlpha(int(255 * mb))
-                    painter.setPen(QPen(edge, max(2.0, cell * 0.06)))
-                    painter.setBrush(Qt.NoBrush)
-                    painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
+            if self.game.macro[m] not in (X, O):
+                continue
+            winner = self.game.macro[m]
+            rect = self._macro_rect(m, cell, ox, oy)
+            blend = self._reveal_blend if m == self._revealed_macro else 0.0
+            mb = self._mask_blend.get(m, 1.0)  # win-moment fade-in
+            if blend < 1.0:
+                # flat dark base so nothing bleeds through, then the tint
+                painter.setPen(Qt.NoPen)
+                base = QColor("#0D0E10")
+                base.setAlpha(int(255 * (1.0 - blend) * mb))
+                if base.alpha() > 0:
+                    painter.setBrush(base)
+                    painter.drawRect(rect)
+                connected = whole is not None and m in whole
+                if connected:
+                    fill = QColor(WIN_ACCENT)
+                else:
+                    fill = QColor(PAL["win_fill_x"] if winner == X else PAL["win_fill_o"])
+                fill.setAlpha(int(215 * (1.0 - blend) * mb))
+                if fill.alpha() > 0:
+                    painter.setBrush(fill)
+                    painter.drawRect(rect)
+                badge_color = QColor(PAL["win_mark"])  # dark ink on the
+                # colored plate — a yellow badge on a yellow O plate
+                # vanished; ink on signal colors stays readable
+                badge_color.setAlpha(int(255 * (1.0 - blend) * mb))
+                if badge_color.alpha() > 0:
+                    pad = rect.width() * 0.18
+                    badge = QRectF(
+                        rect.left() + pad,
+                        rect.top() + pad,
+                        rect.width() - 2 * pad,
+                        rect.height() - 2 * pad,
+                    )
+                    self._paint_mark(painter, badge, winner, badge_color)
+            # green-highlight the connected winning X/O marks — shown only
+            # after clicking (reveal)
+            line = micro_win_line(self.game.micro[m])
+            if line is not None and blend > 0:
+                conn = QColor(WIN_ACCENT)
+                conn.setAlpha(int(255 * blend))
+                mr, mc = divmod(m, 3)
+                for idx in line:
+                    cmark = self.game.micro[m][idx]
+                    row = mr * 3 + idx // 3
+                    col = mc * 3 + idx % 3
+                    crect = self._cell_rect(row, col, cell, ox, oy)
+                    self._paint_mark(painter, crect, cmark, conn)
+            # green outline marks the chunks that make the macro win line
+            if whole is not None and m in whole:
+                edge = QColor(WIN_ACCENT)
+                edge.setAlpha(int(255 * mb))
+                painter.setPen(QPen(edge, max(2.0, cell * 0.06)))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRect(rect.adjusted(-1.0, -1.0, 1.0, 1.0))
 
 
 # ---------------------------------------------------------------------------
@@ -1220,55 +1236,62 @@ class MenuPage(EndfieldPage):
         root.addWidget(deck_label(f"{len(AI_OPTIONS)} ENGINES │ NATIVE C ENGINE", size=12))
         root.addSpacing(2)
         root.addWidget(deck_label("// GAME SETUP — 遊戲設定", size=11, accent=True))
+        root.addWidget(self._build_setup_card())
+        root.addStretch(1)
+        self._update_visibility()
+
+    def _field_row(self, label_text, widget):
+        """One muted label (fixed width) + its control, endfield style."""
+        row_widget = QWidget()
+        row = QHBoxLayout(row_widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        lab = QLabel(label_text)
+        lab.setObjectName("muted")
+        lab.setWordWrap(True)
+        lab.setMinimumWidth(320)
+        lab.setMaximumWidth(360)
+        row.addWidget(lab, 0)
+        row.addWidget(widget, 1)
+        return row_widget, lab
+
+    def _build_setup_card(self):
+        """The game-setup card: type/mode/first-player fields, engine levels,
+        the two strength sliders, the clock, assistant switches and the
+        start/settings row."""
         card = QFrame()
         card.setObjectName("card")
         card_lay = QVBoxLayout(card)
         card_lay.setSpacing(8)
-        root.addWidget(card)
-        root.addStretch(1)
-
-        def field_row(label_text, widget):
-            row_widget = QWidget()
-            row = QHBoxLayout(row_widget)
-            row.setContentsMargins(0, 0, 0, 0)
-            lab = QLabel(label_text)
-            lab.setObjectName("muted")
-            lab.setWordWrap(True)
-            lab.setMinimumWidth(320)
-            lab.setMaximumWidth(360)
-            row.addWidget(lab, 0)
-            row.addWidget(widget, 1)
-            return row_widget, lab
 
         self.game_type = _deck_combo()
         self.game_type.addItem("Normal Tic Tac Toe (普通井字棋)", "normal")
         self.game_type.addItem("Ultimate Tic Tac Toe (終極井字棋)", "ultimate")
-        card_lay.addWidget(field_row(t("Game Type", "遊戲類型"), self.game_type)[0])
+        card_lay.addWidget(self._field_row(t("Game Type", "遊戲類型"), self.game_type)[0])
 
         self.mode = _deck_combo()
         self.mode.addItem("PvP (玩家對玩家)", "pvp")
         self.mode.addItem("Player vs Computer (玩家對電腦)", "pvc")
-        self.mode.addItem("Computer vs Computer (電腦對電腦)", "cvc")
+        self.mode.addItem("Computer vs Computer (電腦對戰)", "cvc")
         self.mode.currentIndexChanged.connect(lambda _: self._update_visibility())
-        card_lay.addWidget(field_row(t("Mode", "模式"), self.mode)[0])
+        card_lay.addWidget(self._field_row(t("Mode", "模式"), self.mode)[0])
 
         self.first = _deck_combo()
         self.first.addItem(t("You move first — X", "你先手 — X"), "human")
         self.first.addItem(t("Computer moves first — O", "電腦先手 — O"), "computer")
         self.first.currentIndexChanged.connect(lambda _: self._update_visibility())
-        self.first_row, _ = field_row(t("First Player", "先手"), self.first)
+        self.first_row, _ = self._field_row(t("First Player", "先手"), self.first)
         card_lay.addWidget(self.first_row)
 
         self.ai_x = _deck_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_x.addItem(label, key)
-        self.ai_x_row, _ = field_row(t("Player X — AI Level", "玩家 X — AI 等級"), self.ai_x)
+        self.ai_x_row, _ = self._field_row(t("Player X — AI Level", "玩家 X — AI 等級"), self.ai_x)
         card_lay.addWidget(self.ai_x_row)
 
         self.ai_o = _deck_combo()
         for key, label in AI_OPTIONS.items():
             self.ai_o.addItem(label, key)
-        self.ai_o_row, self.ai_o_label = field_row(
+        self.ai_o_row, self.ai_o_label = self._field_row(
             t("Player O — AI Level", "玩家 O — AI 等級"), self.ai_o
         )
         card_lay.addWidget(self.ai_o_row)
@@ -1278,14 +1301,14 @@ class MenuPage(EndfieldPage):
         self.mcts.setSingleStep(100)
         self.mcts.setValue(800)
         card_lay.addWidget(
-            field_row(t("MCTS Strength", "MCTS 強度"), self._slider_row(self.mcts))[0]
+            self._field_row(t("MCTS Strength", "MCTS 強度"), self._slider_row(self.mcts))[0]
         )
 
         self.mm_depth = QSlider(Qt.Horizontal)
         self.mm_depth.setRange(2, 6)
         self.mm_depth.setValue(4)
         card_lay.addWidget(
-            field_row(
+            self._field_row(
                 t("Minimax Depth (Ultimate)", "Minimax 深度（終極模式）"),
                 self._slider_row(self.mm_depth),
             )[0]
@@ -1300,7 +1323,9 @@ class MenuPage(EndfieldPage):
             t("Classical: 10 min + 5×30s", "古典：10 分 + 5×30 秒"), "classical"
         )
         card_lay.addWidget(
-            field_row(t("Clock (main + byo-yomi)", "計時（主時限 + 讀秒）"), self.clock_preset)[0]
+            self._field_row(
+                t("Clock (main + byo-yomi)", "計時（主時限 + 讀秒）"), self.clock_preset
+            )[0]
         )
 
         self.assistant = QCheckBox(t("AI Assistant", "AI 助手"))
@@ -1333,8 +1358,7 @@ class MenuPage(EndfieldPage):
         settings_btn.clicked.connect(self.settings_requested.emit)
         start_row.addWidget(settings_btn)
         card_lay.addLayout(start_row)
-
-        self._update_visibility()
+        return card
 
     def _slider_row(self, slider):
         wrapper = QWidget()
@@ -1417,14 +1441,22 @@ class GamePage(EndfieldPage):
         self._build_ui()
 
     def _build_ui(self):
+        """Orchestrator only — each region is one `_build_*` helper so a UI
+        tweak navigates ~60 lines, not 300. Widget creation and signal
+        wiring happen in exactly the same order as the monolith did."""
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(make_stripe())  # tri-colour strip: top edge of the page
+        root.addWidget(self._build_command_bar())
+        self.hist_chart_view = self._build_hist_chart()
+        root.addLayout(self._build_body(), 1)
+        root.addWidget(self._build_footer())
 
-        # D34: single dark command bar (constant #161616) — brand block,
-        # transport, step field, dual clock, actions. Replaces the old header
-        # row + control bar + clock chip row (reference: audio-terminal nav).
+    def _build_command_bar(self):
+        """D34: single dark command bar (constant #161616) — brand block,
+        transport, step field, dual clock, actions. Replaces the old header
+        row + control bar + clock chip row (reference: audio-terminal nav)."""
         bar = QFrame()
         bar.setObjectName("commandBar")
         bar.setFixedHeight(64)
@@ -1488,10 +1520,11 @@ class GamePage(EndfieldPage):
         back_btn = ChamferButton("選單", kind="ghost")
         back_btn.clicked.connect(self.back_requested.emit)
         top.addWidget(back_btn)
-        root.addWidget(bar)
+        return bar
 
-        # Win-rate chart (lives under the board, so the right panel spans the
-        # full window height); single X-win-rate line with a 50% reference.
+    def _build_hist_chart(self):
+        """Win-rate chart (lives under the board, so the right panel spans
+        the full window height); single X-win-rate line with a 50% reference."""
         self.hist_chart = QChart()
         self.hist_chart.setAnimationOptions(QChart.NoAnimation)
         self.hist_chart.legend().setVisible(False)  # the deck label carries it
@@ -1552,7 +1585,10 @@ class GamePage(EndfieldPage):
         self.hist_chart_view.setRenderHint(QPainter.Antialiasing)
         self.hist_chart_view.setMinimumHeight(200)
         self.hist_chart_view.setBackgroundBrush(Qt.NoBrush)
+        return self.hist_chart_view
 
+    def _build_body(self):
+        """Board column (left) + the 340px side panel (right)."""
         body = QHBoxLayout()
         body.setContentsMargins(12, 8, 12, 0)
         board_col = QVBoxLayout()
@@ -1569,11 +1605,25 @@ class GamePage(EndfieldPage):
         board_col.addWidget(deck_label("WIN RATE // X ─ O", accent=True))
         board_col.addWidget(self.hist_chart_view, 1)
         body.addLayout(board_col, 1)
+        body.addWidget(self._build_side_panel())
+        return body
 
+    def _build_side_panel(self):
         panel = QVBoxLayout()
         panel.setSpacing(10)
+        panel.addWidget(self._build_info_card())
+        panel.addWidget(self._build_history_card())
+        panel.addWidget(self._build_assistant_card(), 1)
+        panel.addWidget(self._build_cvc_card())
+        panel_widget = QWidget()
+        panel_widget.setObjectName("sidePanel")
+        panel_widget.setAttribute(Qt.WA_StyledBackground, True)
+        panel_widget.setLayout(panel)
+        panel_widget.setFixedWidth(340)
+        return panel_widget
 
-        # Game info card
+    def _build_info_card(self):
+        """Game info card: mode readouts + the assistant/heat switches."""
         info_card = QFrame()
         info_card.setObjectName("card")
         info_lay = QVBoxLayout(info_card)
@@ -1600,11 +1650,12 @@ class GamePage(EndfieldPage):
         self.heat_switch.setChecked(True)
         self.heat_switch.toggled.connect(self.on_heat_toggled)
         info_lay.addWidget(self.heat_switch)
-        panel.addWidget(info_card)
+        return info_card
 
-        # History card (user request): every step listed; clicking an entry
-        # rewinds the game to that step via go_to_step (same replay path as
-        # the timeline slider).
+    def _build_history_card(self):
+        """History card (user request): every step listed; clicking an entry
+        rewinds the game to that step via go_to_step (same replay path as
+        the timeline slider)."""
         hist_card = QFrame()
         hist_card.setObjectName("card")
         hist_lay = QVBoxLayout(hist_card)
@@ -1615,9 +1666,11 @@ class GamePage(EndfieldPage):
         self.hist_list.setMaximumHeight(160)
         self.hist_list.itemClicked.connect(self.on_history_clicked)
         hist_lay.addWidget(self.hist_list)
-        panel.addWidget(hist_card)
+        return hist_card
 
-        # Assistant card
+    def _build_assistant_card(self):
+        """Assistant card: win-rate bar, scanning rail, AI thinking line (D24)
+        and the Best Moves list with its endfield hatch empty state."""
         az_card = QFrame()
         az_card.setObjectName("card")
         az_lay = QVBoxLayout(az_card)
@@ -1684,9 +1737,10 @@ class GamePage(EndfieldPage):
         hint = QLabel(t("Click a move to highlight it", "點擊棋步可在棋盤上標示"))
         hint.setObjectName("muted")
         az_lay.addWidget(hint)
-        panel.addWidget(az_card, 1)
+        return az_card
 
-        # CvC controls card
+    def _build_cvc_card(self):
+        """CvC controls card: the pace slider for computer-vs-computer."""
         self.cvc_card = QFrame()
         self.cvc_card.setObjectName("card")
         cvc_lay = QVBoxLayout(self.cvc_card)
@@ -1703,16 +1757,9 @@ class GamePage(EndfieldPage):
         speed_row.addWidget(self.speed_slider, 1)
         speed_row.addWidget(self.speed_lbl)
         cvc_lay.addLayout(speed_row)
-        panel.addWidget(self.cvc_card)
+        return self.cvc_card
 
-        panel_widget = QWidget()
-        panel_widget.setObjectName("sidePanel")
-        panel_widget.setAttribute(Qt.WA_StyledBackground, True)
-        panel_widget.setLayout(panel)
-        panel_widget.setFixedWidth(340)
-        body.addWidget(panel_widget)
-        root.addLayout(body, 1)
-
+    def _build_footer(self):
         self.footer = QFrame()
         self.footer.setObjectName("footerTechnical")
         footer_lay = QHBoxLayout(self.footer)
@@ -1720,7 +1767,7 @@ class GamePage(EndfieldPage):
         self.footer_lbl = deck_label("", size=11)
         footer_lay.addWidget(self.footer_lbl)
         footer_lay.addStretch(1)
-        root.addWidget(self.footer)
+        return self.footer
 
     # -- session flow ------------------------------------------------------
 
@@ -1783,15 +1830,9 @@ class GamePage(EndfieldPage):
         self.trigger_analysis()
 
     def _history_point(self):
-        """Win-rate triplet for the current position.
-
-        Exact (Normal tablebase, or any terminal position) is computed inline;
-        a non-terminal Ultimate position defers to the assistant's full-budget
-        search (the None placeholder is filled by on_analysis_done).
-        """
-        if isinstance(self.game, NormalGame) or self.game.is_over():
-            return tuple(position_win_rates(self.game, 0))
-        return None
+        """Win-rate triplet for the current position (shared implementation:
+        SBA.history_point, so the TUI and Qt cannot drift apart)."""
+        return history_point(self.game)
 
     def go_to_step(self, k):
         """Jump to history step k (0..N) by replaying moves[:k]."""
@@ -1803,9 +1844,7 @@ class GamePage(EndfieldPage):
         self.cvc_timer.stop()
         self.pvc_timer.stop()
         s["cvc_paused"] = s["mode"] == "cvc" and k < len(moves)
-        self.game = NormalGame() if s["game_type"] == "normal" else UltimateGame()
-        for mv in moves[:k]:
-            apply_move(self.game, mv)
+        self.game, k = replay_to(s, k)
         s["game"] = self.game
         self.step_idx = k
         self.busy = False
@@ -2552,7 +2591,12 @@ class SettingsPage(EndfieldPage):
         top.addWidget(back)
         root.addLayout(top)
         root.addWidget(deck_label("ENGINE SWITCHES // config.toml"))
+        root.addWidget(self._build_switch_panel(), 1)
+        root.addLayout(self._build_button_row())
 
+    def _build_switch_panel(self):
+        """Scrollable panel: one card per GROUPS deck. The numeric knobs
+        (workers / assistant_sims / pro_time_ms) ride inside their decks."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -2563,53 +2607,7 @@ class SettingsPage(EndfieldPage):
 
         self._checks = {}
         for deck, zh, hint, keys in self.GROUPS:
-            card = QFrame()
-            card.setObjectName("card")
-            lay = QVBoxLayout(card)
-            lay.setContentsMargins(12, 10, 12, 10)
-            lay.setSpacing(6)
-            head = QHBoxLayout()
-            head.addWidget(deck_label(deck))
-            sub = QLabel(zh)
-            sub.setObjectName("muted")
-            head.addSpacing(8)
-            head.addWidget(sub)
-            head.addStretch(1)
-            lay.addLayout(head)
-            hint_lbl = QLabel(hint)
-            hint_lbl.setObjectName("muted")
-            hint_lbl.setWordWrap(True)
-            lay.addWidget(hint_lbl)
-            for key in keys:
-                en, zh_key = self.KEY_LABELS.get(key, (key, key))
-                cb = QCheckBox(f"{en} — {zh_key}  [{key}]")
-                cb.setChecked(bool(cfg_engine(key, False)))
-                lay.addWidget(cb)
-                self._checks[key] = cb
-            if keys[0] == "c_mcts":
-                spin_row = QHBoxLayout()
-                lbl = QLabel(t("C search threads", "C 搜尋執行緒數") + "  [workers]")
-                spin_row.addWidget(lbl)
-                self.workers_spin = QSpinBox()
-                self.workers_spin.setRange(1, 16)
-                self.workers_spin.setValue(int(cfg_engine("workers", 8)))
-                spin_row.addWidget(self.workers_spin)
-                spin_row.addStretch(1)
-                lay.addLayout(spin_row)
-                sims_row = QHBoxLayout()
-                sims_lbl = QLabel(
-                    t("AI Assistant sims (Best Moves analysis)", "AI 助手模擬數（最佳著法分析）")
-                    + "  [assistant_sims]"
-                )
-                sims_row.addWidget(sims_lbl)
-                self.assistant_sims_spin = QSpinBox()
-                self.assistant_sims_spin.setRange(200, 30000)
-                self.assistant_sims_spin.setSingleStep(100)
-                self.assistant_sims_spin.setValue(int(cfg_engine("assistant_sims", 2000)))
-                sims_row.addWidget(self.assistant_sims_spin)
-                sims_row.addStretch(1)
-                lay.addLayout(sims_row)
-            panel_lay.addWidget(card)
+            panel_lay.addWidget(self._build_group_card(deck, zh, hint, keys))
 
         note = QLabel(
             t(
@@ -2622,8 +2620,86 @@ class SettingsPage(EndfieldPage):
         panel_lay.addWidget(note)
         panel_lay.addStretch(1)
         scroll.setWidget(panel)
-        root.addWidget(scroll, 1)
+        return scroll
 
+    def _build_group_card(self, deck, zh, hint, keys):
+        card = QFrame()
+        card.setObjectName("card")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
+        head = QHBoxLayout()
+        head.addWidget(deck_label(deck))
+        sub = QLabel(zh)
+        sub.setObjectName("muted")
+        head.addSpacing(8)
+        head.addWidget(sub)
+        head.addStretch(1)
+        lay.addLayout(head)
+        hint_lbl = QLabel(hint)
+        hint_lbl.setObjectName("muted")
+        hint_lbl.setWordWrap(True)
+        lay.addWidget(hint_lbl)
+        for key in keys:
+            en, zh_key = self.KEY_LABELS.get(key, (key, key))
+            cb = QCheckBox(f"{en} — {zh_key}  [{key}]")
+            cb.setChecked(bool(cfg_engine(key, False)))
+            lay.addWidget(cb)
+            self._checks[key] = cb
+        if keys[0] == "c_mcts":
+            lay.addLayout(
+                self._build_spin_row(
+                    t("C search threads", "C 搜尋執行緒數") + "  [workers]",
+                    "workers_spin",
+                    1,
+                    16,
+                    1,
+                    int(cfg_engine("workers", 8)),
+                )
+            )
+            lay.addLayout(
+                self._build_spin_row(
+                    t("AI Assistant sims (Best Moves analysis)", "AI 助手模擬數（最佳著法分析）")
+                    + "  [assistant_sims]",
+                    "assistant_sims_spin",
+                    200,
+                    30000,
+                    100,
+                    int(cfg_engine("assistant_sims", 2000)),
+                )
+            )
+        if keys[0] == "use_lmr":
+            # the C Pro backend caps each move at this wall-clock budget;
+            # without a control here it was hard-wired to 8 s in cengine
+            lay.addLayout(
+                self._build_spin_row(
+                    t("Minimax Pro time cap (ms)", "Minimax Pro 每步時限（毫秒）")
+                    + "  [pro_time_ms]",
+                    "pro_time_spin",
+                    100,
+                    60000,
+                    500,
+                    int(cfg_engine("pro_time_ms", 8000)),
+                )
+            )
+        return card
+
+    def _build_spin_row(self, text, attr, lo, hi, step, value):
+        """Label + QSpinBox bound to `self.<attr>`; the three numeric engine
+        knobs are the same widget with different bounds."""
+        row = QHBoxLayout()
+        lbl = QLabel(text)
+        row.addWidget(lbl)
+        spin = QSpinBox()
+        spin.setRange(lo, hi)
+        spin.setSingleStep(step)
+        spin.setValue(value)
+        row.addWidget(spin)
+        row.addStretch(1)
+        setattr(self, attr, spin)
+        return row
+
+    def _build_button_row(self):
         btn_row = QHBoxLayout()
         save = _deck_button(t("Save Settings", "保存設定"), primary=True)
         save.clicked.connect(self._on_save)
@@ -2636,13 +2712,14 @@ class SettingsPage(EndfieldPage):
         self.status_lbl = QLabel("")
         self.status_lbl.setObjectName("muted")
         btn_row.addWidget(self.status_lbl)
-        root.addLayout(btn_row)
+        return btn_row
 
     def refresh_values(self):
         for key, cb in self._checks.items():
             cb.setChecked(bool(cfg_engine(key, False)))
         self.workers_spin.setValue(int(cfg_engine("workers", 8)))
         self.assistant_sims_spin.setValue(int(cfg_engine("assistant_sims", 2000)))
+        self.pro_time_spin.setValue(int(cfg_engine("pro_time_ms", 8000)))
 
     def _on_save(self):
         save_engine_config({"engine": self._collect()})
@@ -2657,6 +2734,7 @@ class SettingsPage(EndfieldPage):
         eng = {key: cb.isChecked() for key, cb in self._checks.items()}
         eng["workers"] = self.workers_spin.value()
         eng["assistant_sims"] = self.assistant_sims_spin.value()
+        eng["pro_time_ms"] = self.pro_time_spin.value()
         return eng
 
 
