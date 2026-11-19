@@ -30,14 +30,14 @@
 - **Arknights: Endfield field-console theme / 終末地工業 console 主題**：訊號黃 × 炭灰、deck 標籤、瞄準括號、落子蓋章與勝利線動畫（可「減少動態」）
 - **Settings page / 設定頁**：引擎開關全數圖形化，保存寫回 `config.toml`
 - **History card / 歷史卡**：點擊任一步直接回放該局面
-- **Headless pytest suite / 無頭 pytest 測試**（149 tests）
+- **Headless pytest suite / 無頭 pytest 測試**（rules, engines, UI smoke, ABI contracts; size via `pytest tests --collect-only -q`）
 
 ---
 
 ## Requirements / 環境需求
 
 - Python **3.12+**（於 3.13 開發）
-- 核心依賴：`pyside6>=6.6`（桌面版）、`textual>=3.0`（終端機版）
+- 核心依賴：`pyside6>=6.12,<7`（桌面版）、`textual>=8.2,<9`（終端機版）、`rich>=15,<16`、`numpy>=2.0,<3`
 
 Install core dependencies / 安裝核心依賴：
 
@@ -50,10 +50,10 @@ PySide6（Qt for Python，桌面版用）已併入 `requirements.txt`，不需�
 （Windows 本機 gcc 或 WSL mingw 交叉編譯；CI 自動構建）。DLL 缺失時引擎
 自動回退純 Python 實作，功能不受影響、僅速度下降。
 
-**Optional - AlphaZero / 選用 - AlphaZero**：神經網路引擎需要 `torch` 與 `numpy`（CPU 版 PyTorch 即可，模型很小）。只有要使用或訓練 AlphaZero 才需要安裝：
+**Optional - AlphaZero / 選用 - AlphaZero**：神經網路引擎需要 `torch`（CPU 版即可，模型很小；`numpy` 已列入 `requirements.txt`）。只有要使用或訓練 AlphaZero 才需要安裝：
 
 ```bash
-pip install torch numpy
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
 
 Trained AlphaZero weights are distributed via GitHub Releases /
@@ -122,7 +122,7 @@ python src/SBA.py --self-test
 ```
 
 Runs the pytest suite covering rules, AI sanity, termination, and AlphaZero
-smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試（需 `pip install pytest`，已列入 `requirements.txt`）。
+smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試（需 `pip install -r requirements-dev.txt`：pytest 屬開發工具，不在 runtime 依賴裡）。
 
 ### 3b. MCTS benchmark / MCTS 對戰測試
 

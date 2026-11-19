@@ -1,3 +1,19 @@
+# Tool configuration for pytest and ruff — one shared home instead of a
+# config file per tool.
+#
+# Why no [project] packaging block: SBA ships as a source tree (the release
+# zip runs from source via sba.py/start.bat), so there is nothing to pip
+# install, and a metadata block nobody builds would be decorative.
+#
+# The import layout is flat (src/ on sys.path, D36) and the src/ package
+# split is a deliberately frozen decision — see docs/decisions.md before
+# restructuring imports.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
 # Ruff — F (pyflakes) + E9 (syntax) + E7 (naming/multiline basics)
 # + B (bugbear) + SIM (simplify) + PERF (perflint).
 # E741 is per-file-ignored where `O` IS the domain constant: the second
@@ -11,10 +27,10 @@ exclude = [
     "logs",            # scratch + the ai.py pre-split backup
 ]
 
-[lint]
+[tool.ruff.lint]
 select = ["F", "E9", "E7", "B", "SIM", "PERF"]
 
-[lint.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 # the facade re-exports the whole engine surface on purpose (from ai import
 # ... is the historical API) — F401 is the contract there, not a finding
 "src/ai.py" = ["F401"]

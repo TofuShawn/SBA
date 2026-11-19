@@ -1,0 +1,13 @@
+# Editor hygiene. The repo is LF-only via .gitattributes; this keeps
+# editors from reintroducing CRLF or stray whitespace in the first place.
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.bat]
+end_of_line = crlf

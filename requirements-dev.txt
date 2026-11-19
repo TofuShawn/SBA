@@ -1,4 +1,8 @@
-# Dev-only tooling (the CI lint step); runtime deps live in requirements.txt.
+# Dev-only tooling: the test runner and the lint/format gate. Runtime deps
+# live in requirements.txt. Install both to run the suite:
+#     pip install -r requirements.txt -r requirements-dev.txt
+# `python sba.py --self-test` needs pytest, i.e. this file.
 # torch is deliberately NOT here — CI installs the CPU wheel from the
 # PyTorch index, and Dependabot must not drag the CUDA bundle into that.
+pytest>=9.2,<10
 ruff==0.17.5

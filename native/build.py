@@ -101,7 +101,7 @@ def build_rust():
         produced = os.path.join(
             RUST_DIR, "target", "x86_64-pc-windows-gnu", "release", RUST_PRODUCED
         )
-    print("building rust:", " ".join(cmd) if cmd[0] != "wsl" else cmd[2])
+    print("building rust:", " ".join(cmd) if cmd[0] != "wsl" else cmd[1])
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stderr[-2000:])
@@ -134,6 +134,9 @@ def find_compiler():
 def wsl_path(win_path):
     """Translate a Windows path into the WSL /mnt/<drive> form."""
     drive, rest = os.path.splitdrive(os.path.abspath(win_path))
+    if not drive:
+        # os.path.splitdrive("/home/x") == ("", "/home/x") on POSIX
+        raise RuntimeError("wsl_path() needs a Windows drive path, got %r" % win_path)
     return "/mnt/" + drive[0].lower() + rest.replace("\\", "/")
 
 
