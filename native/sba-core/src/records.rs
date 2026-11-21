@@ -51,10 +51,41 @@ impl GameRecord {
             ("sims".to_string(), self.meta.sims.to_string()),
             ("weights_sha".to_string(), self.meta.weights_sha.clone()),
         ]);
-        let blob = safetensors::serialize(data, &Some(meta)).map_err(|e| e.to_string())?;
+        // Byte determinism: safetensors 0.4 serializes the __metadata__ map
+        // in HashMap iteration order, which is randomized per process —
+        // two runs writing identical records would differ at the byte
+        // level (the selfplay CLI contract compares same-seed records
+        // bitwise). Serialize the tensors WITHOUT metadata (the crate
+        // sorts tensor entries internally, so those bytes are stable),
+        // then splice the metadata back as a JSON object built from
+        // key-sorted entries: the header bytes come out identical on every
+        // run and the file stays a plain safetensors blob (read_metadata /
+        // SafeTensors::deserialize / the Python loader all read it back).
+        let blob = safetensors::serialize(data, &None).map_err(|e| e.to_string())?;
+        let (header_len, _) =
+            safetensors::SafeTensors::read_metadata(&blob).map_err(|e| e.to_string())?;
+        let mut header: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_slice(&blob[8..8 + header_len]).map_err(|e| e.to_string())?;
+        let mut meta_sorted: Vec<(String, String)> = meta.into_iter().collect();
+        meta_sorted.sort();
+        let mut md = serde_json::Map::new();
+        for (k, v) in meta_sorted {
+            md.insert(k, serde_json::Value::String(v));
+        }
+        header.insert("__metadata__".to_string(), serde_json::Value::Object(md));
+        let mut header_bytes =
+            serde_json::to_vec(&serde_json::Value::Object(header)).map_err(|e| e.to_string())?;
+        // force the 8-byte header alignment safetensors requires
+        let pad = (8 - header_bytes.len() % 8) % 8;
+        header_bytes.resize(header_bytes.len() + pad, b' ');
+        let mut out = (header_bytes.len() as u64).to_le_bytes().to_vec();
+        out.extend_from_slice(&header_bytes);
+        // the tensor data section rides over unchanged (offsets are
+        // relative to the end of the header)
+        out.extend_from_slice(&blob[8 + header_len..]);
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("g{game_idx:05}.safetensors"));
-        fs::write(&path, &blob).map_err(|e| e.to_string())?;
+        fs::write(&path, &out).map_err(|e| e.to_string())?;
         Ok(path)
     }
 }

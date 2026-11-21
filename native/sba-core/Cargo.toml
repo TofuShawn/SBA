@@ -16,6 +16,10 @@ path = "src/lib.rs"
 name = "bench_burn"
 path = "src/bench_burn.rs"
 
+[[bin]]
+name = "sba_selfplay"
+path = "src/sba_selfplay.rs"
+
 [features]
 default = ["wgpu"]
 wgpu = ["burn/wgpu"]
@@ -30,4 +34,10 @@ bytemuck = "1"
 # (Rng::gen, Dirichlet::new(&[f64]) -> Vec<f64>).
 rand = "0.8"
 rand_distr = "0.4"
+# sba_selfplay: clap derive for the exe contract, serde_json for the JSONL
+# event stream (and records.rs's deterministic metadata splice), sha2 for
+# the weights_sha fingerprint in the start event and record metadata.
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
 sba_game = { path = "../sba-game" }
