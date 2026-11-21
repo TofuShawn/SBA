@@ -56,6 +56,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import rustbridge
+import rustselfplay
 from dataclasses import dataclass
 
 import config
@@ -921,6 +922,22 @@ def _optimize_step(model, optimizer, replay, steps_per_game, augment, size, poli
     return total_loss
 
 
+def _absorb_records(replay, records, *, replay_cap):
+    """Append self-play records (replay-ready tuples) to the replay buffer,
+    trimming to the cap. Returns total positions absorbed.
+
+    Shared by the single-process and rust self-play paths: the rust bridge
+    hands back one tuple per record file, the python path one per game —
+    the replay semantics are identical."""
+    total = 0
+    for states, targets, zs in records:
+        replay.append((states, targets, zs))
+        if len(replay) > replay_cap:
+            replay.pop(0)
+        total += len(states)
+    return total
+
+
 def train(
     game_type,
     games=300,
@@ -949,6 +966,9 @@ def train(
     eval_sims=800,
     csv_path=None,
     on_event=None,
+    selfplay_engine="auto",
+    selfplay_exe=None,
+    round_games=32,
 ):
     if seed is not None:
         random.seed(seed)
@@ -1046,8 +1066,203 @@ def train(
         return wins, draws, losses
 
     replay = []
+    # Self-play engine arbitration (D55 Phase A): the rust exe when available
+    # (or forced), the python paths otherwise. Announced once so the UI can
+    # label the run; `workers` is the TUI's field value for BOTH engines
+    # (under rust it maps onto the exe's --threads, see Task 10's label).
+    engine, exe = rustselfplay.resolve_engine(selfplay_engine, selfplay_exe)
+    if engine == "rust" and not exe:
+        raise RuntimeError(
+            "selfplay-engine=rust: no sba_selfplay exe found "
+            "(build native/sba-core or pass --selfplay-exe)"
+        )
+    if on_event:
+        on_event({"type": "selfplay_engine", "engine": engine, "workers": workers})
+
+    def _absorb_game(records, it, temp):
+        """One game's post-processing, shared verbatim by the single-process
+        and the rust self-play paths (audit M12 — one copy, not two): absorb
+        the records into the replay, anneal the LR, run one optimize step,
+        then the checkpoint / eval-gauge / CSV / game-event bookkeeping.
+        Returns the step's total loss."""
+        nonlocal positions_total
+        positions_total += _absorb_records(replay, records, replay_cap=replay_cap)
+        # Linear LR annealing: full rate early, a 5x drop by the final game.
+        optimizer.param_groups[0]["lr"] = lr * max(0.2, 1.0 - it / games)
+        total_loss = _optimize_step(
+            model, optimizer, replay, steps_per_game, augment, size, policy_loss
+        )
+        ckpt_at = ""
+        if save and ckpt_every and it % ckpt_every == 0:
+            ckpt_at = _save_ckpt(
+                model,
+                size,
+                channels,
+                blocks,
+                save_path,
+                it,
+                games,
+                on_event,
+                quiet,
+                progress,
+                game_type,
+            )
+        if (it % max(1, eval_every) == 0 or it == games) and on_event:
+            on_event({"type": "eval_start", "game": it})
+        ev = None
+        # the gauge runs regardless of quiet — quiet mutes the PRINT, not
+        # the data: the CSV curve needs the win-rate column
+        if it % max(1, eval_every) == 0 or it == games:
+            el = time.time() - start
+            ev = evaluate()
+            w, d, loss = ev
+            if not quiet:
+                line = (
+                    "eval game %d/%d - win=%d draw=%d loss=%d - loss=%.3f"
+                    " - %.0fs - AZ@100 vs %s@%d"
+                    % (
+                        it,
+                        games,
+                        w,
+                        d,
+                        loss,
+                        total_loss / steps_per_game,
+                        el,
+                        eval_ai,
+                        eval_sims,
+                    )
+                )
+                if progress:
+                    progress.console.print(line)
+                else:
+                    print(
+                        "[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)"
+                        "  [eval: AZ@100 vs %s@%d]"
+                        % (
+                            game_type,
+                            it,
+                            games,
+                            w,
+                            d,
+                            loss,
+                            total_loss / steps_per_game,
+                            el,
+                            eval_ai,
+                            eval_sims,
+                        ),
+                        flush=True,
+                    )
+        if csv_log:
+            csv_log.write(
+                stage,
+                it,
+                time.time() - start,
+                optimizer.param_groups[0]["lr"],
+                total_loss / steps_per_game,
+                positions_total,
+                temp,
+                ev,
+                ckpt_at,
+            )
+
+        if progress:
+            progress.advance(task)
+        if on_event:
+            on_event(
+                {
+                    "type": "game",
+                    "game": it,
+                    "games": games,
+                    "stage": stage,
+                    "lr": optimizer.param_groups[0]["lr"],
+                    "loss": total_loss / steps_per_game,
+                    "positions": positions_total,
+                    "temp": temp,
+                    "eval": ev,
+                    "elapsed": time.time() - start,
+                }
+            )
+        return total_loss
+
     try:
-        if workers > 1:
+        if engine == "rust":
+            # D55 Phase A: rounds of exe self-play. Weights are exported per
+            # round, the exe writes one safetensors record per game, and the
+            # records are absorbed IN ORDER — one optimize step + one `game`
+            # event per game, the same semantics as the python path.
+            logs_dir = os.path.normpath(os.path.join(MODEL_DIR, "..", "logs"))
+            os.makedirs(logs_dir, exist_ok=True)
+            it = 1
+            while it <= games:
+                r_end = min(it + round_games - 1, games)
+                round_games_n = r_end - it + 1
+                # round schedule endpoint (ruling: computed once before the
+                # first run_round call, reused by the retry so both calls of
+                # this round interpolate to the same end temperature)
+                temp_end = max(0.05, 1.0 - (r_end - 1) / games)
+                out_dir = writable_path(os.path.join(logs_dir, "selfplay-%d" % time.time_ns()))
+                weights_path = writable_path(
+                    os.path.join(logs_dir, "selfplay-%d.safetensors" % time.time_ns())
+                )
+                export_safetensors(model, weights_path)
+                res = rustselfplay.run_round(
+                    exe,
+                    weights_path,
+                    out_dir,
+                    games=round_games_n,
+                    sims=sims,
+                    threads=workers,
+                    seed_base=(seed or 0),
+                    temp_start=max(0.05, 1.0 - (it - 1) / games),
+                    temp_end=temp_end,
+                    temp_min=0.05,
+                    dirichlet_eps=dirichlet_eps,
+                    on_event=on_event,
+                    # round deadline, not a per-line gap: a legitimate large
+                    # round (games x 2min floor) is never falsely killed
+                    timeout=max(config.MP_GAME_TIMEOUT, round_games * 120),
+                )
+                if res["crashed"]:
+                    if on_event:
+                        on_event({"type": "worker_lost", "game": it})
+                    # one re-dispatch for the missing games (spec §5.4): a
+                    # fresh round dir, advanced seed base; records land
+                    # beside the first attempt's
+                    missing = round_games_n - res["games_done"]
+                    res = rustselfplay.run_round(
+                        exe,
+                        weights_path,
+                        out_dir + "-retry",
+                        games=missing,
+                        sims=sims,
+                        threads=workers,
+                        seed_base=(seed or 0) + res["games_done"],
+                        # advanced index: the retry's first game is absolute
+                        # game it + games_done, whose schedule point is
+                        # (game - 1) / games — same convention as temp_end
+                        temp_start=max(0.05, 1.0 - (it - 1 + res["games_done"]) / games),
+                        temp_end=temp_end,
+                        temp_min=0.05,
+                        dirichlet_eps=dirichlet_eps,
+                        on_event=on_event,
+                        timeout=max(config.MP_GAME_TIMEOUT, round_games * 120),
+                    )
+                    if res["crashed"]:
+                        raise RuntimeError("rust self-play died twice: %s" % res["stderr_tail"])
+                records = rustselfplay.load_records(out_dir) + rustselfplay.load_records(
+                    out_dir + "-retry"
+                )
+                for g_states, g_targets, g_zs in records:
+                    # per-game temp under the exe's linear round schedule:
+                    # game g sits at exactly (g - 1) / games between the
+                    # round's temp_start and temp_end endpoints
+                    _absorb_game(
+                        [(g_states, g_targets, g_zs)],
+                        it,
+                        max(0.05, 1.0 - (it - 1) / games),
+                    )
+                    it += 1
+        elif workers > 1:
             return _train_multiprocess(
                 TrainCfg(
                     games=games,
@@ -1081,116 +1296,19 @@ def train(
                 ),
                 TrainHooks(csv_log=csv_log, progress=progress, task=task, on_event=on_event),
             )
-        for it in range(1, games + 1):
-            temp = max(0.05, 1.0 - it / games)
-            states, targets, zs = self_play_game(
-                make_game_fn,
-                model,
-                sims,
-                temp,
-                dirichlet_eps,
-                value_target=value_target,
-                use_network=use_network,
-            )
-            positions_total += len(states)
-            replay.append((states, targets, zs))
-            if len(replay) > replay_cap:
-                replay.pop(0)
-            # Linear LR annealing: full rate early, a 5x drop by the final game.
-            optimizer.param_groups[0]["lr"] = lr * max(0.2, 1.0 - it / games)
-            total_loss = _optimize_step(
-                model, optimizer, replay, steps_per_game, augment, size, policy_loss
-            )
-            ckpt_at = ""
-            if save and ckpt_every and it % ckpt_every == 0:
-                ckpt_at = _save_ckpt(
+        else:
+            for it in range(1, games + 1):
+                temp = max(0.05, 1.0 - it / games)
+                states, targets, zs = self_play_game(
+                    make_game_fn,
                     model,
-                    size,
-                    channels,
-                    blocks,
-                    save_path,
-                    it,
-                    games,
-                    on_event,
-                    quiet,
-                    progress,
-                    game_type,
-                )
-            if (it % max(1, eval_every) == 0 or it == games) and on_event:
-                on_event({"type": "eval_start", "game": it})
-            ev = None
-            # the gauge runs regardless of quiet — quiet mutes the PRINT, not
-            # the data: the CSV curve needs the win-rate column
-            if it % max(1, eval_every) == 0 or it == games:
-                el = time.time() - start
-                ev = evaluate()
-                w, d, loss = ev
-                if not quiet:
-                    line = (
-                        "eval game %d/%d - win=%d draw=%d loss=%d - loss=%.3f"
-                        " - %.0fs - AZ@100 vs %s@%d"
-                        % (
-                            it,
-                            games,
-                            w,
-                            d,
-                            loss,
-                            total_loss / steps_per_game,
-                            el,
-                            eval_ai,
-                            eval_sims,
-                        )
-                    )
-                    if progress:
-                        progress.console.print(line)
-                    else:
-                        print(
-                            "[%s] game %d/%d  win=%d draw=%d loss=%d  loss=%.3f  (%.0fs)"
-                            "  [eval: AZ@100 vs %s@%d]"
-                            % (
-                                game_type,
-                                it,
-                                games,
-                                w,
-                                d,
-                                loss,
-                                total_loss / steps_per_game,
-                                el,
-                                eval_ai,
-                                eval_sims,
-                            ),
-                            flush=True,
-                        )
-            if csv_log:
-                csv_log.write(
-                    stage,
-                    it,
-                    time.time() - start,
-                    optimizer.param_groups[0]["lr"],
-                    total_loss / steps_per_game,
-                    positions_total,
+                    sims,
                     temp,
-                    ev,
-                    ckpt_at,
+                    dirichlet_eps,
+                    value_target=value_target,
+                    use_network=use_network,
                 )
-
-            if progress:
-                progress.advance(task)
-            if on_event:
-                on_event(
-                    {
-                        "type": "game",
-                        "game": it,
-                        "games": games,
-                        "stage": stage,
-                        "lr": optimizer.param_groups[0]["lr"],
-                        "loss": total_loss / steps_per_game,
-                        "positions": positions_total,
-                        "temp": temp,
-                        "eval": ev,
-                        "elapsed": time.time() - start,
-                    }
-                )
+                _absorb_game([(states, targets, zs)], it, temp)
 
         if save:
             _save_model(model, size, channels, blocks, save_path)
@@ -1611,6 +1729,23 @@ def main(argv=None):
         default=1,
         help="parallel self-play processes, each with its own GPU model copy (default: 1)",
     )
+    tr.add_argument(
+        "--selfplay-engine",
+        choices=["auto", "rust", "python"],
+        default="auto",
+        help="self-play source: rust exe (default when built), python mp.Pool, auto=probe",
+    )
+    tr.add_argument(
+        "--selfplay-exe",
+        default=None,
+        help="explicit path to sba_selfplay (default: probe native/sba-core/target)",
+    )
+    tr.add_argument(
+        "--round-games",
+        type=int,
+        default=32,
+        help="games per rust self-play round (default: 32)",
+    )
     tr.add_argument("--replay-cap", type=int, default=500, help="replay buffer cap (default: 500)")
     tr.add_argument(
         "--weight-decay", type=float, default=1e-4, help="Adam L2 weight decay (default: 1e-4)"
@@ -1689,6 +1824,9 @@ def main(argv=None):
             eval_ai=args.eval_ai,
             eval_sims=args.eval_sims,
             csv_path=args.csv,
+            selfplay_engine=args.selfplay_engine,
+            selfplay_exe=args.selfplay_exe,
+            round_games=args.round_games,
         )
     else:
         model = load_model("ultimate")
