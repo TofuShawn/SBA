@@ -134,11 +134,13 @@ impl Node {
 }
 
 /// Full expansion on first visit (mcts_search does NOT trickle children in
-/// one at a time — every legal move becomes a child at once, prior =
-/// softmax prob at the move's code). Dirichlet noise (alpha = 10/n, the
-/// "auto" scaling) mixes in ONLY when the expanded node is the search
-/// root; a single legal move mirrors np.random.dirichlet([a]) == [1.0]
-/// exactly, so no distribution is drawn (rand_distr wants len >= 2).
+/// one at a time — every legal move becomes a child at once). Priors are
+/// the raw softmax probs at the move's code; Dirichlet noise (alpha = 10/n,
+/// the "auto" scaling) mixes in as (1-eps)*p + eps*eta ONLY when the
+/// expanded node is the search root — Python's non-root branch keeps the
+/// raw prob, and shrinking every non-root prior by (1-eps) would break the
+/// exact mirror. A single legal move mirrors np.random.dirichlet([a]) ==
+/// [1.0] exactly, so no distribution is drawn (rand_distr wants len >= 2).
 fn expand_with_priors(
     node: &mut Node,
     probs: &[f32],
@@ -158,14 +160,18 @@ fn expand_with_priors(
                 .sample(rng)
         }
     } else {
-        vec![0.0; n]
+        Vec::new()
     };
     node.children = moves
         .iter()
         .enumerate()
         .map(|(j, &k)| {
-            let prior = (1.0 - limits.dirichlet_eps) * probs[k as usize]
-                + limits.dirichlet_eps * eta[j] as f32;
+            let p = probs[k as usize];
+            let prior = if at_root {
+                (1.0 - limits.dirichlet_eps) * p + limits.dirichlet_eps * eta[j] as f32
+            } else {
+                p
+            };
             let (m, i) = (k / 9, k % 9);
             let mut child_state = node.state.clone();
             child_state.apply(m, i);
@@ -428,5 +434,42 @@ mod tests {
         let (a, b) = (run(9), run(9));
         assert_eq!(a.states, b.states);
         assert_eq!(a.z, b.z);
+    }
+
+    #[test]
+    fn non_root_priors_are_raw_probs() {
+        // eps > 0: the ROOT expansion mixes (1-eps)*p + eps*eta, but a
+        // non-root expansion must carry the RAW softmax prob (mcts_search's
+        // non-root branch) — shrinking every non-root prior by (1-eps)
+        // would break the exact mirror.
+        let mut e = Scripted {
+            replies: RefCell::new((0..8).map(|_| (pol(&[]), 0.5)).collect()),
+        };
+        let limits = SearchLimits {
+            sims: 3,
+            c_puct: 1.5,
+            dirichlet_eps: 0.25,
+        };
+        let mut rng = rand::rngs::StdRng::seed_from_u64(5);
+        let probs = softmax81(&pol(&[])); // uniform logits -> 1/81 each
+        let mut root = Node::leaf(SbaGame::fresh(), -1, 0.0);
+        for _ in 0..3 {
+            search_once(&mut root, &mut e, &limits, &mut rng).unwrap();
+        }
+        // sim 1 expanded the root (with noise); sims 2-3 descend into the
+        // first all-INFINITY child and expand it NON-root (k=0, then k=1).
+        let first = &root.children[0];
+        assert_eq!(first.children.len(), 8); // k=0 routes play to macro 0
+        for c in &first.children {
+            // raw prob, NOT (1-eps)*p — exact f32 equality holds post-fix
+            assert_eq!(c.prior, probs[c.move_code as usize]);
+        }
+        // root side: the mix still normalizes to 1 and actually mixed noise
+        let sum: f32 = root.children.iter().map(|c| c.prior).sum();
+        assert!((sum - 1.0).abs() < 1e-4);
+        assert!(root
+            .children
+            .iter()
+            .any(|c| c.prior != probs[c.move_code as usize]));
     }
 }
