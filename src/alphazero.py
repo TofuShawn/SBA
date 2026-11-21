@@ -556,6 +556,24 @@ def _save_model(model, size, channels, blocks, path):
     )
 
 
+def export_safetensors(model, path):
+    """Save eval weights for the Rust self-play exe (sba-core net.rs reads
+    these names 1:1). Returns the file's sha256 — records carry it so a
+    record can be traced to the weights that generated it."""
+    import hashlib
+
+    from safetensors.torch import save_file
+
+    sd = {
+        k: v.detach().cpu().contiguous()
+        for k, v in model.state_dict().items()
+        if v.dtype.is_floating_point  # int64 num_batches_tracked is torch-only
+    }
+    safe = writable_path(path)
+    save_file(sd, safe)
+    return hashlib.sha256(open(safe, "rb").read()).hexdigest()
+
+
 def _ckpt_path(save_path, game):
     """Numbered checkpoint next to the canonical model file (D46): the
     scale curve needs EVERY ckpt_every point on disk — the old code

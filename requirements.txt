@@ -11,3 +11,4 @@ pyside6>=6.12,<7
 textual>=8.2,<9
 rich>=15,<16
 numpy>=2.0,<3
+safetensors>=0.4,<2   # record files the Rust self-play exe writes/reads
