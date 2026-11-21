@@ -117,6 +117,10 @@ TASKS = {
             "sba-game", ["clippy", "--release", "--target", TARGET, "--", "-D", "warnings"]
         ),
     ),
+    "clippy-core": (
+        "cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu)",
+        lambda a: crate_task("sba-core", ["clippy", "--release", "--", "-D", "warnings"]),
+    ),
     "cgate": ("C warnings gate (-Wall -Wextra -Werror, mirrors CI)", lambda a: wsl_gcc_check()),
     "bench-rust": ("Rust state-layer A/B harness", lambda a: venv(["native/bench_rust.py"])),
     "self-test": (

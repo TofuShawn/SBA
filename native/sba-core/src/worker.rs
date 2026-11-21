@@ -89,7 +89,7 @@ fn next_bucket(n: usize) -> usize {
             return b;
         }
     }
-    ((n + 255) / 256) * 256
+    n.div_ceil(256) * 256
 }
 
 fn worker_loop<B: Backend>(

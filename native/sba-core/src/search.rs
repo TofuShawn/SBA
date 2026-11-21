@@ -173,7 +173,7 @@ fn expand_with_priors(
                 p
             };
             let (m, i) = (k / 9, k % 9);
-            let mut child_state = node.state.clone();
+            let mut child_state = node.state;
             child_state.apply(m, i);
             Node::leaf(child_state, k, prior)
         })
@@ -267,7 +267,7 @@ pub fn play_game(
     let mut policy = Vec::new();
     let mut z = Vec::new();
     while !st.is_over() {
-        let mut root = Node::leaf(st.clone(), -1, 0.0);
+        let mut root = Node::leaf(st, -1, 0.0);
         for _ in 0..limits.sims {
             search_once(&mut root, eval, limits, rng)?;
         }

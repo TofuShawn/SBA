@@ -20,10 +20,10 @@ fn main() {
     println!("device: {device:?}");
 
     let t0 = std::time::Instant::now();
-    let model = AzNet::<B>::from_safetensors(&std::fs::read(&weights).unwrap(), &device);
+    let model = AzNet::<B>::from_safetensors(&std::fs::read(weights).unwrap(), &device);
     println!("weights loaded in {:?}", t0.elapsed());
 
-    let raw = std::fs::read(&input).unwrap();
+    let raw = std::fs::read(input).unwrap();
     let x = Tensor::<B, 4>::from_data(
         TensorData::new(read_f32s(&raw), shape(&[256, 4, 9, 9])),
         &device,
@@ -33,8 +33,8 @@ fn main() {
     let (p, v) = model.forward(x.clone());
     let got_p = p.into_data().to_vec::<f32>().unwrap();
     let got_v = v.into_data().to_vec::<f32>().unwrap();
-    let want_p = read_f32s(&std::fs::read(&policy_ref).unwrap());
-    let want_v = read_f32s(&std::fs::read(&value_ref).unwrap());
+    let want_p = read_f32s(&std::fs::read(policy_ref).unwrap());
+    let want_v = read_f32s(&std::fs::read(value_ref).unwrap());
     let err_p = got_p
         .iter()
         .zip(&want_p)
