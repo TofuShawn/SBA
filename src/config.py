@@ -118,6 +118,15 @@ EARLY_STOP_AT = 0.7
 EARLY_STOP_SHARE = 0.6
 EARLY_STOP_WR = 0.55
 
+# How long a multiprocess self-play game may stay silent before the parent
+# assumes its worker died and resubmits it. Generous on purpose: a slow CPU
+# game with a big net is minutes, not an hour.
+# Shared by alphazero (mp.Pool games) and rustselfplay (exe rounds, watchdog
+# + default timeout): it lives here — the leaf of the import graph — because
+# Task 9 imports rustselfplay FROM alphazero, so rustselfplay importing the
+# constant back from alphazero would be a cycle.
+MP_GAME_TIMEOUT = 3600.0
+
 
 def _load_config():
     """Load config.toml as a dict; missing/broken file -> {}."""

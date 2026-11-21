@@ -58,14 +58,16 @@ import torch.nn.functional as F
 import rustbridge
 from dataclasses import dataclass
 
+import config
 from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine, writable_path
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# How long a multiprocess self-play game may stay silent before the parent
-# assumes its worker died and resubmits it. Generous on purpose: a slow CPU
-# game with a big net is minutes, not an hour.
-MP_GAME_TIMEOUT = 3600.0
+# The value lives in config.py (the leaf of the import graph): Task 9 makes
+# alphazero import rustselfplay, so rustselfplay cannot import this constant
+# back from here without a cycle. This alias keeps every existing consumer
+# of alphazero.MP_GAME_TIMEOUT untouched.
+MP_GAME_TIMEOUT = config.MP_GAME_TIMEOUT
 
 MODEL_DIR = os.path.join(HERE, "models")
 X = "X"
