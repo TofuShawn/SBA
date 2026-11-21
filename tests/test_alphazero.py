@@ -14,6 +14,11 @@ from ai import get_ai_move
 
 
 def test_az_smoke_train_ultimate():
+    """Single-process python self-play, pinned (selfplay-engine=python):
+    `auto` resolves to the rust exe on dev machines, so the fakes-free python
+    loop (real self_play_game, real tiny torch model) would otherwise only be
+    covered on exe-less boxes."""
+    events = []
     model = alphazero.train(
         "ultimate",
         games=2,
@@ -24,8 +29,16 @@ def test_az_smoke_train_ultimate():
         eval_sims=32,
         channels=32,
         blocks=2,
+        on_event=events.append,
+        selfplay_engine="python",
     )
     assert model is not None
+    # Task 9 engine arbitration, python flavour (workers=1 default)
+    assert [e for e in events if e["type"] == "selfplay_engine"] == [
+        {"type": "selfplay_engine", "engine": "python", "workers": 1}
+    ]
+    # one `game` event per completed game, in order
+    assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
     g = UltimateGame()
     assert alphazero.select_move(g, model, 20) in g.legal_moves()
 
@@ -130,11 +143,15 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
 
 
 def test_train_parallel_workers(monkeypatch):
+    """The mp.Pool fork (spec §5.4's fallback), pinned python: `auto` picks
+    the rust exe on dev machines, which would silently stop exercising
+    _train_multiprocess on exactly the boxes that run the suite."""
     monkeypatch.setattr(
         alphazero,
         "alphazero_move",
         lambda game, model, budget=800: random.choice(game.legal_moves()),
     )
+    events = []
     model = alphazero.train(
         "ultimate",
         games=2,
@@ -146,8 +163,14 @@ def test_train_parallel_workers(monkeypatch):
         channels=32,
         blocks=2,
         workers=2,
+        on_event=events.append,
+        selfplay_engine="python",
     )
     assert model is not None
+    assert [e for e in events if e["type"] == "selfplay_engine"] == [
+        {"type": "selfplay_engine", "engine": "python", "workers": 2}
+    ]
+    assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
     g = UltimateGame()
     assert alphazero.select_move(g, model, 10) in g.legal_moves()
 
