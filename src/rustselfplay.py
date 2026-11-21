@@ -27,17 +27,23 @@ from config import MP_GAME_TIMEOUT
 # config.py uses)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
 # probe order: the WSL mingw cross-build first (the Windows dev-machine
 # artifact), then plain release, then debug. The extension-less spellings
 # are the Linux ELF names — CI builds the cpu backend there and runs the
 # exe without an .exe suffix.
-_PROBE_PATHS = (
-    "native/sba-core/target/x86_64-pc-windows-gnu/release/sba_selfplay.exe",
-    "native/sba-core/target/release/sba_selfplay.exe",
-    "native/sba-core/target/release/sba_selfplay",
-    "native/sba-core/target/debug/sba_selfplay.exe",
-    "native/sba-core/target/debug/sba_selfplay",
-)
+def _probe_paths(name):
+    """The probe list for one sba-core binary name (see find_exe)."""
+    return (
+        f"native/sba-core/target/x86_64-pc-windows-gnu/release/{name}.exe",
+        f"native/sba-core/target/release/{name}.exe",
+        f"native/sba-core/target/release/{name}",
+        f"native/sba-core/target/debug/{name}.exe",
+        f"native/sba-core/target/debug/{name}",
+    )
+
+
+_PROBE_PATHS = _probe_paths("sba_selfplay")
 
 
 def load_records(dir_path):
@@ -64,19 +70,21 @@ def load_records(dir_path):
     return games
 
 
-def find_exe(explicit=None):
-    """Locate the sba_selfplay binary.
+def find_exe(explicit=None, name="sba_selfplay"):
+    """Locate an sba-core binary (`name`: 'sba_selfplay' or 'sba_debug').
 
     Order: explicit argument (final — a missing explicit path is NOT silently
-    replaced by a probe hit) → $SBA_SELFPLAY_EXE → target/release|debug probe
-    paths relative to the repo root. None when nothing exists.
+    replaced by a probe hit) → $SBA_SELFPLAY_EXE (selfplay only — the var is
+    that exe's override) → target/release|debug probe paths relative to the
+    repo root. None when nothing exists.
     """
     if explicit:
         return explicit if os.path.isfile(explicit) else None
-    env = os.environ.get("SBA_SELFPLAY_EXE")
-    if env and os.path.isfile(env):
-        return env
-    for rel in _PROBE_PATHS:
+    if name == "sba_selfplay":
+        env = os.environ.get("SBA_SELFPLAY_EXE")
+        if env and os.path.isfile(env):
+            return env
+    for rel in _probe_paths(name):
         cand = os.path.normpath(os.path.join(ROOT, rel))
         if os.path.isfile(cand):
             return cand

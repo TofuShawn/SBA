@@ -1,13 +1,14 @@
 //! sba-core — the Rust core (D55 Phase A). See net.rs for the AZNet/weights
 //! contract; records.rs for the training-record format; search.rs for the
-//! PUCT tree; worker.rs for batched inference. Bins: bench_burn, sba_selfplay.
+//! PUCT tree; worker.rs for batched inference. Bins: bench_burn, sba_selfplay,
+//! sba_debug (the parity-harness planes/search dump).
 
 pub mod net;
 pub mod records;
 pub mod search;
 pub mod worker;
 
-pub use net::{read_f32s, shape, AzNet, ResBlock};
+pub use net::{infer_arch, read_f32s, shape, AzNet, ResBlock};
 
 #[cfg(all(not(feature = "wgpu"), not(feature = "cpu")))]
 compile_error!("enable a backend feature: wgpu (default) or cpu");

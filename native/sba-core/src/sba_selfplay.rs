@@ -17,7 +17,7 @@
 use clap::Parser;
 use rand::SeedableRng;
 use sha2::{Digest, Sha256};
-use sba_core::net::AzNet;
+use sba_core::net::{infer_arch, AzNet};
 use sba_core::{default_device, search, worker, DefaultBackend};
 
 #[derive(Parser)]
@@ -65,33 +65,6 @@ fn fail(code: i32, message: &str) -> ! {
         "message": message,
     }));
     std::process::exit(code);
-}
-
-/// The blob's architecture, read off the safetensors header:
-/// conv_in.weight is [channels, 4, 3, 3] and every block contributes one
-/// `blocks.{i}.conv1.weight`. AzNet::from_safetensors pins the torch
-/// checkpoint's 128/5; self-play blobs may be smaller (the CLI tests load
-/// a channels=8, blocks=1 net), so the exe sizes the model to the file.
-fn infer_arch(bytes: &[u8]) -> Result<(usize, usize), String> {
-    let st = safetensors::SafeTensors::deserialize(bytes).map_err(|e| e.to_string())?;
-    let channels = st
-        .tensor("conv_in.weight")
-        .map_err(|_| String::from("missing tensor: conv_in.weight"))?
-        .shape()[0];
-    let blocks = st
-        .names()
-        .iter()
-        .filter(|n| n.starts_with("blocks.") && n.ends_with(".conv1.weight"))
-        .count();
-    if blocks == 0 {
-        // a conv_in + heads blob without residual blocks would load and run
-        // as a silently degraded model — refuse it (genuine corruption like
-        // index gaps still fails via panic -> catch_unwind -> exit 3)
-        return Err(String::from(
-            "blob looks like it has no residual blocks (no blocks.*.conv1.weight names)",
-        ));
-    }
-    Ok((channels, blocks))
 }
 
 fn main() {

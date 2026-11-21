@@ -248,6 +248,40 @@ fn search_once(
     Ok(())
 }
 
+/// Single-position root search — the SEARCH portion of play_game without
+/// the move sampling: `limits.sims` PUCT simulations from `start`, then the
+/// root visit counts in legal order and the root value z (_root_value, the
+/// visit-weighted mean of the children's Q, 0.0 with no visits). The
+/// self-play loop and the sba_debug parity/search harness share this entry,
+/// so the recorded z and the debug JSON's value stay the same formula by
+/// construction.
+pub fn search_position(
+    start: SbaGame,
+    eval: &mut dyn Evaluator,
+    limits: &SearchLimits,
+    rng: &mut dyn RngCore,
+) -> Result<(Vec<(i32, f32)>, f32), String> {
+    let mut root = Node::leaf(start, -1, 0.0);
+    for _ in 0..limits.sims {
+        search_once(&mut root, eval, limits, rng)?;
+    }
+    // visit counts in legal order
+    let counts: Vec<(i32, f32)> = root
+        .children
+        .iter()
+        .map(|c| (c.move_code, c.visits))
+        .collect();
+    // z = _root_value: visit-weighted mean of children Q (0.0 if none)
+    let (tot_v, tot) = root.children.iter().fold((0.0f32, 0.0f32), |(v, n), c| {
+        if c.visits > 0.0 {
+            (v + c.visits * (c.wins / c.visits), n + c.visits)
+        } else {
+            (v, n)
+        }
+    });
+    Ok((counts, if tot > 0.0 { tot_v / tot } else { 0.0 }))
+}
+
 /// One self-play game (self_play_game mirror): until the state is over,
 /// run `limits.sims` PUCT simulations from the current position, record
 /// (planes, target, z) with z = _root_value — the visit-weighted mean of
@@ -267,26 +301,8 @@ pub fn play_game(
     let mut policy = Vec::new();
     let mut z = Vec::new();
     while !st.is_over() {
-        let mut root = Node::leaf(st, -1, 0.0);
-        for _ in 0..limits.sims {
-            search_once(&mut root, eval, limits, rng)?;
-        }
-        // visit counts in legal order
-        let counts: Vec<(i32, f32)> = root
-            .children
-            .iter()
-            .map(|c| (c.move_code, c.visits))
-            .collect();
+        let (counts, zt) = search_position(st, eval, limits, rng)?;
         let target = distribution(&counts, temp);
-        // z = _root_value: visit-weighted mean of children Q (0.0 if none)
-        let (tot_v, tot) = root.children.iter().fold((0.0f32, 0.0f32), |(v, n), c| {
-            if c.visits > 0.0 {
-                (v + c.visits * (c.wins / c.visits), n + c.visits)
-            } else {
-                (v, n)
-            }
-        });
-        let zt = if tot > 0.0 { tot_v / tot } else { 0.0 };
         states.extend_from_slice(&st.planes());
         policy.extend_from_slice(&target);
         z.push(zt);

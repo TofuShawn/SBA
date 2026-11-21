@@ -90,6 +90,14 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test --manifest-path native/sba-core/Cargo.toml --no-default-features --features cpu
 
+      # The debug exes must exist BEFORE pytest: test_encode_parity drives
+      # sba_debug (found via the debug probe paths) and the Task 12 bench
+      # will drive bench_burn the same way — one cpu debug build covers all
+      # three bins. The Windows leg skips these tests (find_exe() -> None).
+      - name: Build sba_debug (cpu)
+        if: runner.os == 'Linux'
+        run: cargo build --manifest-path native/sba-core/Cargo.toml --no-default-features --features cpu --bin sba_debug --bin sba_selfplay --bin bench_burn
+
       # PySide6 (the offscreen BoardWidget test) needs an EGL/GL stack on
       # the ubuntu runner; without it the import raises and collection fails
       - name: Install OpenGL/EGL (Linux)

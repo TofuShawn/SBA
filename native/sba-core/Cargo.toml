@@ -20,6 +20,10 @@ path = "src/bench_burn.rs"
 name = "sba_selfplay"
 path = "src/sba_selfplay.rs"
 
+[[bin]]
+name = "sba_debug"
+path = "src/sba_debug.rs"
+
 [features]
 default = ["wgpu"]
 wgpu = ["burn/wgpu"]
