@@ -76,6 +76,12 @@ def wsl_gcc_check():
     return 0
 
 
+def _rust_tests(_args):
+    # sba-core leg (cpu feature) lands with Task 2 Step 3 — the
+    # crate has no [features] section until its backend split.
+    return crate_task("sba-game", ["test"])
+
+
 def venv(args):
     cmd = [VENV_PY, *args]
     print("+", " ".join(os.path.relpath(p, ROOT) if os.path.isabs(p) else p for p in cmd))
@@ -114,6 +120,10 @@ TASKS = {
     "self-test": (
         "headless suite through the real entry point",
         lambda a: venv(["sba.py", "--self-test"]),
+    ),
+    "test-rust": (
+        "cargo test: sba-game (sba-core leg lands with Task 2 Step 3)",
+        _rust_tests,
     ),
 }
 

@@ -122,7 +122,8 @@ pub struct SbaState {
 }
 
 impl SbaGame {
-    fn fresh() -> SbaGame {
+    /// A fresh game: empty board, X to move, free choice.
+    pub fn fresh() -> SbaGame {
         SbaGame {
             px: [0; 9],
             po: [0; 9],
@@ -175,6 +176,124 @@ impl SbaGame {
             }
         }
         true
+    }
+
+    /// Applies move (m, i); return-code semantics identical to sba_game_apply.
+    pub fn apply(&mut self, m: i32, i: i32) -> i32 {
+        // _assert_playable: result() is not None (a full-drawn board included)
+        if raw_result(self) != ONGOING {
+            return ERR_OVER;
+        }
+        if !(0..9).contains(&m) || !(0..9).contains(&i) {
+            return ERR_RANGE;
+        }
+        // _assert_ultimate_routing: the forced macro, when open, is mandatory
+        if self.active >= 0 && self.macro_open(self.active as usize) {
+            if m != self.active {
+                return ERR_ROUTED;
+            }
+        } else if !self.macro_open(m as usize) {
+            return ERR_MACRO_CLOSED;
+        }
+        let m = m as usize;
+        let i = i as usize;
+        if (self.px[m] | self.po[m]) >> i & 1 != 0 {
+            return ERR_OCCUPIED;
+        }
+        if self.current == 0 {
+            self.px[m] |= 1u16 << i;
+        } else {
+            self.po[m] |= 1u16 << i;
+        }
+        match self.micro_winner(m) {
+            X_WINS => self.mx |= 1u16 << m,
+            O_WINS => self.mo |= 1u16 << m,
+            _ => {}
+        }
+        self.active = if self.macro_open(i) { i as i32 } else { -1 };
+        self.current = 1 - self.current;
+        OK
+    }
+
+    /// Legal move codes k = m*9+i; same filter order as sba_game_legal:
+    /// occupied cell → closed macro → active-macro routing.
+    pub fn legal(&self) -> Vec<i32> {
+        if self.winner() != ONGOING {
+            return Vec::new();
+        }
+        let mut legal = Vec::new();
+        for k in 0..81usize {
+            let m = k / 9;
+            let i = k % 9;
+            if (self.px[m] | self.po[m]) >> i & 1 != 0 {
+                continue;
+            }
+            // closed macros (won or drawn-full) are not playable, even when
+            // empty cells remain — UltimateGame.legal_moves skips them FIRST
+            if !self.macro_open(m) {
+                continue;
+            }
+            if self.active >= 0
+                && self.macro_open(self.active as usize)
+                && m != self.active as usize
+            {
+                continue;
+            }
+            legal.push(k as i32);
+        }
+        legal
+    }
+
+    /// The raw result: X_WINS / O_WINS / DRAW / ONGOING.
+    pub fn result(&self) -> i32 {
+        raw_result(self)
+    }
+
+    pub fn is_over(&self) -> bool {
+        self.result() != ONGOING
+    }
+
+    /// 0 = X to move, 1 = O to move.
+    pub fn current(&self) -> u8 {
+        self.current
+    }
+
+    /// The macro the reply is routed into; -1 = free choice.
+    pub fn active(&self) -> i32 {
+        self.active
+    }
+
+    /// The 4x9x9 encode tensor (324 floats, row-major, the layout
+    /// alphazero.encode defines): plane 0 = X marks, plane 1 = O marks,
+    /// plane 2 = 1.0 when X to move, plane 3 = the active macro block
+    /// (0 everywhere on free choice).
+    pub fn planes(&self) -> [f32; 324] {
+        let mut planes = [0.0f32; 324];
+        for m in 0..9usize {
+            let (mr, mc) = (m / 3, m % 3);
+            for i in 0..9usize {
+                let (ir, ic) = (i / 3, i % 3);
+                let idx = mr * 27 + ir * 9 + mc * 3 + ic;
+                planes[idx] = if self.px[m] >> i & 1 != 0 { 1.0 } else { 0.0 };
+                planes[81 + idx] = if self.po[m] >> i & 1 != 0 { 1.0 } else { 0.0 };
+            }
+        }
+        let turn = if self.current == 0 { 1.0 } else { 0.0 };
+        for p in planes[162..243].iter_mut() {
+            *p = turn;
+        }
+        for p in planes[243..324].iter_mut() {
+            *p = 0.0;
+        }
+        if self.active >= 0 {
+            let (mr, mc) = ((self.active as usize) / 3, (self.active as usize) % 3);
+            for dr in 0..3usize {
+                for dc in 0..3usize {
+                    planes[243 + mr * 27 + dr * 9 + mc * 3 + dc] = 1.0;
+                }
+            }
+        }
+        planes
     }
 }
 
@@ -245,51 +364,14 @@ pub extern "C" fn sba_game_free(g: *mut SbaGame) {
 /// (game over -> range -> routing -> occupied), then apply.
 #[no_mangle]
 pub extern "C" fn sba_game_apply(g: *mut SbaGame, m: i32, i: i32) -> i32 {
-    if !handle_live(g) {
-        return ERR_CLOSED;
-    }
-    let g = unsafe { &mut *g };
-    // _assert_playable: result() is not None (a full-drawn board included)
-    if raw_result(g) != ONGOING {
-        return ERR_OVER;
-    }
-    if !(0..9).contains(&m) || !(0..9).contains(&i) {
-        return ERR_RANGE;
-    }
-    // _assert_ultimate_routing: the forced macro, when open, is mandatory
-    if g.active >= 0 && g.macro_open(g.active as usize) {
-        if m != g.active {
-            return ERR_ROUTED;
-        }
-    } else if !g.macro_open(m as usize) {
-        return ERR_MACRO_CLOSED;
-    }
-    let m = m as usize;
-    let i = i as usize;
-    if (g.px[m] | g.po[m]) >> i & 1 != 0 {
-        return ERR_OCCUPIED;
-    }
-    if g.current == 0 {
-        g.px[m] |= 1u16 << i;
-    } else {
-        g.po[m] |= 1u16 << i;
-    }
-    match g.micro_winner(m) {
-        X_WINS => g.mx |= 1u16 << m,
-        O_WINS => g.mo |= 1u16 << m,
-        _ => {}
-    }
-    g.active = if g.macro_open(i) { i as i32 } else { -1 };
-    g.current = 1 - g.current;
-    OK
+    if !handle_live(g) { return ERR_CLOSED; }
+    unsafe { (*g).apply(m, i) }
 }
 
 #[no_mangle]
 pub extern "C" fn sba_game_result(g: *const SbaGame) -> i32 {
-    if !handle_live(g) {
-        return ERR_CLOSED;
-    }
-    raw_result(unsafe { &*g })
+    if !handle_live(g) { return ERR_CLOSED; }
+    unsafe { (*g).result() }
 }
 
 #[no_mangle]
@@ -310,32 +392,12 @@ pub extern "C" fn sba_game_legal(g: *const SbaGame, out: *mut i32, cap: i32) -> 
     if !handle_live(g) || (out.is_null() && cap > 0) || cap < 0 {
         return -1;
     }
-    let g = unsafe { &*g };
-    if g.winner() != ONGOING {
-        return 0;
-    }
+    let moves = unsafe { (*g).legal() };
     let cap = cap as usize;
-    let mut n: usize = 0;
-    for k in 0..81usize {
-        let m = k / 9;
-        let i = k % 9;
-        if (g.px[m] | g.po[m]) >> i & 1 != 0 {
-            continue;
-        }
-        // closed macros (won or drawn-full) are not playable, even when
-        // empty cells remain — UltimateGame.legal_moves skips them FIRST
-        if !g.macro_open(m) {
-            continue;
-        }
-        if g.active >= 0 && g.macro_open(g.active as usize) && m != g.active as usize {
-            continue;
-        }
-        if n < cap {
-            unsafe { *out.add(n) = k as i32 };
-        }
-        n += 1;
+    for (n, &k) in moves.iter().enumerate().take(cap) {
+        unsafe { *out.add(n) = k };
     }
-    n as i32
+    moves.len() as i32
 }
 
 /// Dump the full state (encode-from-bits; result precomputed).
@@ -406,41 +468,16 @@ pub extern "C" fn sba_game_serialize(
     OK
 }
 
-/// Fill the whole 4x9x9 encode tensor (324 floats, row-major, the layout
-/// alphazero.encode defines): plane 0 = X marks, plane 1 = O marks,
-/// plane 2 = 1.0 when X to move, plane 3 = the active macro block
-/// (0 everywhere on free choice). One call replaces the numpy interleave.
+/// FFI wrapper: fills the caller-owned 324-float buffer (the layout
+/// alphazero.encode defines — see SbaGame::planes). One call replaces
+/// the numpy interleave.
 #[no_mangle]
 pub extern "C" fn sba_game_planes(g: *const SbaGame, out: *mut f32) -> i32 {
     if !handle_live(g) || out.is_null() {
         return ERR_CLOSED;
     }
-    let g = unsafe { &*g };
-    let planes = unsafe { std::slice::from_raw_parts_mut(out, 324) };
-    for m in 0..9usize {
-        let (mr, mc) = (m / 3, m % 3);
-        for i in 0..9usize {
-            let (ir, ic) = (i / 3, i % 3);
-            let idx = mr * 27 + ir * 9 + mc * 3 + ic;
-            planes[idx] = if g.px[m] >> i & 1 != 0 { 1.0 } else { 0.0 };
-            planes[81 + idx] = if g.po[m] >> i & 1 != 0 { 1.0 } else { 0.0 };
-        }
-    }
-    let turn = if g.current == 0 { 1.0 } else { 0.0 };
-    for p in planes[162..243].iter_mut() {
-        *p = turn;
-    }
-    for p in planes[243..324].iter_mut() {
-        *p = 0.0;
-    }
-    if g.active >= 0 {
-        let (mr, mc) = ((g.active as usize) / 3, (g.active as usize) % 3);
-        for dr in 0..3usize {
-            for dc in 0..3usize {
-                planes[243 + mr * 27 + dr * 9 + mc * 3 + dc] = 1.0;
-            }
-        }
-    }
+    let planes = unsafe { (*g).planes() };
+    unsafe { std::slice::from_raw_parts_mut(out, 324).copy_from_slice(&planes) };
     OK
 }
 
@@ -472,4 +509,54 @@ pub extern "C" fn sba_game_clone_apply(
         *out_active = (*child).active;
     }
     child
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_state_and_legal_count() {
+        let g = SbaGame::fresh();
+        assert_eq!(g.current(), 0);
+        assert_eq!(g.active(), -1);
+        assert_eq!(g.legal().len(), 81); // free choice, empty board
+        assert!(!g.is_over());
+    }
+
+    #[test]
+    fn apply_alternates_and_routes() {
+        let mut g = SbaGame::fresh();
+        assert_eq!(g.apply(4, 4), 0);
+        assert_eq!(g.current(), 1);
+        assert_eq!(g.active(), 4); // reply routed into macro 4
+        assert!(!g.legal().iter().any(|&k| k / 9 != 4));
+    }
+
+    #[test]
+    fn planes_layout_matches_docstring() {
+        let mut g = SbaGame::fresh();
+        g.apply(0, 0);
+        let p = g.planes();
+        assert_eq!(p.len(), 324);
+        assert_eq!(p[0], 1.0); // plane 0 cell (0,0): X mark
+        assert_eq!(p[2], 0.0); // plane 2: O to move
+        let active = &p[3 * 81..4 * 81];
+        assert_eq!(active[0], 1.0); // plane 3 block: macro 0 top-left 3x3
+        assert_eq!(active[2], 1.0);
+        assert_eq!(active[18], 1.0);
+        assert_eq!(active[4], 0.0); // outside the macro-0 block
+    }
+
+    #[test]
+    fn same_seed_runs_identical() {
+        // two identical move sequences produce identical planes
+        let mut a = SbaGame::fresh();
+        let mut b = SbaGame::fresh();
+        for k in [40, 0, 41] {
+            a.apply(k / 9, k % 9);
+            b.apply(k / 9, k % 9);
+        }
+        assert_eq!(a.planes(), b.planes());
+    }
 }
