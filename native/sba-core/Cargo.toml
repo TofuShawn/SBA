@@ -25,4 +25,9 @@ cpu = ["burn/candle"]
 burn = { version = "0.16", default-features = false }
 safetensors = "0.4"
 bytemuck = "1"
+# search.rs: StdRng seeding + uniform move sampling (rand), root-prior
+# Dirichlet noise (rand_distr) — 0.8/0.4 lines to match the sketch APIs
+# (Rng::gen, Dirichlet::new(&[f64]) -> Vec<f64>).
+rand = "0.8"
+rand_distr = "0.4"
 sba_game = { path = "../sba-game" }

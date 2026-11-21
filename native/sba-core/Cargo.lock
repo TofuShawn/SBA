@@ -2033,6 +2033,8 @@ version = "0.1.0"
 dependencies = [
  "burn",
  "bytemuck",
+ "rand 0.8.8",
+ "rand_distr 0.4.3",
  "safetensors",
  "sba_game",
 ]
