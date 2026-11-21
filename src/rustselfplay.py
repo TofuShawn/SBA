@@ -70,6 +70,25 @@ def load_records(dir_path):
     return games
 
 
+def _find_bin(explicit, name, env_var):
+    """Shared probe order behind find_exe / find_bench: explicit argument
+    (final — a missing explicit path is NOT silently replaced by a probe
+    hit) → env override → target/release|debug probe paths relative to the
+    repo root. None when nothing exists.
+    """
+    if explicit:
+        return explicit if os.path.isfile(explicit) else None
+    if env_var:
+        env = os.environ.get(env_var)
+        if env and os.path.isfile(env):
+            return env
+    for rel in _probe_paths(name):
+        cand = os.path.normpath(os.path.join(ROOT, rel))
+        if os.path.isfile(cand):
+            return cand
+    return None
+
+
 def find_exe(explicit=None, name="sba_selfplay"):
     """Locate an sba-core binary (`name`: 'sba_selfplay' or 'sba_debug').
 
@@ -78,17 +97,15 @@ def find_exe(explicit=None, name="sba_selfplay"):
     that exe's override) → target/release|debug probe paths relative to the
     repo root. None when nothing exists.
     """
-    if explicit:
-        return explicit if os.path.isfile(explicit) else None
-    if name == "sba_selfplay":
-        env = os.environ.get("SBA_SELFPLAY_EXE")
-        if env and os.path.isfile(env):
-            return env
-    for rel in _probe_paths(name):
-        cand = os.path.normpath(os.path.join(ROOT, rel))
-        if os.path.isfile(cand):
-            return cand
-    return None
+    return _find_bin(explicit, name, "SBA_SELFPLAY_EXE" if name == "sba_selfplay" else None)
+
+
+def find_bench(explicit=None):
+    """Locate the bench_burn inference-spike binary (Task 12: the parity
+    fuzz drives weights + input planes + --dump-out). Same order as
+    find_exe with $SBA_BENCH as the override. None when nothing exists.
+    """
+    return _find_bin(explicit, "bench_burn", "SBA_BENCH")
 
 
 def resolve_engine(engine_arg, exe):

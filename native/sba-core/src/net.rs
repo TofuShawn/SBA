@@ -102,7 +102,19 @@ impl<B: Backend> AzNet<B> {
         let p = relu(self.pol_bn.forward(self.pol_conv.forward(x.clone())));
         let p = self.pol_fc.forward(p.flatten(1, 3));
         let v = relu(self.val_bn.forward(self.val_conv.forward(x.clone())));
-        let v = self.val_fc2.forward(relu(self.val_fc1.forward(v.flatten(1, 3))));
+        let flat = v.flatten(1, 3);
+        // val_fc1 as two N=32 matmuls instead of Linear::forward's single
+        // N=64 one: the wgpu tensor-core (cmma) matmul silently loses
+        // ~1e-2 relative precision for N in {64, 128, 256} (measured against
+        // a naive f64 reference; N in {32, 48, 81, 96} is exact), which
+        // breaks the 1e-5 torch parity on the value head. Two half-width
+        // matmuls are the same sum, one exact kernel each.
+        let w = self.val_fc1.weight.val();
+        let ya = flat.clone().matmul(w.clone().slice([0..648, 0..32]));
+        let yb = flat.matmul(w.slice([0..648, 32..64]));
+        let y = Tensor::cat(vec![ya, yb], 1)
+            + self.val_fc1.bias.as_ref().unwrap().val().unsqueeze::<2>();
+        let v = self.val_fc2.forward(relu(y));
         (p, v.tanh())
     }
 
