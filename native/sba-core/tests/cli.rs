@@ -105,6 +105,93 @@ fn normal_game_type_is_usage_error() {
     assert_eq!(code, 2);
 }
 
+#[test]
+fn weights_parse_failure_emits_error_event() {
+    let dir = std::env::temp_dir().join("sba_selfplay_cli_err3");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let weights = dir.join("bad.safetensors");
+    std::fs::write(&weights, b"definitely not safetensors").unwrap();
+    let (code, stdout, stderr) = run(&[
+        "--weights",
+        weights.to_str().unwrap(),
+        "--out",
+        dir.join("games").to_str().unwrap(),
+        "--games",
+        "1",
+    ]);
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(!stderr.is_empty(), "diagnostic expected on stderr");
+    // weights failures precede the worker: the stream is the bare error
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("jsonl"))
+        .collect();
+    assert_eq!(lines.len(), 1, "no start event may precede a weights failure");
+    assert_eq!(lines[0]["type"], "error");
+    assert!(!lines[0]["message"].as_str().unwrap_or("").is_empty());
+}
+
+#[test]
+fn blob_without_blocks_is_rejected() {
+    let dir = std::env::temp_dir().join("sba_selfplay_cli_noblocks");
+    let _ = std::fs::remove_dir_all(&dir);
+    let weights = dir.join("w.safetensors");
+    write_weights(&weights, false); // conv_in + heads, NO blocks.* names
+    let (code, stdout, stderr) = run(&[
+        "--weights",
+        weights.to_str().unwrap(),
+        "--out",
+        dir.join("games").to_str().unwrap(),
+        "--games",
+        "1",
+    ]);
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(
+        stderr.contains("no residual blocks"),
+        "diagnostic must name the cause: {stderr}"
+    );
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("jsonl"))
+        .collect();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["type"], "error");
+}
+
+#[test]
+fn record_write_failure_emits_error_event() {
+    let dir = std::env::temp_dir().join("sba_selfplay_cli_err4");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let weights = dir.join("w.safetensors");
+    write_random_weights(&weights);
+    // a regular file where the out DIRECTORY should live: the game runs,
+    // then create_dir_all fails when writing the record -> exit 4
+    let blocker = dir.join("blocker");
+    std::fs::write(&blocker, b"").unwrap();
+    let (code, stdout, stderr) = run(&[
+        "--weights",
+        weights.to_str().unwrap(),
+        "--out",
+        blocker.join("games").to_str().unwrap(),
+        "--games",
+        "1",
+        "--sims",
+        "2",
+    ]);
+    assert_eq!(code, 4, "stderr: {stderr}");
+    assert!(stderr.contains("record write failed"), "stderr: {stderr}");
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("jsonl"))
+        .collect();
+    assert_eq!(lines[0]["type"], "start");
+    let last = lines.last().unwrap();
+    assert_eq!(last["type"], "error");
+    assert!(last["message"].as_str().unwrap_or("").contains("record write failed"));
+}
+
 /// Seeded LCG step -> f32 in [0, 1). Integer-only state, so the values are
 /// identical on every platform and every run — the same-seed bitwise test
 /// rides on that.
@@ -148,6 +235,13 @@ fn put_tensor(
 /// out. Serialized via safetensors::serialize with a metadata map, which
 /// the exe ignores.
 fn write_random_weights(path: &std::path::Path) {
+    write_weights(path, true);
+}
+
+/// `with_blocks = false` writes conv_in + heads but NO `blocks.*` names —
+/// the zero-block blob the exe must refuse (exit 3) instead of silently
+/// loading a blockless (degraded) net.
+fn write_weights(path: &std::path::Path, with_blocks: bool) {
     let mut tensors = HashMap::new();
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
 
@@ -158,18 +252,20 @@ fn write_random_weights(path: &std::path::Path) {
     put_tensor(&mut tensors, &mut state, "bn_in.running_mean", vec![8], false);
     put_tensor(&mut tensors, &mut state, "bn_in.running_var", vec![8], true);
 
-    put_tensor(&mut tensors, &mut state, "blocks.0.conv1.weight", vec![8, 8, 3, 3], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.conv1.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn1.weight", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn1.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn1.running_mean", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn1.running_var", vec![8], true);
-    put_tensor(&mut tensors, &mut state, "blocks.0.conv2.weight", vec![8, 8, 3, 3], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.conv2.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn2.weight", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn2.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn2.running_mean", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "blocks.0.bn2.running_var", vec![8], true);
+    if with_blocks {
+        put_tensor(&mut tensors, &mut state, "blocks.0.conv1.weight", vec![8, 8, 3, 3], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.conv1.bias", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.weight", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.bias", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.running_mean", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.running_var", vec![8], true);
+        put_tensor(&mut tensors, &mut state, "blocks.0.conv2.weight", vec![8, 8, 3, 3], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.conv2.bias", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.weight", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.bias", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.running_mean", vec![8], false);
+        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.running_var", vec![8], true);
+    }
 
     put_tensor(&mut tensors, &mut state, "pol_conv.weight", vec![8, 8, 1, 1], false);
     put_tensor(&mut tensors, &mut state, "pol_conv.bias", vec![8], false);

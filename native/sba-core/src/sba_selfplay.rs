@@ -3,7 +3,12 @@
 //! inference worker -> N game threads pulling indices off a shared counter
 //! -> one JSONL event per println on stdout, one record per game
 //! (g%05d.safetensors). Human diagnostics go to stderr; stdout carries
-//! ONLY JSONL lines. Exit codes: 0 ok, 2 bad --game-type, 3 weights
+//! ONLY JSONL lines. Stream contract: start -> (game_done|batch_stats)* ->
+//! (error -> nonzero exit | clean exit) — every weights (exit 3) and
+//! game/record (exit 4) failure emits {"type":"error","message":...} on
+//! stdout before exiting; weights failures precede the worker, so their
+//! stream is the bare error event, and exit 2 (bad --game-type) fires
+//! before any output. Exit codes: 0 ok, 2 bad --game-type, 3 weights
 //! read/parse failure, 4 game/record runtime failure.
 //!
 //! RAW LOGITS contract: the worker replies with the network's raw logit
@@ -50,6 +55,18 @@ fn event(v: serde_json::Value) {
     println!("{v}");
 }
 
+/// Diagnose on stderr AND emit the `error` JSONL event on stdout (a stdout
+/// consumer must see the stream terminate with an error, not just stop),
+/// then exit. `code` is 3 (weights read/parse) or 4 (game/record runtime).
+fn fail(code: i32, message: &str) -> ! {
+    eprintln!("{message}");
+    event(serde_json::json!({
+        "type": "error",
+        "message": message,
+    }));
+    std::process::exit(code);
+}
+
 /// The blob's architecture, read off the safetensors header:
 /// conv_in.weight is [channels, 4, 3, 3] and every block contributes one
 /// `blocks.{i}.conv1.weight`. AzNet::from_safetensors pins the torch
@@ -66,6 +83,14 @@ fn infer_arch(bytes: &[u8]) -> Result<(usize, usize), String> {
         .iter()
         .filter(|n| n.starts_with("blocks.") && n.ends_with(".conv1.weight"))
         .count();
+    if blocks == 0 {
+        // a conv_in + heads blob without residual blocks would load and run
+        // as a silently degraded model — refuse it (genuine corruption like
+        // index gaps still fails via panic -> catch_unwind -> exit 3)
+        return Err(String::from(
+            "blob looks like it has no residual blocks (no blocks.*.conv1.weight names)",
+        ));
+    }
     Ok((channels, blocks))
 }
 
@@ -81,10 +106,10 @@ fn main() {
     }
     let weights_bytes = match std::fs::read(&args.weights) {
         Ok(b) => b,
-        Err(e) => {
-            eprintln!("cannot read weights {}: {e}", args.weights.display());
-            std::process::exit(3);
-        }
+        Err(e) => fail(
+            3,
+            &format!("cannot read weights {}: {e}", args.weights.display()),
+        ),
     };
     let weights_sha = format!("{:x}", Sha256::digest(&weights_bytes));
     let device = default_device();
@@ -100,14 +125,8 @@ fn main() {
         },
     )) {
         Ok(Ok(m)) => m,
-        Ok(Err(e)) => {
-            eprintln!("weights load failed: {e}");
-            std::process::exit(3);
-        }
-        Err(_) => {
-            eprintln!("weights load failed (shape/name mismatch?)");
-            std::process::exit(3);
-        }
+        Ok(Err(e)) => fail(3, &format!("weights load failed: {e}")),
+        Err(_) => fail(3, "weights load failed (shape/name mismatch?)"),
     };
     let (handle, stats) = worker::spawn(model, device);
     event(serde_json::json!({
@@ -146,18 +165,13 @@ fn main() {
                     .max(args.temp_min);
                 let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
                 let game = search::play_game(sba_game::SbaGame::fresh(), &mut handle, limits, temp, &mut rng)
-                    .unwrap_or_else(|e| {
-                        eprintln!("game {idx} failed: {e}");
-                        std::process::exit(4);
-                    });
+                    .unwrap_or_else(|e| fail(4, &format!("game {idx} failed: {e}")));
                 let mut rec = game.record;
                 rec.meta.seed = seed;
                 rec.meta.result = game.result.clone();
                 rec.meta.weights_sha = weights_sha.clone();
-                rec.write(out, idx).unwrap_or_else(|e| {
-                    eprintln!("record write failed: {e}");
-                    std::process::exit(4);
-                });
+                rec.write(out, idx)
+                    .unwrap_or_else(|e| fail(4, &format!("record write failed: {e}")));
                 total_moves.fetch_add(rec.moves(), std::sync::atomic::Ordering::SeqCst);
                 let d = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                 event(serde_json::json!({
