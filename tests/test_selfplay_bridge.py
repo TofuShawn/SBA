@@ -9,11 +9,12 @@ native build is needed and nothing here spawns a real process.
 """
 
 import inspect
+import io
 import json
 import os
 import subprocess
+import threading
 import time
-import types
 
 import rustselfplay
 from config import MP_GAME_TIMEOUT
@@ -23,7 +24,8 @@ class FakePopen:
     """Popen replacement: canned stdout lines, optional delay and crash.
 
     Only the surface run_round touches is implemented: stdout (an iterable
-    of str lines), stderr.read(), kill(), wait(). The exit code materializes
+    of str lines), stderr (a real file-like object — run_round's drain
+    thread reads it in chunks), kill(), wait(). The exit code materializes
     when the stdout stream drains to its end (clean exit 0, or a nonzero
     exit after a truncated stream when crash_after is set) or when kill()
     fires (the watchdog path).
@@ -35,7 +37,7 @@ class FakePopen:
         self._delay = delay  # seconds before each line arrives
         self.returncode = None
         self.killed = False
-        self.stderr = types.SimpleNamespace(read=lambda: stderr_text)
+        self.stderr = io.StringIO(stderr_text)
 
     def stream(self):
         for i, line in enumerate(self._lines):
@@ -44,8 +46,9 @@ class FakePopen:
             if self._crash_after is not None and i >= self._crash_after:
                 break  # stdout ends early: the exe died mid-round
             yield line + "\n"
-        # stream drained -> the process is gone and its exit code is known
-        self.returncode = 1 if self._crash_after is not None else 0
+        if self.returncode is None:  # a killed process cannot die twice
+            # stream drained -> the process is gone and its exit code is known
+            self.returncode = 1 if self._crash_after is not None else 0
 
     def kill(self):
         self.killed = True
@@ -149,6 +152,21 @@ def test_run_round_detects_crash(tmp_path):
     assert "boom" in res["stderr_tail"]
 
 
+def test_run_round_ignores_garbage_lines(tmp_path):
+    # broken timestamps, legacy stdout noise, a JSON array and a bare int:
+    # none of them may count as a game or crash the parser
+    lines = ["not json", "[1, 2]", "123", {"type": "game_done", "game": 0, "moves": 3}]
+    res = rustselfplay.run_round(
+        "fake-exe",
+        "w.safetensors",
+        str(tmp_path),
+        popen=_popen_factory(lines),
+        **_round_kwargs(games=1),
+    )
+    assert res["games_done"] == 1 and res["crashed"] is False
+    assert res["stderr_tail"] == ""
+
+
 def test_run_round_stderr_tail_is_truncated(tmp_path):
     long_err = "x" * 1000 + "END"
     res = rustselfplay.run_round(
@@ -170,8 +188,9 @@ def test_run_round_stderr_tail_is_truncated(tmp_path):
 
 def test_run_round_watchdog_kills_silent_exe(tmp_path):
     procs = []
-    # every line arrives after 0.15s of silence, far past the 0.05s timeout:
-    # the first arrival must already trip the watchdog, not be parsed
+    # every line arrives after 0.15s of silence, far past the 0.05s deadline:
+    # the wait must time out before the first line arrives — nothing parsed,
+    # process killed, round reported crashed
     res = rustselfplay.run_round(
         "fake-exe",
         "w.safetensors",
@@ -187,6 +206,65 @@ def test_run_round_watchdog_kills_silent_exe(tmp_path):
     assert res["crashed"] is True and res["games_done"] == 0
     assert procs[0].killed is True  # the watchdog, not the fake, ended it
     assert "boom" in res["stderr_tail"]
+
+
+class WedgedPipe:
+    """stdout stand-in wedged like a real pipe: iteration blocks, nothing
+    is ever delivered, EOF shows up only once the process dies. The block
+    is bounded so a broken watchdog fails the test, not the whole suite."""
+
+    def __init__(self, released, cap=5.0):
+        self._released = released
+        self._cap = cap
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._released.wait(timeout=self._cap)  # wedged: no line to deliver
+        raise StopIteration  # EOF only after kill() tears the pipe down
+
+
+def test_run_round_watchdog_kills_truly_silent_exe(tmp_path):
+    """The case the watchdog exists for: the exe writes nothing and never
+    exits. The deadline must kill it and run_round must return."""
+    released = threading.Event()
+    procs = []
+
+    class SilentProc:
+        """A proc whose stdout is a wedged pipe: no line, no EOF, no exit."""
+
+        def __init__(self, cmd, **kwargs):
+            procs.append(self)
+            self.cmd = cmd
+            self.kwargs = kwargs
+            self.killed = False
+            self.returncode = None
+            self.stdout = WedgedPipe(released)
+            self.stderr = io.StringIO("wedged before game 0")
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+            released.set()  # the kill tears the wedged pipe down
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    start = time.monotonic()
+    res = rustselfplay.run_round(
+        "fake-exe",
+        "w.safetensors",
+        str(tmp_path),
+        timeout=0.05,
+        popen=SilentProc,
+        **_round_kwargs(games=1),
+    )
+    elapsed = time.monotonic() - start
+    assert elapsed < 2.0  # run_round returned instead of hanging on the wedge
+    assert res["crashed"] is True and res["games_done"] == 0
+    assert procs[0].killed is True  # the watchdog, not the fake, ended it
+    assert "wedged" in res["stderr_tail"]
 
 
 # -----------------------------------------------------------------------

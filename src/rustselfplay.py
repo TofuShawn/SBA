@@ -13,7 +13,9 @@ Python never touches the tree.
 import glob
 import json
 import os
+import queue
 import subprocess
+import threading
 import time
 
 import numpy as np
@@ -96,6 +98,11 @@ def resolve_engine(engine_arg, exe):
     return ("rust", found) if found else ("python", None)
 
 
+_STDOUT_EOF = object()  # sentinel: the stdout stream has been exhausted
+_STDERR_KEEP = 8192  # stderr chars the drain thread retains (bounded buffer)
+_READER_JOIN = 1.0  # seconds granted to the drain threads after the exe exits
+
+
 def run_round(
     exe,
     weights_path,
@@ -120,12 +127,18 @@ def run_round(
     argv-list only (shell=False) — same discipline as rustbridge/native/build.
     stdout is the exe's JSONL event stream (start → (game_done|batch_stats)*
     → clean exit 0): game_done events are counted toward games_done, every
-    other type — including future ones — is ignored. crashed is True on a
-    nonzero exit OR when fewer than `games` game_done events arrived. The
-    watchdog kills the exe once a line arrives after more than `timeout`
-    seconds of silence (mirrors the mp.Pool worker watchdog). stderr is read
-    only after the process is gone: the exe writes at most one fatal line,
-    so the pipe cannot fill and block it.
+    other type — including future ones — is ignored, and non-JSON lines are
+    skipped. crashed is True on a nonzero exit, when fewer than `games`
+    game_done events arrived, or when the exe stayed silent for `timeout`
+    seconds.
+
+    The watchdog is a deadline, not a per-line gap: a daemon reader thread
+    pumps stdout into a queue while stderr is drained concurrently into a
+    bounded tail — a stderr write bigger than the pipe buffer (a
+    RUST_BACKTRACE panic) would otherwise wedge the exe mid-round with
+    stdout stalled — and the main loop waits on the queue with the
+    remaining budget. No line for `timeout` seconds → proc.kill(),
+    crashed=True, stderr tail reported.
 
     `popen` replaces subprocess.Popen (tests inject a fake); `on_event`, if
     given, receives {"type": "selfplay_round", "games_done": n,
@@ -161,18 +174,56 @@ def run_round(
     ]
     spawn = popen or subprocess.Popen
     proc = spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    lines = queue.Queue()
+    stderr_tails = []  # one entry, appended when the drain thread finishes
+
+    def _pump_stdout():
+        """Reader thread: stdout → queue, so the main loop can wait with a
+        timeout (a blocking for-loop over a wedged pipe cannot time out)."""
+        try:
+            for line in proc.stdout:
+                lines.put(line)
+        except (OSError, ValueError):
+            pass  # pipe torn down by the watchdog kill; EOF below still lands
+        finally:
+            lines.put(_STDOUT_EOF)
+
+    def _drain_stderr():
+        """Drain thread: consume stderr as it arrives, keeping only a tail.
+        Without this, a stderr write bigger than the pipe buffer blocks the
+        exe while stdout stalls — a mutual deadlock no watchdog could see."""
+        tail = ""
+        try:
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    break
+                tail = (tail + chunk)[-_STDERR_KEEP:]
+        except (OSError, ValueError):
+            pass  # same teardown story as stdout
+        stderr_tails.append(tail)
+
+    reader = threading.Thread(target=_pump_stdout, name="selfplay-stdout", daemon=True)
+    drainer = threading.Thread(target=_drain_stderr, name="selfplay-stderr", daemon=True)
+    reader.start()
+    drainer.start()
+
     games_done = 0
-    stderr_tail = ""
-    last_beat = time.time()  # spawn counts as the first heartbeat
-    for line in proc.stdout:
-        # watchdog FIRST, against the gap since the previous line; updating
-        # last_beat before this check would make it a permanent no-op
-        if time.time() - last_beat > timeout:
-            proc.kill()
-            stderr_tail = (proc.stderr.read() or "")[-400:]
+    deadline = time.monotonic() + timeout
+    timed_out = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            timed_out = True  # no line for `timeout` seconds: silent/wedged exe
             break
-        last_beat = time.time()  # a line arrived: liveness heartbeat
-        line = line.strip()
+        try:
+            item = lines.get(timeout=remaining)
+        except queue.Empty:
+            timed_out = True
+            break
+        if item is _STDOUT_EOF:
+            break
+        line = item.strip()
         if not line:
             continue
         try:
@@ -181,10 +232,16 @@ def run_round(
             continue
         if isinstance(ev, dict) and ev.get("type") == "game_done":
             games_done += 1
+
+    if timed_out:
+        proc.kill()
     rc = proc.wait()
-    if rc != 0 and stderr_tail == "":
-        stderr_tail = (proc.stderr.read() or "")[-400:]
-    crashed = rc != 0 or games_done < games
+    reader.join(_READER_JOIN)
+    drainer.join(_READER_JOIN)
+    stderr_tail = ""
+    if rc != 0 or timed_out:
+        stderr_tail = (stderr_tails[0] if stderr_tails else "")[-400:]
+    crashed = timed_out or rc != 0 or games_done < games
     if on_event:
         on_event({"type": "selfplay_round", "games_done": games_done, "crashed": crashed})
     return {"games_done": games_done, "crashed": crashed, "stderr_tail": stderr_tail}
