@@ -16,7 +16,13 @@ path = "src/lib.rs"
 name = "bench_burn"
 path = "src/bench_burn.rs"
 
+[features]
+default = ["wgpu"]
+wgpu = ["burn/wgpu"]
+cpu = ["burn/candle"]
+
 [dependencies]
-burn = { version = "0.16", features = ["wgpu"] }
+burn = { version = "0.16", default-features = false }
 safetensors = "0.4"
 bytemuck = "1"
+sba_game = { path = "../sba-game" }

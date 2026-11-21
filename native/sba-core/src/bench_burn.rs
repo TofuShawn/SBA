@@ -4,12 +4,10 @@
 //! Usage: bench_burn.exe <aznet.safetensors> <spike_input.bin>
 //!                     <spike_policy.bin> <spike_value.bin>
 
-use burn::backend::wgpu::WgpuDevice;
-use burn::backend::Wgpu;
 use burn::tensor::{Tensor, TensorData};
-use sba_core::{read_f32s, shape, AzNet};
+use sba_core::{default_device, read_f32s, shape, AzNet, DefaultBackend};
 
-type B = Wgpu;
+type B = DefaultBackend;
 
 fn main() {
     let paths: Vec<String> = std::env::args().skip(1).collect();
@@ -18,7 +16,7 @@ fn main() {
     }
     let (weights, input, policy_ref, value_ref) = (&paths[0], &paths[1], &paths[2], &paths[3]);
 
-    let device = WgpuDevice::default();
+    let device = default_device();
     println!("device: {device:?}");
 
     let t0 = std::time::Instant::now();

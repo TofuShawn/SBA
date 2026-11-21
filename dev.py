@@ -77,9 +77,11 @@ def wsl_gcc_check():
 
 
 def _rust_tests(_args):
-    # sba-core leg (cpu feature) lands with Task 2 Step 3 — the
-    # crate has no [features] section until its backend split.
-    return crate_task("sba-game", ["test"])
+    rc = crate_task("sba-game", ["test"])
+    if rc:
+        return rc
+    # the cpu backend needs no GPU, so the whole suite runs in WSL
+    return crate_task("sba-core", ["test", "--no-default-features", "--features", "cpu"])
 
 
 def venv(args):
@@ -122,7 +124,7 @@ TASKS = {
         lambda a: venv(["sba.py", "--self-test"]),
     ),
     "test-rust": (
-        "cargo test: sba-game (sba-core leg lands with Task 2 Step 3)",
+        "cargo test: sba-game (default) + sba-core (cpu backend, no GPU)",
         _rust_tests,
     ),
 }

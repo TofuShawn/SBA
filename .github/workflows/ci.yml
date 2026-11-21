@@ -78,6 +78,18 @@ jobs:
       - name: Clippy
         run: cargo clippy --release --manifest-path native/sba-game/Cargo.toml -- -D warnings
 
+      - name: Install Rust (Linux)
+        if: runner.os == 'Linux'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clippy (sba-core)
+        if: runner.os == 'Linux'
+        run: cargo clippy --release --manifest-path native/sba-core/Cargo.toml -- -D warnings
+
+      - name: Rust tests (sba-core, cpu backend)
+        if: runner.os == 'Linux'
+        run: cargo test --manifest-path native/sba-core/Cargo.toml --no-default-features --features cpu
+
       # PySide6 (the offscreen BoardWidget test) needs an EGL/GL stack on
       # the ubuntu runner; without it the import raises and collection fails
       - name: Install OpenGL/EGL (Linux)
