@@ -59,11 +59,33 @@ def _crash_log(where, tb):
         return None  # never let diagnostics break the error report
 
 
-def _field(label, widget):
+def _field(label, widget, label_id=None):
     """A labelled form row: the flag name alone (300 / 80 / 25) tells an
-    SSH user nothing - every input carries a bilingual label."""
-    yield Static(label, classes="field-label")
+    SSH user nothing - every input carries a bilingual label. `label_id`
+    marks the label for later text swaps (the workers row's hint is
+    engine-dependent, see WORKERS_HINTS)."""
+    yield Static(label, classes="field-label", id=label_id)
     yield widget
+
+
+# D53: the workers field means a different thing per self-play engine, so
+# the hint must state the meaning of the engine that actually runs - under
+# rust it is the thread count of the one exe process, under python the
+# number of mp worker processes.
+WORKERS_HINTS = {
+    "rust": "遊戲執行緒數（單一 exe 進程）/ threads of one exe process",
+    "python": "自對弈 worker 進程數 / mp worker processes",
+}
+
+
+def engine_note(engine, workers):
+    """One-line self-play provenance for the train dashboard's status line
+    (D53 honesty: the label states what actually runs - under rust the
+    workers field maps onto the exe's --threads, under python it counts mp
+    worker processes)."""
+    if engine == "rust":
+        return "self-play: rust (%d threads)" % workers
+    return "self-play: python (mp, %d workers)" % workers
 
 
 class _Page(Vertical):
@@ -324,10 +346,16 @@ class TrainTUI(App):
         self._loss_hist = []
         self._wr_hist = []
         self._stats_text = ""
+        # resolved ONCE at on_mount with train()'s auto semantics; until
+        # then "auto" is the honest placeholder (train() would arbitrate
+        # itself). The resolved engine is what _start_train passes on, so
+        # the displayed provenance is the engine that runs.
+        self._engine = "auto"
 
     def compose(self) -> ComposeResult:
         with _Page(id="page-params", classes="page-visible"):
             yield Static("[bold]TRAIN // 兩階段配方[/bold]")
+            yield Static("", id="engine-note", classes="hint")
             yield from _field(
                 "訓練局數 / games（D22 尺度曲線：600/2000/6000）",
                 Input(value=str(self._cfg["games"]), type="integer", id="games"),
@@ -339,6 +367,7 @@ class TrainTUI(App):
             yield from _field(
                 "平行進程數 / workers（各持一份 GPU 模型；>4 可能觸發 GPU 驅動重置）",
                 Input(value=str(self._cfg["workers"]), type="integer", id="workers"),
+                label_id="workers-label",
             )
             yield from _field(
                 "eval 頻率 / eval every N games（長跑建議調高）",
@@ -382,6 +411,16 @@ class TrainTUI(App):
         yield Footer()
 
     def on_mount(self):
+        import rustselfplay
+
+        # D53 provenance: resolve the engine ONCE with the same auto
+        # semantics train() uses, then label the dashboard from THAT
+        # resolution - and _start_train passes the resolved engine on, so
+        # the note cannot drift from the engine that actually runs.
+        engine, _exe = rustselfplay.resolve_engine("auto", None)
+        self._engine = engine
+        self.query_one("#engine-note", Static).update(engine_note(engine, self._cfg["workers"]))
+        self.query_one("#workers-label", Static).update(WORKERS_HINTS[engine])
         self.action_show_params()
 
     def action_show_params(self):
@@ -409,6 +448,9 @@ class TrainTUI(App):
                 games=cfg["games"],
                 sims=cfg["sims"],
                 workers=cfg["workers"],
+                # the engine resolved at mount, not a second auto - the
+                # dashboard's engine note must be the engine that runs
+                selfplay_engine=self._engine,
                 eval_every=cfg["eval_every"],
                 channels=cfg["channels"],
                 blocks=cfg["blocks"],
