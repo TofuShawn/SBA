@@ -1,5 +1,8 @@
 # SBA - Basically Awful (Qt + TUI) / 基本上很糟（Qt + 終端機）
 
+[![CI](https://github.com/TofuShawn/SBA/actions/workflows/ci.yml/badge.svg)](https://github.com/TofuShawn/SBA/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/TofuShawn/SBA?label=release)](https://github.com/TofuShawn/SBA/releases)
+
 **SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 Textual **終端機版**兩種介面，Arknights: Endfield 風格的工業 console 主題。內建 **8 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
 
 > The name is a joke. The game is actually (mostly) fine.
@@ -69,6 +72,10 @@ AlphaZero 訓練方法與效能分析見
 從零教學見
 [`docs/tutorial-zh.md`](docs/tutorial-zh.md)（簡體中文）／
 [`docs/tutorial-zh-Hant.md`](docs/tutorial-zh-Hant.md)（繁體中文）。
+
+Working on the repo? `python dev.py` is the task runner (build / test /
+lint / clippy / cgate); the branch model and prerequisites live in
+[`docs/development.md`](docs/development.md)。
 
 ---
 

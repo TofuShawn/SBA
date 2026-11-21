@@ -12,6 +12,9 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# .pytest_cache has a broken ACL on the dev machine (WinError 5 noise on
+# every run) and the suite gains nothing from it — see docs/development.md
+addopts = "-p no:cacheprovider"
 
 [tool.ruff]
 # Ruff — F (pyflakes) + E9 (syntax) + E7 (naming/multiline basics)
