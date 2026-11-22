@@ -334,3 +334,18 @@ def test_c_minimax_pro_switches_change_the_search():
     assert off[1] == on[1]  # pruning must not change the score
     assert off[0] != on[0]  # ...but root ordering breaks the tie
     assert best_for(use_eval_ordering=1)[0] == on[0]
+
+
+def test_tb_init_export_runs_at_load_and_is_idempotent():
+    """D63: the minimax micro tablebase is built once at DLL load
+    (cengine._load calls sba_minimax_tb_init right after binding) instead of
+    lazily inside eval_ultt. The export must exist, report the table ready,
+    and stay safe under repeated calls (the C guard is an atomic CAS)."""
+    ce = _ce()
+    assert ce.available(engine=True)
+    fn = getattr(ce._lib, "sba_minimax_tb_init", None)
+    assert fn is not None
+    assert fn() == 1
+    assert fn() == 1
+    # a tablebase-driven eval still answers (minimax_ultimate is tb-aware)
+    assert ce.minimax_ultimate(_forced_win(), 4) == (2, 2)

@@ -164,6 +164,18 @@ def _rollout_move(state, moves=None):
 
 _C_PREV = {}  # ai_type -> previous C search tree buffer (tree reuse, D30)
 
+# D63 tree-reuse ownership rule (external review round 2): the qtui runs the
+# AI move worker and the assistant analysis worker as two concurrent QThreads,
+# and BOTH used to read/write the shared reuse caches with no lock. The rule
+# now is: whoever pops a tree out of a shared slot owns it EXCLUSIVELY until
+# write-back; the other side misses the reuse and starts fresh. Every shared
+# slot (_C_PREV here, _REUSE/_REUSE_LAST in mcts.py via ai.py) is only ever
+# touched while holding this lock, and the long searches themselves run
+# WITHOUT it — the per-call C arenas are reentrant, so independent searches
+# stay concurrent; only the cache bookkeeping is serialized. A borrower never
+# hands a tree back over a newer one (the AI's write-back always wins).
+_TREE_REUSE_LOCK = threading.Lock()
+
 
 def _c_mcts_move(game, budget, on_progress=None, trace=None):
     """Full-tree MCTS in C (D27), with root parallelization + tree reuse
@@ -174,6 +186,9 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
       cores (ctypes releases the GIL inside the C call).
     - thread 0 carries the reused subtree from the previous search; the
       other threads start fresh. Merging therefore never double-counts.
+    - the warm arena is POPPED under _TREE_REUSE_LOCK (D63): the search
+      owns it exclusively, and a concurrent analysis misses the slot and
+      builds its own arena instead of reading a tree mid-search.
     """
     c_opts = _c_search_opts()
     # the multithreaded switch gates root parallelization; workers caps it
@@ -183,7 +198,10 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
     # the fresh arena is dropped on return (the _CTree finalizer frees it) —
     # storing it would pin a dead arena between moves
     reuse = cfg_engine("tree_reuse", True)
-    prev = _C_PREV.get("MCTS") if reuse else None
+    prev = None
+    if reuse:
+        with _TREE_REUSE_LOCK:
+            prev = _C_PREV.pop("MCTS", None)
 
     results = [None]
     if threads <= 1:
@@ -218,7 +236,15 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
                 e[2] += mo  # macro wins: summing only the first thread was silent
                 e[3] += dr
     if tree is not None and reuse:
-        _C_PREV["MCTS"] = tree
+        with _TREE_REUSE_LOCK:
+            _C_PREV["MCTS"] = tree
+    elif reuse and prev is not None and not merged:
+        # the search died without producing an arena: hand the warm tree
+        # back (sba_mcts_search never writes into prev — it is const) so the
+        # next search keeps its head start, unless a newer tree arrived
+        with _TREE_REUSE_LOCK:
+            if "MCTS" not in _C_PREV:
+                _C_PREV["MCTS"] = prev
     if not merged:
         return None
     stats = [(mi, v[0], v[1], v[2], v[3]) for mi, v in merged.items()]
@@ -266,16 +292,26 @@ def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
     if not _ce.available(engine=True):
         return None
     key = "GRAVE" if grave else "RAVE"
-    # tree_reuse gates both ends here too (same contract as _c_mcts_move)
+    # tree_reuse gates both ends here too (same contract as _c_mcts_move);
+    # D63: the pop hands this thread exclusive ownership of the slot
     reuse = cfg_engine("tree_reuse", True)
-    prev = _C_PREV.get(key) if reuse else None
+    prev = None
+    if reuse:
+        with _TREE_REUSE_LOCK:
+            prev = _C_PREV.pop(key, None)
     fn = _ce.grave_search if grave else _ce.rave_search
     res = fn(game, budget, k=int(cfg_engine("rave_k", 150)), opts=_c_search_opts(), prev=prev)
     if res is None or res[0] is None:
+        if reuse and prev is not None:
+            # failed search: restore the untouched warm tree for the next one
+            with _TREE_REUSE_LOCK:
+                if key not in _C_PREV:
+                    _C_PREV[key] = prev
         return None
     best_move, stats, tree = res
     if tree is not None and reuse:
-        _C_PREV[key] = tree
+        with _TREE_REUSE_LOCK:
+            _C_PREV[key] = tree
     if trace is not None:
         root_visits = sum(s[1] for s in stats) or 1
         top = sorted(stats, key=lambda s: -s[1])[:3]

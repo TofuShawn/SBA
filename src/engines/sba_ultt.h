@@ -123,6 +123,11 @@ int32_t __stdcall sba_minimax_pro(const int32_t *cells, const int32_t *macro,
 /* minimax family (sba_minimax.c) */
 int32_t __stdcall sba_minimax_normal(const int32_t *board9, int32_t player,
                                      int32_t *out_best, double *out_score);
+/* D63: build the exact 3x3 micro tablebase once at DLL load (cengine._load
+ * calls it right after binding) instead of lazily inside eval_ultt, whose
+ * unlocked g_tb_ready flag raced between the two UI worker threads. Safe to
+ * call any number of times; returns 1 once the table is in place. */
+int32_t __stdcall sba_minimax_tb_init(void);
 int32_t __stdcall sba_minimax_ultimate(const int32_t *cells,
                                        const int32_t *macro, int32_t player,
                                        int32_t active, int32_t depth,

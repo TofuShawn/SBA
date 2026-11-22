@@ -37,6 +37,7 @@ from config import (
 )
 from engines.cbridge import (
     _C_PREV,
+    _TREE_REUSE_LOCK,
     _c_mcts_move,
     _c_minimax_pro,
     _c_rave_grave_move,
@@ -109,12 +110,54 @@ log = logging.getLogger("sba.ai")
 
 
 def reset_engine_caches():
-    """Drop module-level search caches (used by self-tests/bench)."""
-    _REUSE.clear()
-    _REUSE_LAST.clear()
+    """Drop module-level search caches (used by self-tests/bench).
+
+    The tree-reuse slots go out under _TREE_REUSE_LOCK (D63): a search
+    running in another thread keeps its exclusively-owned tree alive via
+    its own reference and writes back over the emptied slots harmlessly.
+    """
+    with _TREE_REUSE_LOCK:
+        _REUSE.clear()
+        _REUSE_LAST.clear()
     _get_tt().clear()
     _get_killers().clear()
-    _C_PREV.clear()
+    with _TREE_REUSE_LOCK:
+        _C_PREV.clear()
+
+
+def _tree_reaches(src, dst):
+    """True when `dst` is `src` or one of its ancestors (src's parent chain
+    reaches dst)."""
+    n = src
+    while n is not None:
+        if n is dst:
+            return True
+        n = getattr(n, "parent", None)
+    return False
+
+
+def _purge_overlapping(ai_type, node):
+    """Drop every shared slot of `ai_type` whose tree overlaps `node`.
+
+    Part of the D63 ownership rule: once this thread takes `node` for an
+    exclusive search, no cached reference may reach the tree being mutated —
+    in EITHER direction. Ancestor entries contain it (a stale key can point
+    at the subtree's old root); descendant entries sit inside it (write-backs
+    pair every new subtree into BOTH _REUSE and _REUSE_LAST, so a child of
+    `node` can still be cached under its own key). Call sites hold
+    _TREE_REUSE_LOCK. The parent walks are bounded by the game length and
+    the cache by reuse_cache (32), so this stays off the search's hot path.
+    """
+    stale = [
+        key
+        for key, val in _REUSE.items()
+        if key[0] == ai_type and (_tree_reaches(val, node) or _tree_reaches(node, val))
+    ]
+    for key in stale:
+        del _REUSE[key]
+    last = _REUSE_LAST.get(ai_type)
+    if last is not None and (_tree_reaches(last, node) or _tree_reaches(node, last)):
+        del _REUSE_LAST[ai_type]
 
 
 # ---------------------------------------------------------------
@@ -220,14 +263,25 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     pool = _POOL if (ai_type == "MCTS" and cfg_engine("object_pool", True) and not reuse) else None
     key, prev = None, None
     if reuse:
-        key = (ai_type, _tt_key(game))
-        prev = _REUSE.pop(key, None)
-        if prev is None:
-            last = _REUSE_LAST.get(ai_type)
-            if last is not None:
-                reply = _diff_move(last.state, game)
-                if reply is not None:
-                    prev = next((c for c in last.children if c.move == reply), None)
+        # D63 ownership rule: the take below (pop or derive) runs under
+        # _TREE_REUSE_LOCK and REMOVES the tree from every shared slot, so
+        # this thread owns it exclusively while the search mutates it; a
+        # concurrent searcher misses both slots and starts fresh.
+        with _TREE_REUSE_LOCK:
+            key = (ai_type, _tt_key(game))
+            prev = _REUSE.pop(key, None)
+            if prev is not None:
+                # the taken tree (and every cached subtree inside it) must
+                # not stay reachable through any shared slot
+                _purge_overlapping(ai_type, prev)
+            else:
+                last = _REUSE_LAST.pop(ai_type, None)
+                if last is not None:
+                    reply = _diff_move(last.state, game)
+                    if reply is not None:
+                        prev = next((c for c in last.children if c.move == reply), None)
+                        if prev is not None:
+                            _purge_overlapping(ai_type, prev)
     if ai_type == "MCTS":
         root = mcts_search(search_game, budget, prev_root=prev, pool=pool, on_progress=on_progress)
     elif ai_type == "MCTS+RAVE":
@@ -256,10 +310,11 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
         apply_move(g, move)
         child = next((c for c in root.children if c.move == move), None)
         if child is not None:
-            _REUSE[(ai_type, _tt_key(g))] = child
-            _REUSE_LAST[ai_type] = child
-            if len(_REUSE) > cfg_engine("reuse_cache", 32):
-                _REUSE.pop(next(iter(_REUSE)))
+            with _TREE_REUSE_LOCK:
+                _REUSE[(ai_type, _tt_key(g))] = child
+                _REUSE_LAST[ai_type] = child
+                if len(_REUSE) > cfg_engine("reuse_cache", 32):
+                    _REUSE.pop(next(iter(_REUSE)))
     if pool is not None:
         pool.release(root)
     return move

@@ -8,7 +8,7 @@ from core.game import EMPTY, NormalGame, O, X, apply_clone_result, apply_move
 import math
 import random
 
-from config import _CFG_DEFAULTS, cfg_engine
+from config import cfg_engine
 
 
 def get_basic_move(game):
@@ -75,10 +75,13 @@ ULTIMATE_BOOK = {
     (8, 4): [(4, 2), (4, 6)],
 }
 
-# Expose the Ultimate opening book through config.toml ([engine.opening_book_ultimate],
-# keys like "4,4"); the dict above remains the built-in default.
-
-_CFG_DEFAULTS["engine"]["opening_book_ultimate"] = ULTIMATE_BOOK
+# The Ultimate opening book is configurable through config.toml
+# ([engine.opening_book_ultimate], keys like "4,4"); the dict above remains
+# the built-in default, passed to cfg_engine as the fallback below. The book
+# DATA deliberately never lands in config._CFG_DEFAULTS (D63): config.py's
+# leaf contract is that its defaults do not depend on whether books was
+# imported — a config.toml table, when present, reaches the reader through
+# CONFIG, not through the defaults tree.
 
 
 def _ultimate_book():

@@ -7,7 +7,7 @@ overlays, best-move analysis and the reason classifier (D3/D24)."""
 from core.game import EMPTY, LINES, NormalGame, O, UltimateGame, X, apply_move, count_threats
 from config import cfg_engine
 
-from engines.cbridge import _C_PREV, _c_search_opts, _ce, BitUltimateGame
+from engines.cbridge import _C_PREV, _TREE_REUSE_LOCK, _c_search_opts, _ce, BitUltimateGame
 from engines.mcts import mcts_search
 from analysis.tablebase import _board_key, build_micro_tablebase, build_tablebase
 
@@ -171,14 +171,29 @@ def _rates_from_stats(stats):
 def _c_ultt_analysis(game, mcts_budget):
     """One native MCTS search feeding both the top-moves list and the
     win-rate triplet (the C twin of the analyze_position Ultimate branch).
-    Reuses the AI move search's warm tree when available (read-only — it
-    never writes back to _C_PREV). Returns None when the full engine DLL is
-    unavailable."""
+    Reuses the AI move search's warm tree when available. Returns None when
+    the full engine DLL is unavailable.
+
+    D63 ownership rule: the borrow is a POP under _TREE_REUSE_LOCK — analysis
+    takes the idle tree out of the shared slot so the AI worker can never
+    hand the same arena out mid-search, and gives it back only while the
+    slot is still empty (the AI's write-back always wins). While the AI owns
+    the tree, analysis misses the reuse and starts fresh on its own arena;
+    both searches still run concurrently because their arenas are private.
+    """
     if not (_ce.available(engine=True) and cfg_engine("c_mcts", True)):
         return None
-    _mv, stats, _tree = _ce.mcts_search(
-        game, mcts_budget, opts=_c_search_opts(), prev=_C_PREV.get("MCTS")
-    )
+    prev = None
+    if cfg_engine("tree_reuse", True):
+        with _TREE_REUSE_LOCK:
+            prev = _C_PREV.pop("MCTS", None)
+    try:
+        _mv, stats, _tree = _ce.mcts_search(game, mcts_budget, opts=_c_search_opts(), prev=prev)
+    finally:
+        if prev is not None:
+            with _TREE_REUSE_LOCK:
+                if "MCTS" not in _C_PREV:
+                    _C_PREV["MCTS"] = prev
     if not stats:
         return None
     items = []

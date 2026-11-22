@@ -11,6 +11,7 @@
 
 #include "sba_ultt.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -29,7 +30,12 @@ static double pro_elapsed_ms(clock_t t0) {
 /* ------------------------------------------------------------------ */
 #define TB_SIZE 19683   /* 3^9 */
 static int8_t g_tb[TB_SIZE];
-static int32_t g_tb_ready = 0;
+/* D63: was a plain int32_t — two threads running their first search at once
+ * could both pass the ready check and wipe the table under each other
+ * (C11 UB + a cache wipe). The atomic CAS below makes init single-shot even
+ * without a mutex; the DLL-load-time sba_minimax_tb_init() call keeps the
+ * race window out of the search hot path entirely. */
+static atomic_int g_tb_ready = 0;
 
 static int32_t tb_key(const int32_t *c) {
     int32_t k = 0;
@@ -68,11 +74,21 @@ static int32_t tb_solve(int32_t *c, int32_t cur) {
 }
 
 static void tb_init(void) {
-    if (g_tb_ready) return;
+    /* single-shot init: the first caller flips 0 -> 1 and builds the table;
+     * every other caller (a concurrent first search, or a repeated call)
+     * returns immediately instead of re-wiping a table being filled. */
+    int expected = 0;
+    if (!atomic_compare_exchange_strong(&g_tb_ready, &expected, 1)) return;
     for (int32_t i = 0; i < TB_SIZE; i++) g_tb[i] = 127;
     int32_t c[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
     tb_solve(c, 1);
-    g_tb_ready = 1;
+}
+
+/* D63 export: cengine._load() calls this once right after binding, so the
+ * lazy eval_ultt() call below stays a no-op fallback on the hot path. */
+int32_t __stdcall sba_minimax_tb_init(void) {
+    tb_init();
+    return g_tb_ready;
 }
 
 /* ------------------------------------------------------------------ */

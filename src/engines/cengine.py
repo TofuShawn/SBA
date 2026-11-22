@@ -251,6 +251,17 @@ def _load():
                     state_args
                     + [ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ProOpts), ptr, dbl],
                 )
+                # M5 (D63): build the minimax micro tablebase once at DLL load.
+                # eval_ultt's lazy tb_init() used to be the first search's job,
+                # racing its unlocked g_tb_ready flag between the two Qt worker
+                # threads; the C-side guard is an atomic CAS now, and this
+                # load-time call keeps even that fallback off the hot path. A
+                # DLL built before the export existed simply skips it.
+                tb_boot = getattr(lib, "sba_minimax_tb_init", None)
+                if tb_boot is not None:
+                    tb_boot.restype = ctypes.c_int32
+                    tb_boot.argtypes = []
+                    tb_boot()
                 _has_engine = True
             _lib = lib
         except (OSError, AttributeError) as exc:
