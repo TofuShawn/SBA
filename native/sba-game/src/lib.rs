@@ -297,7 +297,8 @@ impl SbaGame {
     }
 }
 
-/// The raw result: X_WINS / O_WINS / DRAW / ONGOING (mirror of result()).
+/// The canonical raw result: X_WINS / O_WINS / DRAW / ONGOING; the public
+/// `result()` delegates here.
 fn raw_result(g: &SbaGame) -> i32 {
     let w = g.winner();
     if w != ONGOING {

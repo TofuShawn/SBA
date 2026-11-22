@@ -21,7 +21,7 @@ import time
 import numpy as np
 import torch
 
-from config import MP_GAME_TIMEOUT
+from config import MP_GAME_TIMEOUT, TEMP_MIN
 
 # repo root (this file lives in src/, so two dirnames up — same arithmetic
 # config.py uses)
@@ -139,7 +139,7 @@ def run_round(
     seed_base,
     temp_start,
     temp_end,
-    temp_min=0.05,
+    temp_min=TEMP_MIN,
     c_puct=1.5,
     dirichlet_eps=0.25,
     game_type="ultimate",

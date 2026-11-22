@@ -127,6 +127,10 @@ EARLY_STOP_WR = 0.55
 # constant back from alphazero would be a cycle.
 MP_GAME_TIMEOUT = 3600.0
 
+# self-play temperature floor: the campaign schedule max(TEMP_MIN, 1 - i/games)
+# never samples argmax-blurrier than this, on either self-play path.
+TEMP_MIN = 0.05
+
 
 def _load_config():
     """Load config.toml as a dict; missing/broken file -> {}."""

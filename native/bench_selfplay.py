@@ -49,6 +49,7 @@ for _p in (SRC, ROOT):  # SRC for the sba modules, ROOT for native/
 import torch  # noqa: E402
 
 from alphazero import DEVICE, AZNet, _mp_worker_init, export_safetensors  # noqa: E402
+from config import TEMP_MIN  # noqa: E402
 from rustselfplay import find_exe, load_records, run_round  # noqa: E402
 
 TEMP = 1.0  # campaign start temperature; both sides play all games at it
@@ -100,9 +101,9 @@ def bench_python(state_dict, model_meta, games, sims, threads):
 
 
 def bench_rust(model, games, sims, threads):
-    """The sba_selfplay exe path, end to end (weights export included —
-    the trainer pays it per round too). Returns (positions, elapsed, sha,
-    exe_path, weights_path).
+    """The sba_selfplay exe path, end to end (weights export excluded —
+    export_safetensors runs before the timer starts). Returns (positions,
+    elapsed, sha, exe_path, weights_path).
     """
     exe = find_exe()
     if not exe:
@@ -168,7 +169,7 @@ def probe_batch_stats(exe, weights, games, sims, threads):
         "--temp-end",
         f"{TEMP:.6f}",
         "--temp-min",
-        "0.05",
+        f"{TEMP_MIN:.6f}",
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=games * 120 + 600)

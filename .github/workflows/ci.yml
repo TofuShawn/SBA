@@ -38,6 +38,14 @@ jobs:
       - name: Ruff format
         run: ruff format --check .
 
+      # Report-only until the 132 transitive findings (pillow / aiohttp /
+      # pypdf / urllib3 / setuptools — none in the project's direct declared
+      # deps) are triaged; dropping `|| true` turns it into a blocking gate.
+      - name: pip-audit (report-only)
+        run: |
+          pip install pip-audit
+          pip-audit --desc off || true
+
       # The C engine used to compile with no warning flags at all, and
       # build.py swallowed successful builds' stderr. This is the gate;
       # -D__stdcall= is the same define build.py uses on a Linux host.

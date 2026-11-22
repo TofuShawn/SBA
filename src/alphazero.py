@@ -60,7 +60,7 @@ import rustselfplay
 from dataclasses import dataclass
 
 import config
-from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine, writable_path
+from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, TEMP_MIN, cfg_engine, writable_path
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -574,7 +574,8 @@ def export_safetensors(model, path):
     }
     safe = writable_path(path)
     save_file(sd, safe)
-    return hashlib.sha256(open(safe, "rb").read()).hexdigest()
+    with open(safe, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
 
 
 def _ckpt_path(save_path, game):
@@ -842,7 +843,7 @@ def _mp_play_game(
     model = AZNet(size, channels, blocks).to(DEVICE)
     model.load_state_dict(weights)
     model.eval()
-    temp = max(0.05, 1.0 - idx / games)
+    temp = max(TEMP_MIN, 1.0 - idx / games)
     try:
         states, targets, zs = self_play_game(
             lambda: make_game(game_type),
@@ -1223,7 +1224,7 @@ def train(
                 # round schedule endpoint (ruling: computed once before the
                 # first run_round call, reused by the retry so both calls of
                 # this round interpolate to the same end temperature)
-                temp_end = max(0.05, 1.0 - (r_end - 1) / games)
+                temp_end = max(TEMP_MIN, 1.0 - (r_end - 1) / games)
                 out_dir = writable_path(os.path.join(logs_dir, "selfplay-%d" % time.time_ns()))
                 weights_path = writable_path(
                     os.path.join(logs_dir, "selfplay-%d.safetensors" % time.time_ns())
@@ -1241,9 +1242,9 @@ def train(
                     # starts one past the previous round's last absolute game
                     # index — no seed stream is ever replayed across rounds
                     seed_base=(seed or 0) + (it - 1),
-                    temp_start=max(0.05, 1.0 - (it - 1) / games),
+                    temp_start=max(TEMP_MIN, 1.0 - (it - 1) / games),
                     temp_end=temp_end,
-                    temp_min=0.05,
+                    temp_min=TEMP_MIN,
                     dirichlet_eps=dirichlet_eps,
                     on_event=on_event,
                     # round deadline, not a per-line gap: a legitimate large
@@ -1270,9 +1271,9 @@ def train(
                         # (game - 1) / games — same convention as temp_end
                         # (the seed base advances past this round's completed
                         # games too, not round 1's)
-                        temp_start=max(0.05, 1.0 - (it - 1 + res["games_done"]) / games),
+                        temp_start=max(TEMP_MIN, 1.0 - (it - 1 + res["games_done"]) / games),
                         temp_end=temp_end,
-                        temp_min=0.05,
+                        temp_min=TEMP_MIN,
                         dirichlet_eps=dirichlet_eps,
                         on_event=on_event,
                         timeout=max(config.MP_GAME_TIMEOUT, round_games * 120),
@@ -1289,7 +1290,7 @@ def train(
                     _absorb_game(
                         [(g_states, g_targets, g_zs)],
                         it,
-                        max(0.05, 1.0 - (it - 1) / games),
+                        max(TEMP_MIN, 1.0 - (it - 1) / games),
                     )
                     it += 1
         elif workers > 1:
@@ -1328,7 +1329,7 @@ def train(
             )
         else:
             for it in range(1, games + 1):
-                temp = max(0.05, 1.0 - it / games)
+                temp = max(TEMP_MIN, 1.0 - it / games)
                 states, targets, zs = self_play_game(
                     make_game_fn,
                     model,
@@ -1618,7 +1619,7 @@ def _train_multiprocess(cfg, ctx, hooks=None):
                         optimizer.param_groups[0]["lr"],
                         total_loss / steps_per_game,
                         pos_total,
-                        max(0.05, 1.0 - idx / games),
+                        max(TEMP_MIN, 1.0 - idx / games),
                         ev,
                         ckpt_at,
                     )
@@ -1632,7 +1633,7 @@ def _train_multiprocess(cfg, ctx, hooks=None):
                             "lr": optimizer.param_groups[0]["lr"],
                             "loss": total_loss / steps_per_game,
                             "positions": pos_total,
-                            "temp": max(0.05, 1.0 - idx / games),
+                            "temp": max(TEMP_MIN, 1.0 - idx / games),
                             "eval": ev,
                             "elapsed": time.time() - start,
                         }
