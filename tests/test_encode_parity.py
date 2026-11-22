@@ -15,7 +15,7 @@ import subprocess
 import numpy as np
 import pytest
 
-import rustselfplay
+from az import rustselfplay
 
 EXE = rustselfplay.find_exe(name="sba_debug")  # cpu debug build on CI, wgpu release locally
 pytestmark = pytest.mark.skipif(EXE is None, reason="sba_debug not built")
@@ -43,7 +43,7 @@ def _run_planes_dump(tmp_path, games=3, seed=7, moves=10):
 
 
 def test_rust_planes_match_python_encode_bitwise(tmp_path):
-    from game import UltimateGame  # the pure-Python reference, not the Rust one
+    from core.game import UltimateGame  # the pure-Python reference, not the Rust one
 
     out = _run_planes_dump(tmp_path)
     bins = sorted(g for g in os.listdir(out) if g.endswith(".bin"))
@@ -57,7 +57,7 @@ def test_rust_planes_match_python_encode_bitwise(tmp_path):
         for m, i in meta["moves"]:
             assert (m, i) in game.legal_moves()
             game.make_move(m, i)
-        from alphazero import encode
+        from az.alphazero import encode
 
         ref = encode(game).numpy()
         assert np.array_equal(ref, planes), g  # bitwise — discrete data

@@ -16,7 +16,7 @@ import logging
 import random
 import threading
 
-from game import (
+from core.game import (
     BitUltimateGame,
     EMPTY,
     NormalGame,
@@ -35,7 +35,7 @@ from config import (
     save_engine_config,
     set_engine_config,
 )
-from cbridge import (
+from engines.cbridge import (
     _C_PREV,
     _c_mcts_move,
     _c_minimax_pro,
@@ -52,8 +52,8 @@ from cbridge import (
     _tt_key,
     move_text,
 )
-from books import _BOOK_ENGINES, ULTIMATE_BOOK, get_basic_move, opening_book_move
-from mcts import (
+from analysis.books import _BOOK_ENGINES, ULTIMATE_BOOK, get_basic_move, opening_book_move
+from engines.mcts import (
     _REUSE,
     _REUSE_LAST,
     GraveNode,
@@ -70,7 +70,7 @@ from mcts import (
     mcts_rave_search,
     mcts_search,
 )
-from minimax import (
+from engines.minimax import (
     _get_killers,
     _get_tt,
     _minimax_ultimate,
@@ -78,7 +78,7 @@ from minimax import (
     minimax_move_ultimate,
     minimax_pro_move,
 )
-from tablebase import (
+from analysis.tablebase import (
     _TABLEBASE,
     _TABLEBASE_PATH,
     _TB_BYTE_VALUE,
@@ -92,7 +92,7 @@ from tablebase import (
     solver_move,
     write_tablebase_file,
 )
-from analysis import (
+from analysis.analysis import (
     _c_ultt_analysis,
     _fork_count,
     _rates_from_root,
@@ -132,7 +132,7 @@ def _az_module():
     be able to play and to run --self-test. Other import failures propagate.
     """
     try:
-        import alphazero
+        from az import alphazero
     except ModuleNotFoundError as exc:
         root = (exc.name or "").split(".")[0]
         if root not in ("torch", "numpy"):

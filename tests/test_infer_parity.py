@@ -17,14 +17,14 @@ import numpy as np
 import pytest
 import torch
 
-import rustselfplay
+from az import rustselfplay
 
 EXE = rustselfplay.find_bench()  # cpu debug build on CI, wgpu release locally
 pytestmark = pytest.mark.skipif(EXE is None, reason="bench_burn not built")
 
 
 def test_burn_matches_torch_within_1e5(tmp_path):
-    from alphazero import AZNet, export_safetensors
+    from az.alphazero import AZNet, export_safetensors
 
     torch.manual_seed(3)
     model = AZNet(9, 8, 1).eval()

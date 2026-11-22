@@ -49,7 +49,7 @@ pip install -r requirements.txt
 ```
 
 PySide6（Qt for Python，桌面版用）已併入 `requirements.txt`，不需要另外安裝檔。
-原生 C 引擎核心：`python src/tools/build.py` 編譯 `src/sba_engine.dll`
+原生 C 引擎核心：`python src/tools/build.py` 編譯 `src/engines/sba_engine.dll`
 （Windows 本機 gcc 或 WSL mingw 交叉編譯；CI 自動構建）。DLL 缺失時引擎
 自動回退純 Python 實作，功能不受影響、僅速度下降。
 
@@ -88,9 +88,8 @@ lint / clippy / cgate); the branch model and prerequisites live in
 python sba.py
 
 # equivalent module paths / 等同的模組路徑（相容保留）
-python src/SBA.py
-python src/SBA.py --qt
-python src/qtui.py
+python src/session/SBA.py
+python src/session/SBA.py --qt
 ```
 
 桌面版使用 Endfield 工業 console 主題（`static/endfield.qss` + 原生繪製棋盤），
@@ -100,13 +99,11 @@ python src/qtui.py
 
 ```bash
 python sba.py --tui
-# or / 或
-python src/tui.py
 ```
 
 Textual 終端機介面，同一套引擎與設定；適合 SSH／無 GUI 環境。
 
-CLI flags / 指令參數（`python sba.py` 與 `python src/SBA.py` 同一組）：
+CLI flags / 指令參數（`python sba.py` 與 `python src/session/SBA.py` 同一組）：
 
 | Flag / 參數 | Description / 說明 |
 | --- | --- |
@@ -116,15 +113,15 @@ CLI flags / 指令參數（`python sba.py` 與 `python src/SBA.py` 同一組）�
 | `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
 | `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
 | `--build-tables` | Rebuild `data/tt_normal.bin` — the persisted perfect-play table for Normal mode (all 5,478 reachable positions) / 重建 Normal 模式持久化完美解表（全部 5,478 個可達局面） |
-| `--train-az` | Alias for `src/alphazero.py train` / 等同執行 `src/alphazero.py train` |
-| `--eval-az` | Alias for `src/alphazero.py eval` / 等同執行 `src/alphazero.py eval` |
+| `--train-az` | Alias for `src/az/alphazero.py train` / 等同執行 `src/az/alphazero.py train` |
+| `--eval-az` | Alias for `src/az/alphazero.py eval` / 等同執行 `src/az/alphazero.py eval` |
 | `--bench-tui` | Interactive benchmark dashboard (pick engines, live per-game scores) / 互動對戰儀表板（選引擎、即時比分） |
 | `--train-tui` | Interactive training dashboard (progress, loss/win-rate sparklines, milestone log) / 互動訓練儀表板（進度、loss／勝率曲線、里程碑日誌） |
 
 ### 3. Self-test / 自測
 
 ```bash
-python src/SBA.py --self-test
+python sba.py --self-test
 # Windows: start.bat --self-test (local launcher, not tracked in git)
 ```
 
@@ -135,12 +132,12 @@ smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局�
 
 ```bash
 # default: MCTS vs MCTS+RAVE vs MCTS+GRAVE round-robin on Ultimate / 預設終極模式循環賽
-python src/SBA.py --bench
+python sba.py --bench
 # pick your own matchup / 自訂對戰組合
-python src/SBA.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 40 --iters 400
-python src/SBA.py --bench --ai-a Minimax --ai-b MCTS+GRAVE --depth 4
+python sba.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 40 --iters 400
+python sba.py --bench --ai-a Minimax --ai-b MCTS+GRAVE --depth 4
 # smaller / faster, or Normal board / 較小規模或普通棋盤
-python src/SBA.py --bench --games 10 --iters 200 --normal
+python sba.py --bench --games 10 --iters 200 --normal
 ```
 
 Available engines for `--ai-a`/`--ai-b`: Random, Basic, Minimax, Minimax Pro,
@@ -154,7 +151,7 @@ per game and per-match scores (win = 1, draw = 0.5) are printed /
 # train a neural net for Ultimate (Normal is solved and not supported) / 訓練終極模式神經網路（普通模式已破解，不支援）
 python sba.py --train-az --games 400 --sims 80
 # or via the module directly / 或直接走模組
-python src/alphazero.py train --games 400 --sims 80
+python src/az/alphazero.py train --games 400 --sims 80
 
 # evaluate a trained model vs MCTS / 評估模型對戰 MCTS
 python sba.py --eval-az --games 30 --sims 200
@@ -191,7 +188,7 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 ```
       UI LAYER (pick one — two front ends, one backend)
   +----------------------+  +----------------------+
-  | src/qtui.py     [5a] |  | src/tui.py      [5b] |
+  | src/ui/qtui.py  [5a] |  | src/ui/tui.py  [5b] |
   | PySide6 desktop      |  | rich terminal        |
   | ~2500 lines          |  | ~1370 lines          |
   +----------+-----------+  +----------+-----------+
@@ -200,7 +197,7 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
                           |
       GLUE LAYER          v
   +------------------------------------------------------+
-  | src/SBA.py  [4]                                      |
+  | src/session/SBA.py  [4]                              |
   | CLI entry · session state · t() bilingual strings    |
   | --tui / --bench-tui / --train-tui / --train-az        |
   | ~250 lines                                           |
@@ -208,24 +205,24 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
                               |
       ENGINE LAYER            v
   +------------------------------------------------------+
-  | src/ai.py  [2]  facade (D47): get_ai_move dispatch,  |
-  |   the AlphaZero bridge, cache reset; re-exports the  |
-  |   whole engine surface (from ai import ... kept)     |
-  |   engine modules:                                    |
-  |   src/config.py    ROOT, config.toml load/save, guard|
-  |   src/cbridge.py   ctypes boundary to sba_engine.dll |
-  |   src/books.py     Basic heuristic + opening books   |
-  |   src/mcts.py      UCT / RAVE / GRAVE trees (Python) |
-  |   src/minimax.py   alpha-beta + Minimax Pro (TT/LMR) |
-  |   src/tablebase.py persisted Normal solve + Solver   |
-  |   src/analysis.py  assistant analysis + win rates    |
+  | src/engines/ai.py  [2]  facade (D47): get_ai_move    |
+  |   dispatch, the AlphaZero bridge, cache reset;       |
+  |   re-exports the whole surface (from engines.ai      |
+  |   import ... kept)  engine modules:                  |
+  |   src/config.py            ROOT, config.toml, guard  |
+  |   src/engines/cbridge.py   ctypes boundary (the DLL) |
+  |   src/analysis/books.py    Basic heuristic + books   |
+  |   src/engines/mcts.py      UCT / RAVE / GRAVE trees  |
+  |   src/engines/minimax.py   alpha-beta + Minimax Pro  |
+  |   src/analysis/tablebase.py  Normal solve + Solver   |
+  |   src/analysis/analysis.py  assistant + win rates    |
   | ~2200 lines across 8 modules                         |
   +---------+--------------------------------------------+
             |
             |  lazy import (loads torch only when selected)
             v
   +------------------------------------------------------+
-  | src/alphazero.py  [3]                                |
+  | src/az/alphazero.py  [3]                             |
   | neural-guided MCTS: AZNet policy+value heads,        |
   | self-play workers, replay buffer, LR/temp annealing  |
   | Ultimate only (D4); ~950 lines                       |
@@ -233,7 +230,7 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
                               |
       RULES LAYER             v
   +------------------------------------------------------+
-  | src/game.py  [1]                                     |
+  | src/core/game.py  [1]                                |
   | NormalGame / UltimateGame / BitUltimateGame          |
   | the only ground truth: legal_moves() make_move()     |
   | result() clone()                                     |
@@ -242,16 +239,16 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 
   SIDE CAR (no layer — loads in from the side)
     config.toml -------------- > src/config.py  every engine switch + session defaults (D11)
-    src/cengine.py + dll ---- > src/cbridge.py C backends (D25-D30, D37): full MCTS tree,
-                                              rollouts and the minimax family live in
-                                              sba_engine.dll (~37x; built via
+    src/engines/cengine.py + dll > src/engines/cbridge.py C backends (D25-D30, D37):
+                                              full MCTS tree, rollouts and the minimax
+                                              family live in sba_engine.dll (~37x; built via
                                               src/tools/build.py, auto-fallback to Python)
-    src/sba-game (Rust) ----- > src/rustbridge.py  state layer for AZ self-play (D48):
+    src/sba-game (Rust) --- > src/az/rustbridge.py  state layer for AZ self-play (D48):
                                               clone/apply/legal/result on packed
-                                              bitboards in sba_game.dll|so; built
+                                              bitboards in az/sba_game.dll|so; built
                                               when cargo exists, game.py stays the
                                               reference + fallback
-    static/ (qss·fonts·bg) --- > src/qtui.py  stylesheets, bundled OFL fonts, backdrops
+    static/ (qss·fonts·bg) --- > src/ui/qtui.py  stylesheets, bundled OFL fonts, backdrops
     tests/ -------------------                headless pytest: rules, AI sanity,
                                               C engine, AZ recipe, Rust parity
 ```
@@ -259,11 +256,11 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 Reading-route highlights, condensed from the retired
 `docs/reading-guide.md` / 閱讀要點：
 
-- **[1] `src/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
-- **[2] `src/ai.py`（門面）**：引擎分居 `mcts.py` / `minimax.py` / `tablebase.py` / `analysis.py` / `books.py`；按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
-- **[3] `src/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
-- **[4] `src/SBA.py`**：總覽地圖，最後讀。
-- **[5] UI**：兩端共用 [1]–[4]；`src/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
+- **[1] `src/core/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
+- **[2] `src/engines/ai.py`（門面）**：引擎分居 `engines/mcts.py` / `engines/minimax.py` / `analysis/tablebase.py` / `analysis/analysis.py` / `analysis/books.py`；按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
+- **[3] `src/az/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
+- **[4] `src/session/SBA.py`**：總覽地圖，最後讀。
+- **[5] UI**：兩端共用 [1]–[4]；`src/ui/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
 - Decision log with the full "why" per entry / 每個決定的完整理由見決策日誌：[`docs/decisions.md`](docs/decisions.md)
 
 ---
@@ -281,9 +278,9 @@ Reading-route highlights, condensed from the retired
 ## Native C engine / 原生 C 引擎
 
 All engine hot paths run in C since D25–D51 (`python src/tools/build.py` builds
-`src/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
+`src/engines/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
 it automatically) and the game state runs in Rust since D48/D50
-(`src/sba_game.dll`, cargo; the Python game stays the reference and the
+(`src/az/sba_game.dll`, cargo; the Python game stays the reference and the
 fallback). Measured on this machine / 全部引擎熱路徑已下沉 C（`src/tools/build.py`
 編譯；缺失時自動回退 Python，僅速度下降），遊戲狀態層下沉 Rust（D48/D50）：
 

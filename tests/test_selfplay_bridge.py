@@ -16,7 +16,7 @@ import subprocess
 import threading
 import time
 
-import rustselfplay
+from az import rustselfplay
 from config import MP_GAME_TIMEOUT
 
 

@@ -6,10 +6,10 @@ import tomllib
 
 import pytest
 
-import ai
+from engines import ai
 import config
-from SBA import bench, new_session, side_types
-from ai import cfg_session, set_engine_config, save_engine_config
+from session.SBA import bench, new_session, side_types
+from engines.ai import cfg_session, set_engine_config, save_engine_config
 
 
 def test_session_defaults():
@@ -29,7 +29,7 @@ def test_side_types_pvc_computer_first():
 
 def test_config_override_and_reset():
     set_engine_config({"engine": {"rollout_heuristic": False}})
-    from ai import cfg_engine
+    from engines.ai import cfg_engine
 
     assert cfg_engine("rollout_heuristic") is False
     set_engine_config({})
@@ -201,7 +201,7 @@ def test_save_failure_leaves_the_original_file_intact(tmp_path, monkeypatch):
 def test_bench_smoke_table(capsys):
     """--bench renders its results (rich table on a console, plain text
     in capture) and the score line keeps the documented semantics."""
-    import SBA
+    from session import SBA
 
     rc = SBA.bench(games=2, iterations=4, game_type="normal", ai_a="Random", ai_b="Basic", depth=2)
     assert rc == 0
@@ -216,12 +216,15 @@ def test_main_routes_tui(monkeypatch):
     import types
     import sys as _sys
     import pytest
-    import SBA
+    import ui
+    from session import SBA
 
     calls = []
-    monkeypatch.setitem(
-        _sys.modules, "tui", types.SimpleNamespace(main=lambda: calls.append("tui") or 0)
-    )
+    stub = types.SimpleNamespace(main=lambda: calls.append("tui") or 0)
+    # the routing imports ui.tui (D61): stub both the module table and the
+    # package attribute so the fake wins whichever path the import takes
+    monkeypatch.setitem(_sys.modules, "ui.tui", stub)
+    monkeypatch.setattr(ui, "tui", stub, raising=False)
     with pytest.raises(SystemExit) as ei:
         SBA.main(["--tui"])
     assert calls == ["tui"] and ei.value.code == 0
@@ -234,12 +237,15 @@ def test_main_forwards_az_subcommands(monkeypatch):
     import types
     import sys as _sys
     import pytest
-    import SBA
+    import az
+    from session import SBA
 
     seen = []
-    monkeypatch.setitem(
-        _sys.modules, "alphazero", types.SimpleNamespace(main=lambda argv: seen.append(argv) or 7)
-    )
+    stub = types.SimpleNamespace(main=lambda argv: seen.append(argv) or 7)
+    # the routing imports az.alphazero (D61): stub both the module table and
+    # the package attribute so the fake wins whichever path the import takes
+    monkeypatch.setitem(_sys.modules, "az.alphazero", stub)
+    monkeypatch.setattr(az, "alphazero", stub, raising=False)
     with pytest.raises(SystemExit) as ei:
         SBA.main(["--train-az", "--games", "5"])
     assert seen == [["train", "--games", "5"]] and ei.value.code == 7
@@ -253,7 +259,7 @@ def test_main_bench_flags_read_argv(monkeypatch):
     """bench() reads its flags from the argv LIST passed to main() —
     the root shim forwards them; a wrong-engine error still exits 2."""
     import pytest
-    import SBA
+    from session import SBA
 
     with pytest.raises(SystemExit) as ei:
         SBA.main(["--bench", "--ai-a", "Nope"])

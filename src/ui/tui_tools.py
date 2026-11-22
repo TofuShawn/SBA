@@ -33,7 +33,7 @@ from textual.widgets import (
     Static,
 )
 
-from SBA import BENCH_AI_NAMES
+from session.SBA import BENCH_AI_NAMES
 
 HINT_PARAMS = "[TAB] 下一欄 · [ENTER] 開始 · [1] 參數頁 · [2] 進度頁 · [Q] 離開"
 HINT_RUN = "[2] 進度頁 · [1] 回參數頁（可調整後重跑） · [Q] 離開"
@@ -49,7 +49,9 @@ def _crash_log(where, tb):
     durable copy and the RichLog gets a one-line pointer."""
     try:
         here = os.path.dirname(os.path.abspath(__file__))
-        path = os.path.join(os.path.dirname(here), "logs", "tui-crash.log")
+        # this file lives in src/ui/ (D61): two dirnames up to the repo root,
+        # where logs/ lives
+        path = os.path.join(os.path.dirname(os.path.dirname(here)), "logs", "tui-crash.log")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write("=== %s %s ===\n" % (where, time.strftime("%F %T")))
@@ -213,7 +215,7 @@ class BenchTUI(App):
     @work(exclusive=True, thread=True)
     def _start_bench(self, cfg):
         try:
-            from SBA import bench
+            from session.SBA import bench
 
             bench(
                 games=cfg["games"],
@@ -411,7 +413,7 @@ class TrainTUI(App):
         yield Footer()
 
     def on_mount(self):
-        import rustselfplay
+        from az import rustselfplay
 
         # D53 provenance: resolve the engine ONCE with the same auto
         # semantics train() uses, then label the dashboard from THAT
@@ -441,7 +443,7 @@ class TrainTUI(App):
     @work(exclusive=True, thread=True)
     def _start_train(self, cfg):
         try:
-            import alphazero
+            from az import alphazero
 
             alphazero.train(
                 alphazero.TrainCfg(
@@ -558,7 +560,7 @@ class TrainTUI(App):
 
 def run_bench(args):
     """--bench-tui handler: the same flags as --bench, ignored defaults kept."""
-    import SBA
+    from session import SBA
 
     app = BenchTUI(
         games=int(SBA._flag_value("--games", 20, args)),
@@ -573,7 +575,7 @@ def run_bench(args):
 
 def run_train(args):
     """--train-tui handler: the same flags as --train-az."""
-    import SBA
+    from session import SBA
 
     app = TrainTUI(
         games=int(SBA._flag_value("--games", 300, args)),

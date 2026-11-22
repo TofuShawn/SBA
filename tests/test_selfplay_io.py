@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from alphazero import AZNet, export_safetensors
+from az.alphazero import AZNet, export_safetensors
 
 
 def _write_fake_record(path, t=3, seed=11):
@@ -41,7 +41,7 @@ def test_export_safetensors_roundtrip_names(tmp_path):
 
 
 def test_load_records_matches_replay_contract(tmp_path):
-    import rustselfplay
+    from az import rustselfplay
 
     tensors = _write_fake_record(tmp_path / "g00000.safetensors")
     _write_fake_record(tmp_path / "g00001.safetensors", t=5, seed=12)
@@ -58,6 +58,6 @@ def test_load_records_matches_replay_contract(tmp_path):
 
 
 def test_load_records_missing_dir_is_empty():
-    import rustselfplay
+    from az import rustselfplay
 
     assert rustselfplay.load_records(str("/nonexistent-dir-sba")) == []

@@ -9,11 +9,11 @@ import random
 import threading
 import time
 
-from game import NormalGame, apply_move
+from core.game import NormalGame, apply_move
 from config import cfg_engine
 
-from analysis import blocks_immediate_win, eval_ultimate
-from cbridge import _tt_key
+from analysis.analysis import blocks_immediate_win, eval_ultimate
+from engines.cbridge import _tt_key
 
 
 def _minimax_normal(game, alpha, beta, maximizing, ai_player, depth=0):

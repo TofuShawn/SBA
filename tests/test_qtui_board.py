@@ -18,7 +18,7 @@ try:
 except ImportError as exc:  # pragma: no cover - GL-less environments
     pytest.skip(f"PySide6/OpenGL stack unavailable: {exc}", allow_module_level=True)
 
-from game import UltimateGame, apply_move  # noqa: E402
+from core.game import UltimateGame, apply_move  # noqa: E402
 
 # NOTE: the cache must NOT share its name with the accessor — a global
 # `_app = None` next to `def _app()` gets shadowed by the def, so
@@ -44,7 +44,7 @@ def _midgame_board(widget):
 
 def test_policy_heat_paints_and_clears():
     _qapp()
-    from qtui import BoardWidget
+    from ui.qtui import BoardWidget
 
     w = BoardWidget()
     w.resize(450, 450)
@@ -72,8 +72,8 @@ def test_pages_build_and_render_offscreen():
     _build_ui split (M12): every _build_* helper must leave the same widget
     tree and attributes the monolith did, and the paint path must run."""
     _qapp()
-    from SBA import new_session
-    from qtui import GamePage, MenuPage, SettingsPage
+    from session.SBA import new_session
+    from ui.qtui import GamePage, MenuPage, SettingsPage
 
     menu = MenuPage()
     menu.resize(900, 700)

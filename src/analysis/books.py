@@ -4,7 +4,7 @@
 """books — static-knowledge engines: the Basic heuristic and the
 Normal/Ultimate opening books."""
 
-from game import EMPTY, NormalGame, O, X, apply_clone_result, apply_move
+from core.game import EMPTY, NormalGame, O, X, apply_clone_result, apply_move
 import math
 import random
 

@@ -11,8 +11,8 @@ import random
 
 import pytest
 
-import tablebase
-from ai import (
+from analysis import tablebase
+from engines.ai import (
     _TABLEBASE_PATH,
     _board_key,
     _build_tablebase_dfs,
@@ -23,7 +23,7 @@ from ai import (
     solver_move,
     write_tablebase_file,
 )
-from game import NormalGame, apply_move
+from core.game import NormalGame, apply_move
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

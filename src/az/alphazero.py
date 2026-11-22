@@ -39,7 +39,12 @@ import time
 # network/slow drive, the first conv2d can hang or raise
 # miopenStatusUnknownError, so pin the caches to the local project disk
 # (user-set overrides are respected).
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# this file lives in src/az/ (D61), so three dirnames up to the repo root;
+# the same insert lets `python src/az/alphazero.py train` resolve the
+# packages directly (the sba.py shim does this for the session entry)
+HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if os.path.join(HERE, "src") not in sys.path:
+    sys.path.insert(0, os.path.join(HERE, "src"))
 if os.name == "nt":
     os.environ.setdefault("MIOPEN_USER_DB_PATH", os.path.join(HERE, ".miopen"))
     os.environ.setdefault("MIOPEN_CUSTOM_CACHE_DIR", os.path.join(HERE, ".miopen_cache"))
@@ -55,8 +60,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import rustbridge
-import rustselfplay
+from az import rustbridge
+from az import rustselfplay
 from dataclasses import dataclass, replace
 
 import config
@@ -277,11 +282,11 @@ def _c_rollout_value(g):
     if not _C_ROLLOUT_TRIED:
         _C_ROLLOUT_TRIED = True
         try:
-            import cengine as _ce  # noqa: F401
+            from engines import cengine as _ce  # noqa: F401
         except ImportError:
             return None
     try:
-        import cengine as _ce
+        from engines import cengine as _ce
 
         r = _ce.rollout_state(g)
     except Exception:  # noqa: BLE001 - best-effort probe: the caller
@@ -304,7 +309,7 @@ def rollout_value(g):
     v = _c_rollout_value(g)
     if v is not None:
         return v
-    from ai import _rollout_move
+    from engines.ai import _rollout_move
 
     player = g.current
     state = g.clone()
@@ -538,7 +543,7 @@ def alphazero_model_dir():
 
 def make_game(game_type):
     if game_type == "normal":
-        from game import NormalGame
+        from core.game import NormalGame
 
         return NormalGame()
     # D48: the Rust state layer carries self-play logistics when built
@@ -546,7 +551,7 @@ def make_game(game_type):
     # the fallback whenever the cdylib is missing or the switch is off
     if cfg_engine("rust_game", True) and rustbridge.available():
         return rustbridge.RustUltimateGame()
-    from game import UltimateGame
+    from core.game import UltimateGame
 
     return UltimateGame()
 
@@ -751,15 +756,15 @@ def self_play_game(
             # and value targets come from classical search quality. The
             # native C tree search (D30) runs it ~37x faster; root stats
             # carry (move, visits, wins, mover) exactly like MCTSNode.
-            import cengine as _ce
-            from ai import _c_search_opts
+            from engines import cengine as _ce
+            from engines.ai import _c_search_opts
 
             root_mv, stats, _tree = _ce.mcts_search(game, sims, opts=_c_search_opts())
             if stats:
                 counts = {(m // 9, m % 9): int(v) for m, v, w, _mo, _d in stats}
                 root = _CRootView(stats)
             else:
-                from ai import mcts_search as pure_mcts
+                from engines.ai import mcts_search as pure_mcts
 
                 root = pure_mcts(game.clone(), sims)
                 counts = {c.move: c.visits for c in root.children}
@@ -1062,7 +1067,7 @@ def train(cfg, ctx=None, hooks=None):
     task = None
     if not quiet:
         try:
-            import cli_output
+            from ui import cli_output
 
             con = cli_output.console()
         except ImportError:
@@ -1094,7 +1099,7 @@ def train(cfg, ctx=None, hooks=None):
     def evaluate():
         # in-training gauge: AZ@100 vs a classical MCTS opponent (C tree) —
         # Random loses its meaning once the network plays at all
-        from ai import get_ai_move
+        from engines.ai import get_ai_move
 
         wins = draws = losses = 0
         for _ in range(eval_games):

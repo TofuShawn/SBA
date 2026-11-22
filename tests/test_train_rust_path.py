@@ -12,8 +12,8 @@ import os
 import numpy as np
 import pytest
 
-import alphazero
-import rustselfplay
+from az import alphazero
+from az import rustselfplay
 
 
 def _write_records(out_dir, games, seed_base, sims):

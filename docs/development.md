@@ -45,14 +45,25 @@ ubuntu and windows.
 ## Layout / 佈局
 
 One rule since D60: **src/ = everything by function** (D36's flat src/
-amended — the former native/ dissolved into it).
+amended — the former native/ dissolved into it). Since D61 the root
+Python modules group into one-level function packages; `config.py` stays
+the root leaf anchor.
 
-- `src/` — flat Python modules (D36): the two UIs (`qtui.py`, `tui.py`),
-  the engine facade (`ai.py`) over the engine modules, `alphazero.py`
-  (training + self-play), `config.py` (the leaf), `cengine.py` (the ctypes
-  boundary to `sba_engine.dll`, which build.py lands here)
-- `src/sba_*.c` + `sba_ultt.h` — the C engines, compiled into one
-  `sba_engine.dll` beside the modules they serve
+- `src/core/` — the game state layer: `game.py` (rules + bitboards)
+- `src/engines/` — the AI search stack: `ai.py` (the facade), `mcts.py`,
+  `minimax.py`, `cbridge.py`, `cengine.py` (the ctypes boundary), plus
+  the five C engines (`sba_*.c` + `sba_ultt.h`) and the `sba_engine.dll`
+  build.py compiles from them
+- `src/az/` — the AlphaZero stack: `alphazero.py` (training +
+  self-play), `rustselfplay.py`, `rustbridge.py`, plus the `sba_game.dll`
+  state-layer cdylib build.py copies there
+- `src/analysis/` — read-only inspection: `analysis.py`, `tablebase.py`,
+  `books.py`
+- `src/ui/` — the front ends: `qtui.py` (PySide6), `tui.py` (Textual),
+  `tui_tools.py` (bench/train TUIs), `cli_output.py` (shared rich
+  console)
+- `src/session/` — `SBA.py`, the entry point behind the root `sba.py`
+  shim: session state, CLI routing, self-tests
 - `src/sba-game/`, `src/sba-core/` — the two Rust crates; the root
   `Cargo.toml` is a minimal workspace (members + profiles), one
   `Cargo.lock`, cargo output in the root `target/`

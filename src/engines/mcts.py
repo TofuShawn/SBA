@@ -9,7 +9,7 @@ the research reference."""
 import math
 import random
 
-from game import EMPTY, NormalGame, O, X, apply_move
+from core.game import EMPTY, NormalGame, O, X, apply_move
 from config import (
     EARLY_STOP_AT,
     EARLY_STOP_SHARE,
@@ -18,7 +18,14 @@ from config import (
     MIN_VISIT_FLOOR,
     cfg_engine,
 )
-from cbridge import _c_search_opts, _ce, _py_rollout_state, _rollout_move, _tt_key, move_text
+from engines.cbridge import (
+    _c_search_opts,
+    _ce,
+    _py_rollout_state,
+    _rollout_move,
+    _tt_key,
+    move_text,
+)
 
 
 class MCTSNode:

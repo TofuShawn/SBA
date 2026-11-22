@@ -8,7 +8,7 @@ pytest.importorskip("torch")
 import numpy as np
 import torch
 
-import alphazero
+from az import alphazero
 
 
 def _one_hot_state(size, idx, plane=0):

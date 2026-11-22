@@ -1,7 +1,8 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""ctypes interop with sba_engine.dll (built to src/ by src/tools/build.py)
+"""ctypes interop with sba_engine.dll (built to src/engines/ by
+src/tools/build.py)
 — the single boundary between the Python AI layer and the C backends
 (D27/D37).
 
@@ -24,9 +25,10 @@ import random
 import threading
 import weakref
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_ENGINE_DLL = os.path.join(_ROOT, "src", "sba_engine.dll")
-_LEGACY_DLL = os.path.join(_ROOT, "src", "sba_rollout.dll")
+# this file lives in src/engines/ (D61), so three dirnames up to the repo root
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ENGINE_DLL = os.path.join(_ROOT, "src", "engines", "sba_engine.dll")
+_LEGACY_DLL = os.path.join(_ROOT, "src", "engines", "sba_rollout.dll")
 
 _lib = None
 _has_engine = False

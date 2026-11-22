@@ -5,8 +5,8 @@
 
 import pytest
 
-from ai import get_ai_move
-from game import UltimateGame, apply_move
+from engines.ai import get_ai_move
+from core.game import UltimateGame, apply_move
 
 
 def _out_of_book_position():
@@ -18,7 +18,7 @@ def _out_of_book_position():
 
 
 def test_mcts_progress_reports_steps():
-    from ai import set_engine_config
+    from engines.ai import set_engine_config
 
     # live progress only exists on the Python MCTS path
     set_engine_config({"engine": {"multithreaded": False, "c_mcts": False, "opening_book": False}})
@@ -37,7 +37,7 @@ def test_mcts_progress_reports_steps():
 
 
 def test_trace_has_top_candidates_and_pick():
-    from ai import set_engine_config
+    from engines.ai import set_engine_config
 
     set_engine_config({"engine": {"multithreaded": False}})
     try:
@@ -66,7 +66,7 @@ def test_trace_on_parallel_mcts():
     # C tree answers first and the parallel code never runs). workers=2 at
     # budget=200 -> two chunked searches; D24 reports once per finished
     # thread, so the counter jumps (100 -> 200), not smoothly.
-    from ai import set_engine_config
+    from engines.ai import set_engine_config
 
     set_engine_config(
         {"engine": {"multithreaded": True, "workers": 2, "c_mcts": False, "opening_book": False}}

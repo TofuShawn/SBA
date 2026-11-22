@@ -8,9 +8,9 @@ pytest.importorskip("torch")
 import numpy as np
 import random
 
-import alphazero
-from game import X, O, EMPTY, NormalGame, UltimateGame
-from ai import get_ai_move
+from az import alphazero
+from core.game import X, O, EMPTY, NormalGame, UltimateGame
+from engines.ai import get_ai_move
 
 
 def test_az_smoke_train_ultimate():
@@ -190,7 +190,7 @@ def test_policy_vector_masks_and_renormalises():
     """D40: the raw priors are masked to legal moves and renormalised —
     zero mass outside the legal set, one forward pass, no search."""
     model = alphazero.AZNet(9, 8, 1).to(alphazero.DEVICE)
-    from game import apply_move
+    from core.game import apply_move
 
     g = UltimateGame()
     apply_move(g, (0, 0))
@@ -207,7 +207,7 @@ def test_policy_vector_masks_and_renormalises():
 
 def test_az_policy_priors_guards(monkeypatch):
     """No heat for Normal boards, decided boards, or without a model."""
-    import ai
+    from engines import ai
 
     assert ai.az_policy_priors(NormalGame()) is None
     gu = UltimateGame()

@@ -3,20 +3,21 @@
 
 """Ultimate Tic Tac Toe — entry point, session state, and self-tests.
 
-Game rules live in game.py and the AI engines in ai.py. This module wires
-them together, keeps the per-session UI state, runs the headless
-self-tests, and provides the CLI entry point.
+Game rules live in core/game.py and the AI engines in engines/ai.py (D61).
+This module wires them together, keeps the per-session UI state, runs the
+headless self-tests, and provides the CLI entry point.
 
 Run:
-    python src/SBA.py              # start the PySide6 desktop app (default)
-    python src/SBA.py --qt         # start the desktop app explicitly
-    python src/SBA.py --self-test  # run headless checks
-    python src/SBA.py --debug      # verbose backend logs
+    python sba.py                     # root shim (same surface, src/ on path)
+    python src/session/SBA.py         # start the PySide6 desktop app (default)
+    python src/session/SBA.py --qt    # start the desktop app explicitly
+    python src/session/SBA.py --self-test  # run headless checks
+    python src/session/SBA.py --debug      # verbose backend logs
 
 Maintenance notes:
 - The desktop app is the default entry (decision D1).
-- Session state lives here; the module is aliased as 'SBA' so tui.py
-  reuses it instead of importing a second copy.
+- Session state lives here; the module is aliased as 'session.SBA' so
+  ui/qtui.py and ui/tui.py reuse it instead of importing a second copy.
 """
 
 import logging
@@ -24,14 +25,20 @@ import os
 import random
 import sys
 
-from game import (
+# direct `python src/session/SBA.py` invocation: put src/ (the package root,
+# D61) on sys.path before the repo imports — the sba.py shim does the same
+_SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _SRC not in sys.path:
+    sys.path.insert(0, _SRC)
+
+from core.game import (  # noqa: E402
     X,
     O,
     NormalGame,
     UltimateGame,
     apply_move,
 )
-from ai import (
+from engines.ai import (  # noqa: E402
     get_ai_move,
     cfg_session,
     position_win_rates,
@@ -300,7 +307,7 @@ def bench(
         )
         rows.append([a, b, str(aw), str(dw), str(bw), pct_cell])
     try:
-        import cli_output
+        from ui import cli_output
 
         con = cli_output.console()
         table = cli_output.bench_table(title, header, rows)
@@ -323,14 +330,14 @@ def _build_tables():
     """--build-tables: persist the solved Normal tablebase to
     data/tt_normal.bin (idempotent; ships tracked so no rebuild needed)."""
     import hashlib
-    import ai
+    from engines import ai
 
     path, stats = ai.write_tablebase_file()
     with open(path, "rb") as f:
         digest = hashlib.sha256(f.read()).hexdigest()
     empty = {0: "draw (theoretical result)", 1: "X win", -1: "O loss"}
     try:
-        import cli_output
+        from ui import cli_output
 
         con = cli_output.console()
     except ImportError:
@@ -368,7 +375,7 @@ def main(argv=None):
     """Unified CLI entry: every command starts here.
 
     argv defaults to sys.argv[1:]; the root sba.py shim forwards its own
-    argv, so `python sba.py ...` and `python src/SBA.py ...` are the same
+    argv, so `python sba.py ...` and `python src/session/SBA.py ...` are the same
     surface: --tui / --bench / --build-tables / --self-test /
     --train-az / --eval-az / --bench-tui / --train-tui, default = the
     PySide6 desktop app.
@@ -382,26 +389,31 @@ def main(argv=None):
         except ImportError:
             print("pytest is required for --self-test:  python -m pip install pytest")
             return 1
-        tests = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests")
+        # this file lives in src/session/ (D61): three dirnames up to the
+        # repo root, where tests/ lives
+        tests = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "tests",
+        )
         sys.exit(pytest.main(["-q", tests]))
     if "--train-az" in args:
-        import alphazero
+        from az import alphazero
 
         sys.exit(alphazero.main(["train"] + [a for a in args if a != "--train-az"]))
     if "--eval-az" in args:
-        import alphazero
+        from az import alphazero
 
         sys.exit(alphazero.main(["eval"] + [a for a in args if a != "--eval-az"]))
     if "--tui" in args:
-        import tui
+        from ui import tui
 
         sys.exit(tui.main())
     if "--bench-tui" in args:
-        import tui_tools
+        from ui import tui_tools
 
         sys.exit(tui_tools.run_bench(args))
     if "--train-tui" in args:
-        import tui_tools
+        from ui import tui_tools
 
         sys.exit(tui_tools.run_train(args))
     if "--bench" in args:
@@ -415,12 +427,12 @@ def main(argv=None):
                 depth=_flag_value("--depth", 4, args),
             )
         )
-    # When SBA.py is the entry script it is '__main__'; register it under the
-    # canonical name so qtui.py / tui.py reuse this module instead of
-    # importing a second copy.
-    sys.modules.setdefault("SBA", sys.modules["__main__"])
+    # When session/SBA.py is the entry script it is '__main__'; register it
+    # under the canonical package name so ui/qtui.py / ui/tui.py reuse this
+    # module instead of importing a second copy.
+    sys.modules.setdefault("session.SBA", sys.modules["__main__"])
     # Default entry (also explicit via --qt): PySide6 desktop app.
-    import qtui
+    from ui import qtui
 
     qtui.main(args)
 

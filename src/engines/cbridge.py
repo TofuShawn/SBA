@@ -9,10 +9,10 @@ deny-stub tests patch here."""
 import random
 import threading
 
-from game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
+from core.game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
 from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine
 
-import cengine as _ce  # the flat src/ modules (D36/D60)
+from engines import cengine as _ce  # the ctypes layer under this package (D61)
 
 
 def move_text(move):

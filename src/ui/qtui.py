@@ -78,7 +78,7 @@ except ImportError:
     print("Install the desktop UI with:  python -m pip install -r requirements.txt")
     raise SystemExit(1) from None
 
-from game import (
+from core.game import (
     X,
     O,
     EMPTY,
@@ -87,7 +87,7 @@ from game import (
     apply_move,
     micro_win_line,
 )
-from ai import (
+from engines.ai import (
     get_ai_move,
     analyze_position,
     move_text,
@@ -95,7 +95,7 @@ from ai import (
     cfg_engine,
     save_engine_config,
 )
-from SBA import (
+from session.SBA import (
     AI_OPTIONS,
     REASON_TEXT,
     current_side_type,
@@ -153,8 +153,9 @@ def _blur_pixmap(pm, radius):
 DISPLAY_FAMILIES = ["Inter", "Segoe UI"]
 MONO_FAMILIES = ["JetBrains Mono", "Cascadia Mono", "Consolas", "Courier New"]
 
-# repo root: the modules live in src/, tracked assets (static/) stay there
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# repo root: this file lives in src/ui/ (D61), so three dirnames up; tracked
+# assets (static/) stay at the root
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _FONT_LOADED = False
 

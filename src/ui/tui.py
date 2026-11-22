@@ -27,7 +27,7 @@ import time
 
 from rich.text import Text
 
-from game import (
+from core.game import (
     X,
     O,
     NormalGame,
@@ -35,13 +35,13 @@ from game import (
     apply_move,
     micro_win_line,
 )
-from ai import (
+from engines.ai import (
     get_ai_move,
     analyze_position,
     move_text,
     cfg_session,
 )
-from SBA import (
+from session.SBA import (
     AI_OPTIONS,
     history_point,
     REASON_TEXT,

@@ -19,7 +19,7 @@ import ctypes
 import os
 import threading
 
-from game import EMPTY, LINES, O, X
+from core.game import EMPTY, LINES, O, X
 
 ABI = 1
 
@@ -43,18 +43,19 @@ _ERR_TEXT = {
 
 _RES_CODES = {0: None, 1: X, 2: O, 3: "D"}
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# probe order (D60): build.py's copy in src/ first (the canonical landing
-# spot next to sba_engine.dll), then the workspace target/ tree at the repo
-# root — a bare `cargo build` without the build.py copy still loads.
+# this file lives in src/az/ (D61), so three dirnames up to the repo root
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# probe order (D61): build.py's copy in src/az/ first (the canonical landing
+# spot next to the az modules it serves), then the workspace target/ tree at
+# the repo root — a bare `cargo build` without the build.py copy still loads.
 if os.name == "nt":
     _LIB_PATHS = (
-        os.path.join(_ROOT, "src", "sba_game.dll"),
+        os.path.join(_ROOT, "src", "az", "sba_game.dll"),
         os.path.join(_ROOT, "target", "x86_64-pc-windows-gnu", "release", "sba_game.dll"),
         os.path.join(_ROOT, "target", "release", "sba_game.dll"),
     )
 else:  # Linux CI: the cdylib lives in target/release, no build.py copy
-    _LIB_PATHS = (os.path.join(_ROOT, "src", "sba_game.so"),)
+    _LIB_PATHS = (os.path.join(_ROOT, "src", "az", "sba_game.so"),)
 _LIB_PATH = _LIB_PATHS[0]
 
 _LIB = None

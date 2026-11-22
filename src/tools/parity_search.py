@@ -47,13 +47,13 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the flat sba modules (D36/D60)
+for _p in (SRC, ROOT):  # SRC for the sba packages under src/ (D61)
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import numpy as np  # noqa: E402
 
-from alphazero import (  # noqa: E402
+from az.alphazero import (  # noqa: E402
     DEVICE,
     AZNet,
     _root_value,
@@ -63,7 +63,7 @@ from alphazero import (  # noqa: E402
     make_game,
     mcts_search,
 )
-from rustselfplay import find_exe  # noqa: E402
+from az.rustselfplay import find_exe  # noqa: E402
 
 SPAWN_TIMEOUT = 600  # per-search budget; a spawn costs ~3.5s incl. GPU init
 

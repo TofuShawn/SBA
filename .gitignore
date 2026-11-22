@@ -35,9 +35,12 @@ logs/
 # Node（靜態文件建置，見 docs/static-build/）
 docs/static-build/node_modules/
 
-# Built engines (src/tools/build.py lands them next to the C sources; D60)
-src/*.dll
-src/*.o
+# Built engines (src/tools/build.py lands them next to the C sources in
+# src/engines/ and beside the az modules in src/az/; D61)
+src/engines/*.dll
+src/engines/*.o
+src/az/*.dll
+src/az/*.so
 
 # Private local notes
 .priv/

@@ -42,15 +42,15 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the flat sba modules (D36/D60)
+for _p in (SRC, ROOT):  # SRC for the sba packages under src/ (D61)
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import torch  # noqa: E402
 
-from alphazero import DEVICE, AZNet, _mp_worker_init, export_safetensors  # noqa: E402
+from az.alphazero import DEVICE, AZNet, _mp_worker_init, export_safetensors  # noqa: E402
 from config import TEMP_MIN  # noqa: E402
-from rustselfplay import RoundArgs, build_round_cmd, find_exe, load_records, run_round  # noqa: E402
+from az.rustselfplay import RoundArgs, build_round_cmd, find_exe, load_records, run_round  # noqa: E402
 
 TEMP = 1.0  # campaign start temperature; both sides play all games at it
 
@@ -64,7 +64,7 @@ def _one_game(state_dict, size, channels, blocks, sims, temp):
     trainer uses. Imports stay inside the function: the child re-imports
     this module on spawn and torch loads there anyway.
     """
-    from alphazero import AZNet, DEVICE, make_game, self_play_game
+    from az.alphazero import AZNet, DEVICE, make_game, self_play_game
 
     model = AZNet(size, channels, blocks).to(DEVICE)
     model.load_state_dict(state_dict)

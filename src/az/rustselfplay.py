@@ -26,9 +26,9 @@ import torch
 
 from config import MP_GAME_TIMEOUT, TEMP_MIN
 
-# repo root (this file lives in src/, so two dirnames up — same arithmetic
-# config.py uses)
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# repo root (this file lives in src/az/ (D61), so three dirnames up —
+# config.py at src/ still uses two)
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 # probe order: the WSL mingw cross-build first (the Windows dev-machine

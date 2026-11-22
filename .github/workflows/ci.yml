@@ -51,10 +51,11 @@ jobs:
       # -D__stdcall= is the same define build.py uses on a Linux host.
       - name: C warnings
         run: |
-          for f in src/sba_ultt.c src/sba_rollout.c src/sba_mcts.c \
-                   src/sba_rave.c src/sba_minimax.c; do
+          for f in src/engines/sba_ultt.c src/engines/sba_rollout.c \
+                   src/engines/sba_mcts.c src/engines/sba_rave.c \
+                   src/engines/sba_minimax.c; do
             gcc -std=c11 -fsyntax-only -Wall -Wextra -Werror \
-                -D__stdcall= -Isrc "$f"
+                -D__stdcall= -Isrc/engines "$f"
           done
 
   test:

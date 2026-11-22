@@ -16,9 +16,9 @@ import pytest  # noqa: E402
 
 pytest.importorskip("textual")
 
-import rustselfplay  # noqa: E402
-import tui_tools  # noqa: E402
-from tui_tools import TrainTUI  # noqa: E402
+from az import rustselfplay  # noqa: E402
+from ui import tui_tools  # noqa: E402
+from ui.tui_tools import TrainTUI  # noqa: E402
 
 
 def test_engine_note_rust():
@@ -76,7 +76,7 @@ def test_train_tui_threads_resolved_engine_into_train():
 
     async def _run():
         with mock.patch.object(rustselfplay, "find_exe", lambda explicit=None: "/x/exe"):
-            import alphazero
+            from az import alphazero
 
             with mock.patch.object(alphazero, "train", fake_train):
                 app = TrainTUI(workers=8)

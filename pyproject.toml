@@ -5,9 +5,10 @@
 # zip runs from source via sba.py/start.bat), so there is nothing to pip
 # install, and a metadata block nobody builds would be decorative.
 #
-# The import layout is flat (src/ on sys.path, D36) and the src/ package
-# split is a deliberately frozen decision — see docs/decisions.md before
-# restructuring imports.
+# The import layout is one-level function packages under src/ on sys.path
+# (core/engines/az/analysis/ui/session — D61, amending D36's flat src/),
+# with config.py the root leaf; the split is a deliberately frozen decision
+# — see docs/decisions.md before restructuring imports.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -36,10 +37,10 @@ select = ["F", "E9", "E7", "B", "SIM", "PERF"]
 [tool.ruff.lint.per-file-ignores]
 # the facade re-exports the whole engine surface on purpose (from ai import
 # ... is the historical API) — F401 is the contract there, not a finding
-"src/ai.py" = ["F401"]
+"src/engines/ai.py" = ["F401"]
 # the MIOpen env pins MUST run before `import torch` (they redirect the
 # kernel cache off the network drive) — the imports after them are E402 by
 # design, moving them up breaks the fix
-"src/alphazero.py" = ["E402", "E741"]
+"src/az/alphazero.py" = ["E402", "E741"]
 # `O` is the second player's mark — the domain names the constant
-"src/game.py" = ["E741"]
+"src/core/game.py" = ["E741"]

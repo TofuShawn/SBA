@@ -7,10 +7,10 @@ import threading
 
 import pytest
 
-import ai
-import mcts
-import analysis
-from ai import (
+from engines import ai
+from engines import mcts
+from analysis import analysis
+from engines.ai import (
     get_basic_move,
     minimax_move_normal,
     mcts_move,
@@ -36,7 +36,7 @@ from ai import (
     set_engine_config,
     _diff_move,
 )
-from game import (
+from core.game import (
     X,
     O,
     EMPTY,
@@ -158,7 +158,7 @@ def test_opening_book():
 
 
 def test_ultimate_opening_book_responses():
-    from ai import ULTIMATE_BOOK
+    from engines.ai import ULTIMATE_BOOK
 
     for x_move, responses in ULTIMATE_BOOK.items():
         gu = UltimateGame()
@@ -443,7 +443,7 @@ def test_diff_move():
 
 
 def test_ultimate_terminal_score_prefers_faster_win():
-    from ai import _minimax_ultimate
+    from engines.ai import _minimax_ultimate
 
     g = UltimateGame()
     g.macro = [X, X, X] + [EMPTY] * 6
@@ -501,25 +501,33 @@ def test_alphazero_degrades_cleanly_without_optional_deps(monkeypatch):
 
 def test_az_module_treats_missing_torch_as_optional(monkeypatch):
     """A real `import torch` failure carries name='torch' — that must be
-    the graceful-degradation path, not an error."""
-    import builtins
+    the graceful-degradation path, not an error. (D61: the optional module
+    imports as az.alphazero, so the failure is simulated on the package
+    entry — the same MNFE(name='torch') escaping the import statement that
+    ai._az_module catches.)"""
+    import sys
+    import types
 
-    real_import = builtins.__import__
-
-    def fake(name, *args, **kwargs):
-        if name == "alphazero":
+    class _AzMissingTorch(types.ModuleType):
+        def __getattr__(self, name):
             err = ModuleNotFoundError("No module named 'torch'")
             err.name = "torch"
             raise err
-        return real_import(name, *args, **kwargs)
 
-    monkeypatch.setattr(builtins, "__import__", fake)
+    monkeypatch.setitem(sys.modules, "az", _AzMissingTorch("az"))
     assert ai._az_module() is None
 
 
 def test_az_module_propagates_unrelated_import_failures(monkeypatch):
     """Only a missing torch/numpy is an optional-dep fallback; any other
     ModuleNotFoundError must surface rather than being swallowed."""
-    monkeypatch.setitem(sys.modules, "alphazero", None)
+    import sys
+    import types
+
+    class _AzBroken(types.ModuleType):
+        def __getattr__(self, name):
+            raise ModuleNotFoundError("No module named 'sba_unrelated'")
+
+    monkeypatch.setitem(sys.modules, "az", _AzBroken("az"))
     with pytest.raises(ModuleNotFoundError):
         ai._az_module()

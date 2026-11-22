@@ -18,10 +18,10 @@ import pytest
 pytest.importorskip("numpy")
 pytest.importorskip("torch")
 
-import alphazero
-import rustbridge
-from game import O, X, UltimateGame
-from rustbridge import RustUltimateGame
+from az import alphazero
+from az import rustbridge
+from core.game import O, X, UltimateGame
+from az.rustbridge import RustUltimateGame
 
 pytestmark = pytest.mark.skipif(not rustbridge.available(), reason="sba_game cdylib not built")
 
@@ -125,7 +125,7 @@ def test_shared_apply_move_helpers_route_the_wrapper():
     """game.apply_move duck-types on the MOVE shape (tuple = ultimate), so
     the shared helpers accept the wrapper too — the AZ eval path hit a
     TypeError here on the first CI run that compiled the crate."""
-    from game import apply_clone_result, apply_move
+    from core.game import apply_clone_result, apply_move
 
     ru = RustUltimateGame()
     apply_move(ru, (4, 4))  # tuple: ultimate routing
@@ -153,7 +153,7 @@ def test_clone_is_independent_of_handle():
 
 def test_switch_off_falls_back_to_python_game(monkeypatch):
     from config import set_engine_config
-    from game import UltimateGame
+    from core.game import UltimateGame
 
     set_engine_config({"engine": {"rust_game": False}})
     try:
@@ -184,7 +184,7 @@ def _random_positions(rng, n):
 def test_serialize_ffi_matches_cengine_packing():
     """D50 fast path: sba_ffi() must equal cengine.serialize_ultimate's
     list contract, cell for cell, across random positions."""
-    import cengine
+    from engines import cengine
 
     rng = random.Random(SEED + 3)
     for py, ru in _random_positions(rng, 30):

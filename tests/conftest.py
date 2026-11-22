@@ -8,7 +8,7 @@ import random
 
 import pytest
 
-from ai import reset_engine_caches, set_engine_config
+from engines.ai import reset_engine_caches, set_engine_config
 
 
 @pytest.fixture(autouse=True)

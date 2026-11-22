@@ -8,9 +8,9 @@ import math
 import os
 import random
 
-from game import EMPTY, LINES, NormalGame, O, X
+from core.game import EMPTY, LINES, NormalGame, O, X
 from config import ROOT, writable_path
-from mcts import mcts_move
+from engines.mcts import mcts_move
 
 
 _TABLEBASE = None

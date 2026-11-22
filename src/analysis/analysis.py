@@ -4,12 +4,12 @@
 """analysis — the assistant surface: position evaluation, win-rate
 overlays, best-move analysis and the reason classifier (D3/D24)."""
 
-from game import EMPTY, LINES, NormalGame, O, UltimateGame, X, apply_move, count_threats
+from core.game import EMPTY, LINES, NormalGame, O, UltimateGame, X, apply_move, count_threats
 from config import cfg_engine
 
-from cbridge import _C_PREV, _c_search_opts, _ce, BitUltimateGame
-from mcts import mcts_search
-from tablebase import _board_key, build_micro_tablebase, build_tablebase
+from engines.cbridge import _C_PREV, _c_search_opts, _ce, BitUltimateGame
+from engines.mcts import mcts_search
+from analysis.tablebase import _board_key, build_micro_tablebase, build_tablebase
 
 
 def eval_ultimate(game, player):

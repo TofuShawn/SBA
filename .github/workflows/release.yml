@@ -56,8 +56,8 @@ jobs:
 
       - name: Smoke-load the engines
         run: |
-          python -c "import ctypes; ctypes.CDLL('src/sba_engine.dll'); print('engine ok')"
-          python -c "import ctypes, os; p='src/sba_game.dll'; os.path.isfile(p) and ctypes.CDLL(p); print('game layer ok (built)' if os.path.isfile(p) else 'game layer absent (no cargo)')"
+          python -c "import ctypes; ctypes.CDLL('src/engines/sba_engine.dll'); print('engine ok')"
+          python -c "import ctypes, os; p='src/az/sba_game.dll'; os.path.isfile(p) and ctypes.CDLL(p); print('game layer ok (built)' if os.path.isfile(p) else 'game layer absent (no cargo)')"
 
       - name: Resolve release tag
         id: tag
@@ -84,9 +84,9 @@ jobs:
           import os, sys, zipfile
           with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
               z.write('start.bat', 'start.bat')
-              z.write('src/sba_engine.dll', 'src/sba_engine.dll')
-              if os.path.isfile('src/sba_game.dll'):
-                  z.write('src/sba_game.dll', 'src/sba_game.dll')
+              z.write('src/engines/sba_engine.dll', 'src/engines/sba_engine.dll')
+              if os.path.isfile('src/az/sba_game.dll'):
+                  z.write('src/az/sba_game.dll', 'src/az/sba_game.dll')
           print('packed: tracked start.bat + engines')
           PY
           else
@@ -110,9 +110,9 @@ jobs:
           ]
           with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
               z.writestr('start.bat', '\r\n'.join(lines) + '\r\n')
-              z.write('src/sba_engine.dll', 'src/sba_engine.dll')
-              if os.path.isfile('src/sba_game.dll'):
-                  z.write('src/sba_game.dll', 'src/sba_game.dll')
+              z.write('src/engines/sba_engine.dll', 'src/engines/sba_engine.dll')
+              if os.path.isfile('src/az/sba_game.dll'):
+                  z.write('src/az/sba_game.dll', 'src/az/sba_game.dll')
           print('packed: generated start.bat + engines')
           PY
           fi
