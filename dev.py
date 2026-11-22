@@ -101,10 +101,13 @@ def task_build(_args):
 
 
 def task_complexity(_args):
-    """C901 complexity REPORT on src/ui — warn-only until the GamePage split:
-    findings are printed (rc ignored, exit 0) like the old pip-audit report
-    pattern. Not in the lint gate selection; see pyproject [tool.ruff.lint.mccabe]."""
+    """Complexity REPORT, warn-only until the GamePage split (H2): findings
+    are printed (rcs ignored, exit 0 always) like the old pip-audit report
+    pattern. Two halves — ruff C901 on src/ui (max-complexity 10, see
+    pyproject [tool.ruff.lint.mccabe]) and src/tools/func_len.py's AST scan
+    for functions over 50 lines (def line to block end) across src/."""
     venv(["-m", "ruff", "check", "--select", "C901", "src/ui/"])
+    venv(["src/tools/func_len.py", "src"])
     return 0
 
 
@@ -129,7 +132,7 @@ TASKS = {
         ),
     ),
     "complexity": (
-        "C901 complexity report on src/ui (warn-only, always exit 0)",
+        "C901 + >50-line function report (src/ui C901, src/ length; warn-only, exit 0)",
         task_complexity,
     ),
     "format": (

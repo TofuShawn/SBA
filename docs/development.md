@@ -31,7 +31,7 @@ command-line quoting from scratch.
 | `python dev.py test` | the pytest suite (args forwarded; count via `pytest tests --collect-only -q`) |
 | `python dev.py lint` | ruff check (F+E9+E7+B+SIM+PERF, see pyproject.toml) |
 | `python dev.py mypy` | mypy on the two ctypes FFI boundary modules (`engines/cengine.py` + `az/rustbridge.py`, `--check-untyped-defs`; scope config in pyproject `[tool.mypy]`) |
-| `python dev.py complexity` | C901 report on `src/ui` — warn-only, always exit 0 (graduates into a gate after the GamePage split) |
+| `python dev.py complexity` | C901 on `src/ui` + AST function-length report (>50 lines, `def` line to block end) on `src/` — warn-only, always exit 0 (graduates into a gate after the GamePage split) |
 | `python dev.py format` | ruff format --check (CI gate; `format-write` applies) |
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
 | `python dev.py clippy-core` | cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu) |
