@@ -46,6 +46,14 @@ jobs:
       - name: Mypy (FFI boundary)
         run: mypy --check-untyped-defs src/engines/cengine.py src/az/rustbridge.py
 
+      # C901 complexity REPORT — warn-only until the GamePage split (H2):
+      # findings are printed but never block, so the heavy hitters stay
+      # visible without failing unrelated work. Deliberately NOT in the
+      # ruff gate selection ([tool.ruff.lint].select) — `|| true` keeps the
+      # step green exactly like the pip-audit report it mirrors.
+      - name: Complexity report (warn-only)
+        run: ruff check --select C901 src/ui/ || true
+
       # D62: blocking gate. The lint env (requirements-dev + pip-audit, fresh
       # resolve) audits 0 findings, so `|| true` is gone — any NEW finding
       # fails the job. The 59 --ignore-vuln IDs are the D62 baseline for the

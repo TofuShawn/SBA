@@ -61,3 +61,10 @@ follow_imports = "silent"
 [[tool.mypy.overrides]]
 module = ["engines.cengine", "az.rustbridge"]
 check_untyped_defs = true
+
+[tool.ruff.lint.mccabe]
+# C901 is deliberately NOT in the lint gate selection above — max-complexity
+# only takes effect for the warn-only `dev.py complexity` report on src/ui
+# (findings print, nothing blocks). The GamePage split decides whether the
+# report graduates into a gate.
+max-complexity = 10

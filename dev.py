@@ -100,6 +100,14 @@ def task_build(_args):
     return crate_task("sba-core", ["build", "--release", "--target", TARGET])
 
 
+def task_complexity(_args):
+    """C901 complexity REPORT on src/ui — warn-only until the GamePage split:
+    findings are printed (rc ignored, exit 0) like the old pip-audit report
+    pattern. Not in the lint gate selection; see pyproject [tool.ruff.lint.mccabe]."""
+    venv(["-m", "ruff", "check", "--select", "C901", "src/ui/"])
+    return 0
+
+
 TASKS = {
     "build": ("compile every native (C DLL + Rust cdylib + sba-core bench)", task_build),
     "test": (
@@ -119,6 +127,10 @@ TASKS = {
                 *a,
             ]
         ),
+    ),
+    "complexity": (
+        "C901 complexity report on src/ui (warn-only, always exit 0)",
+        task_complexity,
     ),
     "format": (
         "ruff format --check (same gate as CI)",
