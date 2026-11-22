@@ -1,125 +1,139 @@
-# SBA - Basically Awful (Qt + TUI) / 基本上很糟（Qt + 終端機）
+# SBA - Basically Awful (Qt + TUI)
 
 [![CI](https://github.com/TofuShawn/SBA/actions/workflows/ci.yml/badge.svg)](https://github.com/TofuShawn/SBA/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/TofuShawn/SBA?label=release)](https://github.com/TofuShawn/SBA/releases)
 
-**SBA**（即 *"SBA, Basically Awful"* 的簡稱）是一個**井字棋**與**終極井字棋**應用，提供 PySide6 **Qt 桌面版**（預設）與 Textual **終端機版**兩種介面，Arknights: Endfield 風格的工業 console 主題。內建 **8 種 AI 對手**（引擎熱路徑全部下沉 C，見下方 Native C engine）、AI 分析面板、三種對戰模式。
+English | [繁體中文](README.zh-Hant.md)
+
+**SBA** (*"SBA, Basically Awful"*) is a Tic Tac Toe and Ultimate Tic Tac Toe
+application with a PySide6 **desktop app** (default) and a Textual **terminal
+app**, styled after the Arknights: Endfield industrial console theme. Ships
+with **8 selectable AI opponents** (engine hot paths sunk into C — see
+Native C engine), an AI analysis panel, and three play modes.
 
 > The name is a joke. The game is actually (mostly) fine.
-> 名字是開玩笑的，遊戲其實（大致上）還不錯。
 
 ---
 
-## Features / 功能
+## Features
 
-- **Two game types / 兩種棋盤**：classic 3x3 Tic Tac Toe（經典井字棋）和 9x9 Ultimate Tic Tac Toe（終極井字棋）
-- **Three modes / 三種模式**：Player vs Player（玩家對戰）、Player vs Computer（人機對戰）、Computer vs Computer（電腦對戰）
-- **8 selectable AI engines / 八種可選 AI 引擎**：
-  - `Random` - random legal move / 隨機走棋
-  - `Basic` - win if possible, block, prefer center/corners / 能贏就贏、會擋棋、偏好中心與角落
-  - `Minimax` - classic alpha-beta search / 經典極小化極大搜尋（普通模式完美、終極模式限深度）
-  - `Minimax Pro` - negamax + transposition table + iterative deepening / 進階極小化極大（置換表 + 疊代加深）
-  - `MCTS` - Monte Carlo Tree Search with UCT / 蒙地卡羅樹搜尋（強度可調）
-  - `MCTS+GRAVE` - Generalized RAVE (Cazenave 2015): shares RAVE stats through reference nodes, lower memory / 廣義 RAVE：透過 reference node 共享 RAVE 統計，省記憶體
-  - ~~`MCTS+RAVE`~~ - hidden in the menu (superseded by MCTS+GRAVE; engine kept for tests and `--bench`) / 已停用（選單不可選，由 MCTS+GRAVE 取代；引擎保留供測試與 `--bench`）
-  - ~~`Flat MCTS`~~ - hidden in the menu (research/learning baseline: root-level playouts, no tree) / 已停用（選單不可選，研究/學習用基準：只做根層 rollout，無樹搜尋）
-  - `Solver` - perfect Normal play from the persisted tablebase (`data/tt_normal.bin`, rebuilt by `--build-tables`); MCTS fallback on Ultimate / 完美解：普通模式讀持久化解表，終極模式為 MCTS fallback
-  - `AlphaZero` - neural-guided MCTS (Ultimate only) / 神經網路引導的 MCTS（僅終極模式）
-- **AI Assistant panel / AI 助手面板**：分析目前局面，顯示最佳 3-5 步、勝率、一句話原因（win/block/fork/center/corner/positional），點擊可在棋盤上標示；可開啟**策略熱圖**（AZ policy 以色塊疊在空格上，需已訓練模型）
-- **Adjustable AI strength / 可調 AI 強度**：MCTS 迭代數（200-3000）與 Minimax 深度（2-6）
-- **Engine optimizations / 引擎優化**（`config.toml` 可開關）：開局書、micro 殘局表、啟發式 rollout、樹重用、動態 UCT、漸進式加粗、提早終止、fork 評估、killer/LMR/aspiration、D4 對稱性、物件池、bitboard、多執行緒 MCTS
-- **CvC controls / 電腦對戰控制**：速度（0.1-2.0s）、自動播放、手動「下一步」
-- **First-player choice / 先手選擇**：人機模式可選玩家先手（X）或電腦先手
-- **Arknights: Endfield field-console theme / 終末地工業 console 主題**：訊號黃 × 炭灰、deck 標籤、瞄準括號、落子蓋章與勝利線動畫（可「減少動態」）
-- **Settings page / 設定頁**：引擎開關全數圖形化，保存寫回 `config.toml`
-- **History card / 歷史卡**：點擊任一步直接回放該局面
-- **Headless pytest suite / 無頭 pytest 測試**（rules, engines, UI smoke, ABI contracts; size via `pytest tests --collect-only -q`）
+- **Two game types**: classic 3x3 Tic Tac Toe and 9x9 Ultimate Tic Tac Toe
+- **Three modes**: Player vs Player, Player vs Computer, Computer vs Computer
+- **8 selectable AI engines**:
+  - `Random` — random legal move
+  - `Basic` — win if possible, block, prefer center/corners
+  - `Minimax` — classic alpha-beta search (perfect on Normal, depth-limited on Ultimate)
+  - `Minimax Pro` — negamax + transposition table + iterative deepening
+  - `MCTS` — Monte Carlo Tree Search with UCT (strength adjustable)
+  - `MCTS+GRAVE` — Generalized RAVE (Cazenave 2015): shares stats through reference nodes, lower memory
+  - ~~`MCTS+RAVE`~~ — hidden in the menu (superseded by MCTS+GRAVE; engine kept for tests and `--bench`)
+  - ~~`Flat MCTS`~~ — hidden in the menu (research baseline: root-level playouts, no tree)
+  - `Solver` — perfect Normal play from the persisted tablebase (`data/tt_normal.bin`, rebuilt by `--build-tables`); MCTS fallback on Ultimate
+  - `AlphaZero` — neural-guided MCTS (Ultimate only)
+- **AI Assistant panel**: analyses the position, shows the best 3-5 moves,
+  win rates and a one-line reason (win/block/fork/center/corner/positional);
+  clickable highlights on the board; optional **policy heat map** (AZ policy
+  tinted over empty cells, needs a trained model)
+- **Adjustable AI strength**: MCTS iterations (200-3000) and Minimax depth (2-6)
+- **Engine optimizations** (toggleable in `config.toml`): opening book, micro
+  endgame table, heuristic rollout, tree reuse, dynamic UCT, progressive
+  widening, early termination, fork evaluation, killer/LMR/aspiration, D4
+  symmetry, object pool, bitboard, multithreaded MCTS
+- **CvC controls**: speed (0.1-2.0s), auto-play, manual "next move"
+- **First-player choice**: human (X) or computer first in PvC
+- **Arknights: Endfield field-console theme**: signal yellow × charcoal,
+  deck labels, targeting brackets, stamp placement and win-line animation
+  ("reduce motion" available)
+- **Settings page**: every engine switch graphical, saved back to `config.toml`
+- **History card**: click any move to replay that position
+- **Headless pytest suite** (rules, engines, UI smoke, ABI contracts; size via
+  `pytest tests --collect-only -q`)
 
 ---
 
-## Requirements / 環境需求
+## Requirements
 
-- Python **3.12+**（於 3.13 開發）
-- 核心依賴：`pyside6>=6.12,<7`（桌面版）、`textual>=8.2,<9`（終端機版）、`rich>=15,<16`、`numpy>=2.0,<3`、`safetensors>=0.4,<2`（AlphaZero 權重／自對弈記錄格式）
-
-Install core dependencies / 安裝核心依賴：
+- Python **3.12+** (developed on 3.13)
+- Core deps: `pyside6>=6.12,<7` (desktop), `textual>=8.2,<9` (terminal),
+  `rich>=15,<16`, `numpy>=2.0,<3`, `safetensors>=0.4,<2` (AlphaZero weights /
+  self-play record format)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-PySide6（Qt for Python，桌面版用）已併入 `requirements.txt`，不需要另外安裝檔。
-原生 C 引擎核心：`python src/tools/build.py` 編譯 `src/engines/sba_engine.dll`
-（Windows 本機 gcc 或 WSL mingw 交叉編譯；CI 自動構建）。DLL 缺失時引擎
-自動回退純 Python 實作，功能不受影響、僅速度下降。
+The native C engine core builds via `python src/tools/build.py` into
+`src/engines/sba_engine.dll` (local gcc on Windows, or WSL mingw
+cross-compile; CI builds it automatically). Without the DLL the engines fall
+back to pure Python — same features, slower.
 
-**Optional - AlphaZero / 選用 - AlphaZero**：神經網路引擎需要 `torch`（CPU 版即可，模型很小；`numpy` 已列入 `requirements.txt`）。只有要使用或訓練 AlphaZero 才需要安裝：
+**Optional — AlphaZero**: the neural engine needs `torch` (CPU wheel is
+fine; the model is small; `numpy` is already in `requirements.txt`). Install
+only to use or train AlphaZero:
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 ```
 
-Trained AlphaZero weights are distributed via GitHub Releases /
-已訓練的 AlphaZero 網路會在 GitHub Releases 發佈。
+Trained AlphaZero weights are distributed via GitHub Releases. For AMD GPU
+training on Windows (TheRock wheels or WSL2), see
+[`docs/rocm-wsl2.md`](docs/rocm-wsl2.md). Training methodology and
+performance analysis: [`docs/AlphaZero_UTTT_Technical_Report.html`](docs/AlphaZero_UTTT_Technical_Report.html).
 
-AMD 顯卡若要 GPU 訓練（Windows 原生 TheRock wheel 或 WSL2），可參考
-[`docs/rocm-wsl2.md`](docs/rocm-wsl2.md)。
+New to the codebase? Follow the Architecture map's reading route (1 → 5)
+below; a from-zero tutorial lives at
+[`docs/tutorial-zh.md`](docs/tutorial-zh.md) (Simplified) /
+[`docs/tutorial-zh-Hant.md`](docs/tutorial-zh-Hant.md) (Traditional).
 
-AlphaZero 訓練方法與效能分析見
-[`docs/AlphaZero_UTTT_Technical_Report.html`](docs/AlphaZero_UTTT_Technical_Report.html)。
-
-新手想讀懂專案，依下方「Architecture map」的閱讀順序（1 → 5）進行；
-從零教學見
-[`docs/tutorial-zh.md`](docs/tutorial-zh.md)（簡體中文）／
-[`docs/tutorial-zh-Hant.md`](docs/tutorial-zh-Hant.md)（繁體中文）。
-
-Working on the repo? `python dev.py` is the task runner（build / test / test-rust /
-lint / format / clippy / clippy-core / cgate / bench-selfplay / self-test）;
-the branch model and prerequisites live in
-[`docs/development.md`](docs/development.md)。
+Working on the repo? `python dev.py` is the task runner (build / test /
+test-rust / lint / format / clippy / clippy-core / cgate / bench-selfplay /
+self-test); the branch model and prerequisites live in
+[`docs/development.md`](docs/development.md).
 
 ---
 
-## Usage / 使用方式
+## Usage
 
-### 1. Desktop app (default) / 桌面版（預設）
+### 1. Desktop app (default)
 
 ```bash
-# Unified entry: every command starts at the root shim / 統一入口：全部命令從根目錄出
+# Unified entry: every command starts at the root shim
 python sba.py
 
-# equivalent module paths / 等同的模組路徑（相容保留）
+# equivalent module paths (kept for compatibility)
 python src/session/SBA.py
 python src/session/SBA.py --qt
 ```
 
-桌面版使用 Endfield 工業 console 主題（`static/endfield.qss` + 原生繪製棋盤），
-選單頁可進入 Settings 調整引擎開關。
+The desktop app uses the Endfield industrial console theme
+(`static/endfield.qss` + custom board painting); the menu page opens the
+Settings deck for engine switches.
 
-### 2. Terminal UI (TUI) / 終端機版
+### 2. Terminal UI (TUI)
 
 ```bash
 python sba.py --tui
 ```
 
-Textual 終端機介面，同一套引擎與設定；適合 SSH／無 GUI 環境。
+Textual terminal app, same engines and settings; good for SSH / headless
+boxes.
 
-CLI flags / 指令參數（`python sba.py` 與 `python src/session/SBA.py` 同一組）：
+CLI flags (identical for `python sba.py` and `python src/session/SBA.py`):
 
-| Flag / 參數 | Description / 說明 |
+| Flag | Description |
 | --- | --- |
-| `--qt` | Start the PySide6 desktop app (default) / 啟動 PySide6 桌面版（預設） |
-| `--tui` | Start the Textual terminal app instead / 改啟動 Textual 終端機版 |
-| `--debug` | Verbose backend logging / 後端詳細日誌 |
-| `--self-test` | Run headless tests and exit / 執行無頭測試後結束 |
-| `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) / 引擎勝率對戰測試（預設 MCTS 家族循環賽） |
-| `--build-tables` | Rebuild `data/tt_normal.bin` — the persisted perfect-play table for Normal mode (all 5,478 reachable positions) / 重建 Normal 模式持久化完美解表（全部 5,478 個可達局面） |
-| `--train-az` | Alias for `src/az/alphazero.py train` / 等同執行 `src/az/alphazero.py train` |
-| `--eval-az` | Alias for `src/az/alphazero.py eval` / 等同執行 `src/az/alphazero.py eval` |
-| `--bench-tui` | Interactive benchmark dashboard (pick engines, live per-game scores) / 互動對戰儀表板（選引擎、即時比分） |
-| `--train-tui` | Interactive training dashboard (progress, loss/win-rate sparklines, milestone log) / 互動訓練儀表板（進度、loss／勝率曲線、里程碑日誌） |
+| `--qt` | Start the PySide6 desktop app (default) |
+| `--tui` | Start the Textual terminal app instead |
+| `--debug` | Verbose backend logging |
+| `--self-test` | Run headless tests and exit |
+| `--bench [--ai-a A] [--ai-b B] [--games N] [--iters N] [--depth N] [--normal]` | Win-rate benchmark (default: MCTS family round-robin) |
+| `--build-tables` | Rebuild `data/tt_normal.bin` — the persisted perfect-play table for Normal mode (all 5,478 reachable positions) |
+| `--train-az` | Alias for `src/az/alphazero.py train` |
+| `--eval-az` | Alias for `src/az/alphazero.py eval` |
+| `--bench-tui` | Interactive benchmark dashboard (pick engines, live per-game scores) |
+| `--train-tui` | Interactive training dashboard (progress, loss/win-rate sparklines, milestone log) |
 
-### 3. Self-test / 自測
+### 3. Self-test
 
 ```bash
 python sba.py --self-test
@@ -127,74 +141,70 @@ python sba.py --self-test
 ```
 
 Runs the pytest suite covering rules, AI sanity, termination, and AlphaZero
-smoke tests / 執行 pytest 測試套件，涵蓋規則、AI 正確性、對局終止與 AlphaZero 冒煙測試（需 `pip install -r requirements-dev.txt`：pytest 屬開發工具，不在 runtime 依賴裡）。
+smoke tests (needs `pip install -r requirements-dev.txt`: pytest is a dev
+tool, not a runtime dependency).
 
-### 3b. MCTS benchmark / MCTS 對戰測試
+### 3b. MCTS benchmark
 
 ```bash
-# default: MCTS vs MCTS+RAVE vs MCTS+GRAVE round-robin on Ultimate / 預設終極模式循環賽
+# default: MCTS vs MCTS+RAVE vs MCTS+GRAVE round-robin on Ultimate
 python sba.py --bench
-# pick your own matchup / 自訂對戰組合
+# pick your own matchup
 python sba.py --bench --ai-a MCTS --ai-b MCTS+GRAVE --games 40 --iters 400
 python sba.py --bench --ai-a Minimax --ai-b MCTS+GRAVE --depth 4
-# smaller / faster, or Normal board / 較小規模或普通棋盤
+# smaller / faster, or Normal board
 python sba.py --bench --games 10 --iters 200 --normal
 ```
 
 Available engines for `--ai-a`/`--ai-b`: Random, Basic, Minimax, Minimax Pro,
-MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero. The first player alternates
-per game and per-match scores (win = 1, draw = 0.5) are printed /
-`--ai-a`/`--ai-b` 可用引擎如上；每局輪換先手，輸出各組合得分率（勝 = 1、和 = 0.5）。
+MCTS, MCTS+RAVE, MCTS+GRAVE, Flat MCTS, Solver, AlphaZero. The first player
+alternates per game; per-match scores (win = 1, draw = 0.5) are printed.
 
-### 4. Train / evaluate AlphaZero / 訓練與評估 AlphaZero
+### 4. Train / evaluate AlphaZero
 
 ```bash
-# train a neural net for Ultimate (Normal is solved and not supported) / 訓練終極模式神經網路（普通模式已破解，不支援）
+# train a neural net for Ultimate (Normal is solved and not supported)
 python sba.py --train-az --games 400 --sims 80
-# or via the module directly / 或直接走模組
+# or via the module directly
 python src/az/alphazero.py train --games 400 --sims 80
 
-# evaluate a trained model vs MCTS / 評估模型對戰 MCTS
+# evaluate a trained model vs MCTS
 python sba.py --eval-az --games 30 --sims 200
 ```
 
-Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoint）、
-`--dirichlet-eps 0.25`（根節點探索噪聲，0 停用）、`--lr 1e-3`（線性退火到 1/5）、
-`--workers 8`（多進程自對弈，每個 worker 一份 GPU 模型副本）、
-`--rollout-weight 0`（純網路葉值——標準 AlphaZero 配方（D58），也是 exe 的配方；
->0 重新啟用舊版 win/block 啟發式隨機對弈混合）、
-`--selfplay-engine auto|rust|python`（自對弈來源：Rust exe／Python mp.Pool；
-auto 探測 exe，缺席自動降級）、`--selfplay-procs N`（K 個 exe 進程分攤對局）、
-`--csv`（訓練曲線 CSV——每局一行：loss / LR / temp / eval 勝敗和 / checkpoint，
-預設 `<model>.csv`；新 run 覆寫、resume 續寫）、
-`--channels 128`、`--blocks 5`。自對弈前段 temp 從 1.0 線性退到 0.05，
-晚期遊戲近乎最強應手。
+Training extras: `--ckpt-every 25` (checkpoint every N games),
+`--dirichlet-eps 0.25` (root exploration noise, 0 disables), `--lr 1e-3`
+(linear annealing to 1/5), `--workers 8` (multiprocess self-play, one GPU
+model copy per worker), `--rollout-weight 0` (pure-network leaf values — the
+standard AlphaZero recipe (D58) and the exe's recipe; >0 re-enables the
+legacy win/block heuristic blend), `--selfplay-engine auto|rust|python`
+(self-play source: Rust exe / Python mp.Pool; auto probes the exe and
+downgrades when absent), `--selfplay-procs N` (K exe processes splitting the
+games), `--csv` (training-curve CSV — one row per game: loss / LR / temp /
+eval result / checkpoint; defaults to `<model>.csv`; new runs overwrite,
+resume appends), `--channels 128`, `--blocks 5`. Self-play temp anneals
+linearly from 1.0 to 0.05 — late games play near-strongest moves.
 
-## Configuration / 設定
+## Configuration
 
-All engine switches and parameters live in **`config.toml`**（repo root）: MCTS
-rollout heuristic, tree reuse, dynamic UCT, opening book, micro tablebase,
-LMR/killer/aspiration, symmetry, object pool, bitboard, multithreaded MCTS,
-UCT/RAVE constants, and session defaults（`mcts_budget`, `minimax_depth`）.
-Missing keys fall back to code defaults. `$SBA_CONFIG` points every entry at
-another file to override; because that file is both read and written, the
-override must live **inside this repo or the system temp directory** (the
-same path guard covers config saves) / 所有引擎開關與參數集中在 `config.toml`（repo 根目錄）：啟發式 rollout、
-樹重用、動態 UCT、開局書、micro 殘局表、LMR/killer/aspiration、對稱性、物件池、
-bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mcts_budget`、
-`minimax_depth`）。缺省鍵自動回退程式碼預設；可用環境變數 `SBA_CONFIG` 指向其他檔案，
-但該檔案同時會被讀取與寫回，因此必須位於**本倉庫或系統暫存目錄內**（與設定寫入共用同一道路徑防護）。
+All engine switches and parameters live in **`config.toml`** (repo root):
+MCTS rollout heuristic, tree reuse, dynamic UCT, opening book, micro
+tablebase, LMR/killer/aspiration, symmetry, object pool, bitboard,
+multithreaded MCTS, UCT/RAVE constants, and session defaults (`mcts_budget`,
+`minimax_depth`). Missing keys fall back to code defaults. `$SBA_CONFIG`
+points every entry at another file to override; because that file is both
+read and written, the override must live **inside this repo or the system
+temp directory** (the same path guard covers config saves).
 
 ---
 
-## Architecture map / 架構地圖
+## Architecture map
 
 ```
       UI LAYER (pick one — two front ends, one backend)
   +----------------------+  +----------------------+
   | src/ui/qtui.py  [5a] |  | src/ui/tui.py  [5b] |
   | PySide6 desktop      |  | rich terminal        |
-  | ~2500 lines          |  | ~1370 lines          |
   +----------+-----------+  +----------+-----------+
              |                         |
              +------------+------------+
@@ -202,17 +212,15 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
       GLUE LAYER          v
   +------------------------------------------------------+
   | src/session/SBA.py  [4]                              |
-  | CLI entry · session state · t() bilingual strings    |
+  | CLI entry · session state · bilingual strings        |
   | --tui / --bench-tui / --train-tui / --train-az        |
-  | ~250 lines                                           |
   +---------------------------+--------------------------+
                               |
       ENGINE LAYER            v
   +------------------------------------------------------+
   | src/engines/ai.py  [2]  facade (D47): get_ai_move    |
-  |   dispatch, the AlphaZero bridge, cache reset;       |
-  |   re-exports the whole surface (from engines.ai      |
-  |   import ... kept)  engine modules:                  |
+  |   dispatch, the AlphaZero bridge, cache reset        |
+  |   engine modules:                                    |
   |   src/config.py            ROOT, config.toml, guard  |
   |   src/engines/cbridge.py   ctypes boundary (the DLL) |
   |   src/analysis/books.py    Basic heuristic + books   |
@@ -220,7 +228,6 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
   |   src/engines/minimax.py   alpha-beta + Minimax Pro  |
   |   src/analysis/tablebase.py  Normal solve + Solver   |
   |   src/analysis/analysis.py  assistant + win rates    |
-  | ~2200 lines across 8 modules                         |
   +---------+--------------------------------------------+
             |
             |  lazy import (loads torch only when selected)
@@ -229,7 +236,7 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
   | src/az/alphazero.py  [3]                             |
   | neural-guided MCTS: AZNet policy+value heads,        |
   | self-play workers, replay buffer, LR/temp annealing  |
-  | Ultimate only (D4); ~950 lines                       |
+  | Ultimate only (D4)                                   |
   +---------------------------+--------------------------+
                               |
       RULES LAYER             v
@@ -238,93 +245,99 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
   | NormalGame / UltimateGame / BitUltimateGame          |
   | the only ground truth: legal_moves() make_move()     |
   | result() clone()                                     |
-  | ~345 lines                                           |
   +------------------------------------------------------+
 
   SIDE CAR (no layer — loads in from the side)
     config.toml -------------- > src/config.py  every engine switch + session defaults (D11)
-    src/engines/cengine.py + dll > src/engines/cbridge.py C backends (D25-D30, D37):
+    src/engines/cengine.py + dll > src/engines/cbridge.py  C backends (D25-D30, D37):
                                               full MCTS tree, rollouts and the minimax
                                               family live in sba_engine.dll (~37x; built via
                                               src/tools/build.py, auto-fallback to Python)
-    src/sba-game (Rust) --- > src/az/rustbridge.py  state layer for AZ self-play (D48):
+    src/sba-core (Rust) --- > src/az/rustselfplay.py  the self-play exe (D55-D59):
+                                              wave search + batched burn inference,
+                                              safetensors records, K-process rounds
+    src/sba-game (Rust) --- > src/az/rustbridge.py  state layer (D48):
                                               clone/apply/legal/result on packed
-                                              bitboards in az/sba_game.dll|so; built
-                                              when cargo exists, game.py stays the
-                                              reference + fallback
+                                              bitboards in az/sba_game.dll|so
     static/ (qss·fonts·bg) --- > src/ui/qtui.py  stylesheets, bundled OFL fonts, backdrops
     tests/ -------------------                headless pytest: rules, AI sanity,
-                                              C engine, AZ recipe, Rust parity
+                                              C engine, AZ recipe, Rust parity,
+                                              golden vectors
 ```
 
-Reading-route highlights, condensed from the retired
-`docs/reading-guide.md` / 閱讀要點：
+Reading-route highlights:
 
-- **[1] `src/core/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步 macro」強制路由 — 整個專案的規則核心。
-- **[2] `src/engines/ai.py`（門面）**：引擎分居 `engines/mcts.py` / `engines/minimax.py` / `analysis/tablebase.py` / `analysis/analysis.py` / `analysis/books.py`；按 `get_basic_move` → `minimax_*` → `mcts_search`（UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
-- **[3] `src/az/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；「為什麼同預算打不贏純 MCTS」的誠實結論在 `docs/AlphaZero_UTTT_Technical_Report.html`。
-- **[4] `src/session/SBA.py`**：總覽地圖，最後讀。
-- **[5] UI**：兩端共用 [1]–[4]；`src/ui/qtui.py` 的 `BoardWidget` 自繪是最複雜單點，初讀抓 `MenuPage` / `GamePage` 骨架即可。
-- Decision log with the full "why" per entry / 每個決定的完整理由見決策日誌：[`docs/decisions.md`](docs/decisions.md)
+- **[1] `src/core/game.py`** — start with `UltimateGame`'s "the played cell
+  routes the opponent into that macro" rule; the rules core of the project.
+- **[2] `src/engines/ai.py` (facade)** — the engines live across
+  `engines/mcts.py` / `engines/minimax.py` / `analysis/tablebase.py` /
+  `analysis/analysis.py` / `analysis/books.py`; skim in the order
+  `get_basic_move` → `minimax_*` → `mcts_search` (the UCT heart) →
+  `analyze_position`. RAVE/GRAVE/Flat are A/B comparison groups, not required reading.
+- **[3] `src/az/alphazero.py`** — if you read one function, read
+  `self_play_game()`; the honest "why it loses to plain MCTS at equal
+  budget" conclusion lives in `docs/AlphaZero_UTTT_Technical_Report.html`.
+- **[4] `src/session/SBA.py`** — the overview map; read last.
+- **[5] UI** — both front ends share [1]–[4]; `src/ui/qtui.py`'s
+  `BoardWidget` self-painting is the most complex single point — grab
+  `MenuPage` / `GamePage` first.
+- Decision log with the full "why" per entry:
+  [`docs/decisions.md`](docs/decisions.md)
 
 ---
 
-## Ultimate Tic Tac Toe rules / 終極井字棋規則
+## Ultimate Tic Tac Toe rules
 
-- The big board is a 3x3 grid of 3x3 micro boards / 大棋盤由 9 個 3x3 小棋盤組成。
-- Playing in micro-cell `(r, c)` forces the opponent's next move into macro-cell `(r, c)` / 在小格 `(r, c)` 落子後，對手必須在大格 `(r, c)` 落子。
-- If that macro cell is won or full, the player may play any open macro cell / 若該大格已分出勝負或填滿，則可選擇任意未結束的大格。
-- Winning a micro board claims that macro cell; a full micro board with no winner is a neutral draw / 贏得小棋盤即佔領該大格；填滿且無勝負的小棋盤算平局。
-- Win the game by claiming 3 macro cells in a line; otherwise a full board is a draw / 連成三條大格即獲勝；全盤填滿無勝負則平局。
+- The big board is a 3x3 grid of 3x3 micro boards.
+- Playing in micro-cell `(r, c)` forces the opponent's next move into
+  macro-cell `(r, c)`.
+- If that macro cell is won or full, the player may play any open macro cell.
+- Winning a micro board claims that macro cell; a full micro board with no
+  winner is a neutral draw.
+- Win the game by claiming 3 macro cells in a line; otherwise a full board
+  is a draw.
 
 ---
 
-## Native C engine / 原生 C 引擎
+## Native C engine
 
-All engine hot paths run in C since D25–D51 (`python src/tools/build.py` builds
-`src/engines/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
-it automatically) and the game state runs in Rust since D48/D50
-(`src/az/sba_game.dll`, cargo; the Python game stays the reference and the
-fallback). Measured on this machine / 全部引擎熱路徑已下沉 C（`src/tools/build.py`
-編譯；缺失時自動回退 Python，僅速度下降），遊戲狀態層下沉 Rust（D48/D50）：
+All engine hot paths run in C since D25–D51 (`python src/tools/build.py`
+builds `src/engines/sba_engine.dll`; WSL mingw cross-compile or any local
+gcc; CI builds it automatically) and the game state runs in Rust since
+D48/D50 (`src/az/sba_game.dll`, cargo; the Python game stays the reference
+and the fallback). Measured on this machine:
 
-| Metric / 指標 | Python | C (1 thread) | C (threads, D30) |
+| Metric | Python | C (1 thread) | C (threads, D30) |
 |---|---|---|---|
 | MCTS rollout (per playout) | 0.51 ms | 0.029 ms (17.7x) | — |
 | MCTS 800 sims (full search, symmetry on) | ~530 ms | 12.9 ms (41x) | 3.4 ms @ 8T (3.6x wall) |
 | MCTS 3200 sims | — | 51.2 ms | 9.2 ms @ 8T (5.8x wall) |
 | Heuristic rollout (AZ leaf value) | 0.47 ms | 0.028 ms (16.9x) | — |
 
-| Rust state layer / Rust 狀態層（D52） | vs Python game |
+| Rust state layer (D52) | vs Python game |
 |---|---|
 | playout loop (state ops) | 2.14x |
 | fullgame (legal + encode + clone per ply) | 1.64x |
 | AZ self-play stage-1 (C-tree dominated) | ~parity (1.04x) |
 
-| Rust self-play core / Rust 自對弈核心（D57） | vs Python mp.Pool path / 對比 Python mp.Pool 路徑 |
+| Rust self-play core (D57) | vs Python mp.Pool path |
 |---|---|
-| end-to-end self-play @800 sims, 8 threads / 端到端自對弈（800 sims、8 threads） | 6.1 vs 23.7 pos/s（0.26x — Phase A ≥4x bar NOT met / ≥4x 線未達） |
+| end-to-end self-play @800 sims, 8 threads | 6.1 vs 23.7 pos/s (0.26x — Phase A ≥4x bar NOT met) |
 
-Phase A parity records (D57) / Phase A 對齊紀錄：the Python wave search is
-ported 1:1 into `search.rs`; layer-3 parity 200/200 top-1 (100%) / KL 0.0000
-— byte-equal visit vectors on all 200 positions（200 局全部位元組級相等訪問向
-量）；batch fill 0.894 (~229 rows per dispatch / 每派發約 229 行)。The
-remaining throughput gap is backend-bound: the burn/cubecl forward costs
-~37 ms per 229-row batch on RDNA3 Vulkan vs torch/ROCm-HIP's 2.84 ms per
-256-row batch (≈13x kernel gap), so even a multi-queue pipeline caps at
-≈1.4x on this hardware / 剩餘吞吐差距為後端限制：burn/cubecl 前向在 RDNA3
-Vulkan 上每 229 行批約 37 ms，torch/ROCm-HIP 每 256 行批 2.84 ms（≈13 倍
-kernel 差），多 queue 流水線在本機的天花板約 1.4x。Re-measure:
-`python dev.py bench-selfplay` and `python src/tools/parity_search.py`; details
-in docs/decisions.md D57. The Python wave-search reference is frozen as golden
-vectors (`tests/golden/`) — the parity anchor survives any future retirement
-of the Python implementation / Python wave 搜尋參考已凍結為 golden 向量
-（`tests/golden/`）——Python 實作未來退場後，對齊錨仍在。
+Phase A parity records (D57): the Python wave search is ported 1:1 into
+`search.rs`; layer-3 parity 200/200 top-1 (100%) / KL 0.0000 — byte-equal
+visit vectors on all 200 positions; batch fill 0.894 (~229 rows per
+dispatch). The remaining throughput gap is backend-bound: the burn/cubecl
+forward costs ~37 ms per 229-row batch on RDNA3 Vulkan vs torch/ROCm-HIP's
+2.84 ms per 256-row batch (≈13x kernel gap), so even a multi-queue pipeline
+caps at ≈1.4x on this hardware. Re-measure: `python dev.py bench-selfplay`
+and `python src/tools/parity_search.py`; details in docs/decisions.md D57.
+The Python wave-search reference is frozen as golden vectors
+(`tests/golden/`) — the parity anchor survives any future retirement of the
+Python implementation.
 
 AZ self-play runs ~7–9 s/game @80 sims (128ch/5blocks, 1 worker) — the loop
-is NN-forward-bound, so state-layer gains are bounded by Amdahl / AZ 自對弈
-約 7–9 秒一局（80 sims、單 worker）——瓶頸在神經網路前向，狀態層加速受
-Amdahl 上限約束。
+is NN-forward-bound, so state-layer gains are bounded by Amdahl.
 
 Extras: tree reuse carries the warm subtree between moves on BOTH the C and
 Python paths (the `tree_reuse` switch gates both ends, D53); settings page
@@ -334,15 +347,14 @@ vs-Basic, 3.9x rollout cost: still no gain).
 
 ---
 
-## Benchmarks / 實測基準
+## Benchmarks
 
-n = 20; the 95% CI is roughly ±22% — for ranking only. Re-measured 2026-11-15
-on the C engines (D51)
-n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C 引擎（D51）重測。
+n = 20; the 95% CI is roughly ±22% — for ranking only. Re-measured
+2026-11-15 on the C engines (D51)
 
-### All engines vs Basic (Ultimate, 20 games, MCTS@1600) / 全部引擎 vs Basic（終極 · 20 局 · MCTS@1600）
+### All engines vs Basic (Ultimate, 20 games, MCTS@1600)
 
-| Engine / 引擎 | W / D / L | Score / 得分率 |
+| Engine | W / D / L | Score |
 |---|---|---|
 | Solver\*@1600 | 20 / 0 / 0 | **100%** |
 | MCTS+GRAVE@1600 | 20 / 0 / 0 | **100%** |
@@ -353,12 +365,11 @@ n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C 
 | Minimax Pro (depth 4) | 17 / 3 / 0 | 92.5% |
 | Random | 1 / 2 / 17 | 10.0% |
 
-\* On Ultimate, Solver is a plain MCTS fallback — it only truly solves Normal /
-終極模式的 Solver 實為 MCTS fallback（僅普通模式真正求解）。
+\* On Ultimate, Solver is a plain MCTS fallback — it only truly solves Normal.
 
-### All engines vs Basic (Normal, 20 games, MCTS@1600) / 全部引擎 vs Basic（普通 · 20 局 · MCTS@1600）
+### All engines vs Basic (Normal, 20 games, MCTS@1600)
 
-| Engine / 引擎 | W / D / L | Score / 得分率 |
+| Engine | W / D / L | Score |
 |---|---|---|
 | Flat MCTS@1600 | 8 / 10 / 2 | 65.0% |
 | Minimax (depth 4) | 2 / 18 / 0 | 55.0% |
@@ -369,25 +380,22 @@ n = 20 的 95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C 
 | MCTS+RAVE@1600 | 0 / 20 / 0 | 50.0% |
 | Random | 0 / 1 / 19 | 2.5% |
 
-### MCTS scales with budget / MCTS 隨預算變強（vs Minimax depth 4，Ultimate）
+### MCTS scales with budget (vs Minimax depth 4, Ultimate)
 
-| Matchup / 對戰（30 局） | Score / 得分率 |
+| Matchup (30 games) | Score |
 |---|---|
-| Minimax vs MCTS@800 | **48.3%（Minimax）** |
-| Minimax vs MCTS@2000 | **23.3%（MCTS 76.7%）** |
+| Minimax vs MCTS@800 | **48.3% (Minimax)** |
+| Minimax vs MCTS@2000 | **23.3% (MCTS 76.7%)** |
 
-At 800 sims the matchup is a coin flip; by 2000 MCTS wins ~77% — with the
-C trees (D51) the crossover sits near 600–800 sims (D20)
-800 sims 時已是五五波、2000 sims 時 MCTS 勝約 77%——C 樹（D51）之後交叉點
-下移至約 600–800 sims（D20）。
+At 800 sims the matchup is a coin flip; by 2000 MCTS wins ~77% — with the C
+trees (D51) the crossover sits near 600–800 sims (D20).
 
-### MCTS family round-robin (Ultimate, 20 games/pair, all engines@1600) / MCTS 家族循環賽（全引擎@1600）
+### MCTS family round-robin (Ultimate, 20 games/pair, all engines@1600)
 
 All three share one playout policy: the plain win/block heuristic kernel
-(`c_rollout_pattern = false`)
-三者共用同一 playout 策略（plain 啟發式核心）。
+(`c_rollout_pattern = false`).
 
-| A vs B / 對戰 | W / D / L | Score / 得分率 |
+| A vs B | W / D / L | Score |
 |---|---|---|
 | MCTS vs MCTS+RAVE | 13 / 3 / 4 | **72.5%** |
 | MCTS vs MCTS+GRAVE | 17 / 1 / 2 | **87.5%** |
@@ -395,33 +403,35 @@ All three share one playout policy: the plain win/block heuristic kernel
 
 ---
 
-## Credits / 致謝
+## Credits
 
-- [Qt for Python (PySide6)](https://github.com/qtproject/pyside-pyside-setup) - the desktop UI framework / 桌面版 UI 框架
-- [PyTorch](https://github.com/pytorch/pytorch) - neural networks for the AlphaZero engine / AlphaZero 的神經網路
-- [NumPy](https://github.com/numpy/numpy) - tensor utilities in the AlphaZero trainer / AlphaZero 訓練用的陣列工具
+- [Qt for Python (PySide6)](https://github.com/qtproject/pyside-pyside-setup) — the desktop UI framework
+- [PyTorch](https://github.com/pytorch/pytorch) — neural networks for the AlphaZero engine
+- [NumPy](https://github.com/numpy/numpy) — tensor utilities in the AlphaZero trainer
 
-### Algorithm sources / 算法出處
+### Algorithm sources
 
-The engines reimplement these published methods / 引擎實現自以下公開發表的方法：
+The engines reimplement these published methods:
 
-- [AlphaZero](https://www.science.org/doi/10.1126/science.aar6404) — Silver et al., *Science* 2018: neural-guided MCTS with policy and value heads, trained by self-play / 神經導引 MCTS、策略與價值頭、自對弈訓練
-- [MCTS](https://link.springer.com/chapter/10.1007/978-3-540-75538-8_7) — Coulom 2006: Monte-Carlo tree search with efficient selectivity and backup operators / 蒙地卡羅樹搜索
-- [UCT](https://link.springer.com/chapter/10.1007/11871842_29) — Kocsis & Szepesvári 2006: the UCB1-based tree policy / 基於 UCB1 的樹策略
-- [RAVE](https://doi.org/10.1145/1273496.1273531) — Gelly & Silver 2007, ICML: all-moves-as-first statistics inside UCT / AMAF 統計與 UCT 的結合
-- [GRAVE](https://www.ijcai.org/proceedings/2015/0112.pdf) — Cazenave 2015, IJCAI 754–760: AMAF statistics shared through reference nodes / 以參考節點共享 AMAF 統計
-- [Alpha-beta pruning](https://doi.org/10.1016/0004-3702(75)90019-3) — Knuth & Moore 1975: the minimax search backbone / minimax 搜索骨架
+- [AlphaZero](https://www.science.org/doi/10.1126/science.aar6404) — Silver et al., *Science* 2018: neural-guided MCTS with policy and value heads, trained by self-play
+- [MCTS](https://link.springer.com/chapter/10.1007/978-3-540-75538-8_7) — Coulom 2006: Monte-Carlo tree search with efficient selectivity and backup operators
+- [UCT](https://link.springer.com/chapter/10.1007/11871842_29) — Kocsis & Szepesvári 2006: the UCB1-based tree policy
+- [RAVE](https://doi.org/10.1145/1273496.1273531) — Gelly & Silver 2007, ICML: all-moves-as-first statistics inside UCT
+- [GRAVE](https://www.ijcai.org/proceedings/2015/0112.pdf) — Cazenave 2015, IJCAI 754–760: AMAF statistics shared through reference nodes
+- [Alpha-beta pruning](https://doi.org/10.1016/0004-3702(75)90019-3) — Knuth & Moore 1975: the minimax search backbone
 
 ---
 
-## License / 授權
+## License
 
-This project is released under the **GNU General Public License v3 (GPLv3)**. See the [LICENSE](LICENSE) file for details / 本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE) 檔案。
+This project is released under the **GNU General Public License v3 (GPLv3)**.
+See the [LICENSE](LICENSE) file for details.
 
-### Third-party licenses / 第三方授權
+### Third-party licenses
 
-The bundled UI fonts are distributed under the **SIL Open Font License 1.1**; the full license texts ship in `static/fonts/` (`OFL-Inter.txt`, `OFL-JetBrainsMono.txt`) / 內嵌的 UI 字體以 **SIL Open Font License 1.1** 授權散布，許可證全文隨字體附於 `static/fonts/`：
+The bundled UI fonts are distributed under the **SIL Open Font License 1.1**;
+the full license texts ship in `static/fonts/` (`OFL-Inter.txt`,
+`OFL-JetBrainsMono.txt`):
 
-- [Inter](https://github.com/rsms/inter) — © 2020 The Inter Project Authors（`static/fonts/Inter-*.ttf`）
-- [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) — © 2020 The JetBrains Mono Project Authors（`static/fonts/JetBrainsMono-*.ttf`）
-
+- [Inter](https://github.com/rsms/inter) — © 2020 The Inter Project Authors (`static/fonts/Inter-*.ttf`)
+- [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) — © 2020 The JetBrains Mono Project Authors (`static/fonts/JetBrainsMono-*.ttf`)
