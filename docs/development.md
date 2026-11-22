@@ -42,6 +42,24 @@ A "ready to commit" state = `lint` + `format` + `clippy` + `clippy-core`
 + `cgate` + `test-rust` + `test` all green. CI runs the same gates (plus
 the CLI entry smoke) on both ubuntu and windows.
 
+## Commit convention / 提交規範
+
+Conventional Commits in the house style; `.gitmessage` is the commit
+template — set it once per clone with
+`git config commit.template .gitmessage` (repo-local config, already set
+here):
+
+- **Type**: `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `ci`
+- **Scope**: the area touched — `sba-core`, `sba-game`, `az-train`,
+  `selfplay-bridge`, `engines`, `qt`, `tui`, `config`, `deps`, `structure`;
+  omitted for repo-wide docs/chore
+- **Subject**: imperative, lowercase start, no trailing period; an em-dash
+  clause for the why/how when it fits —
+  `fix(config): TOML-safe save — section-bounded rewriter, verify-before-write`
+- **Body**: the why plus the evidence — gates run (with counts), numbers
+  measured, the decision (Dxx) it implements; never a diff narration
+- One logical change per commit, intermediate states green
+
 ## Layout / 佈局
 
 One rule since D60: **src/ = everything by function** (D36's flat src/

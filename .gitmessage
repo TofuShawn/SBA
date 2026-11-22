@@ -1,0 +1,19 @@
+# Conventional Commits, house style. Subject = what it does; body = why + evidence.
+#
+# <type>(<scope>): <subject>
+#
+# types:  feat | fix | refactor | docs | test | chore | perf | ci
+# scope:  the area touched — sba-core, sba-game, az-train, selfplay-bridge,
+#         engines, qt, tui, config, deps, structure, readme, decisions …
+#         (omit for repo-wide docs/chore)
+# subject: imperative, lowercase start, no trailing period; an em-dash clause
+#          for the "why/how" when it fits —
+#          fix(config): TOML-safe save — section-bounded rewriter, verify-before-write
+#
+# body:   the why plus the evidence — which gates ran (with counts), which
+#         numbers were measured, which decision (Dxx) it implements.
+#         Not a line-by-line narration of the diff. Wrap at ~72 columns;
+#         separate from the subject with a blank line.
+#
+# One logical change per commit; every intermediate state green
+# (gates: docs/development.md). Ratified choices reference docs/decisions.md Dxx.
