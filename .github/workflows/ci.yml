@@ -38,13 +38,81 @@ jobs:
       - name: Ruff format
         run: ruff format --check .
 
-      # Report-only until the 132 transitive findings (pillow / aiohttp /
-      # pypdf / urllib3 / setuptools — none in the project's direct declared
-      # deps) are triaged; dropping `|| true` turns it into a blocking gate.
-      - name: pip-audit (report-only)
+      # D62: blocking gate. The lint env (requirements-dev + pip-audit, fresh
+      # resolve) audits 0 findings, so `|| true` is gone — any NEW finding
+      # fails the job. The 59 --ignore-vuln IDs are the D62 baseline for the
+      # pillow 11.3.0 residue that lives only in the local dev venv:
+      # parent-constrained by arcade==3.3.3 (pins pillow~=11.3.0; no 11.x fix
+      # release exists, fixes start at 12.1.1). arcade is a local dev-tool
+      # install that never appears in this CI env, so the flags are an inert
+      # documented baseline — drop them once arcade allows pillow>=12.
+      - name: pip-audit (gate)
         run: |
           pip install pip-audit
-          pip-audit --desc off || true
+          IGNORED=(
+            CVE-2026-112390  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112391  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112393  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112395  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112399  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112400  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112401  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112404  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112406  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112891  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112892  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112893  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112894  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112895  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112897  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112899  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112900  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-128066  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-128067  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-96638  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-96640  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-96778  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            GHSA-78g4-xqwv-q3g8  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-165  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2249  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2250  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2251  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2252  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2253  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2254  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2255  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2256  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2257  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2874  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3451  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3453  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3454  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3493  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3494  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3495  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3496  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4326  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4327  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4328  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4329  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4330  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4331  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4332  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4334  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4335  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4336  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4337  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4338  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4339  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4340  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4341  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4342  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4343  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4363  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+          )
+          FLAGS=()
+          for id in "${IGNORED[@]}"; do FLAGS+=(--ignore-vuln "$id"); done
+          pip-audit --desc off "${FLAGS[@]}"
 
       # The C engine used to compile with no warning flags at all, and
       # build.py swallowed successful builds' stderr. This is the gate;
