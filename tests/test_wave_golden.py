@@ -76,6 +76,7 @@ def _reexport_weights(out_path):
 def test_rust_search_matches_golden_battery(tmp_path):
     """Every battery position: rebuild from the recorded move history, run
     the Rust wave search, compare against the frozen Python reference."""
+    pytest.importorskip("torch")  # _reexport_weights loads the torch checkpoint
     with open(GOLDEN_JSON, encoding="utf-8") as fh:
         meta = json.load(fh)
     gold = np.load(GOLDEN_NPZ)

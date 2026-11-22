@@ -22,7 +22,6 @@ import time
 from dataclasses import dataclass, replace
 
 import numpy as np
-import torch
 
 from config import MP_GAME_TIMEOUT, TEMP_MIN
 
@@ -55,7 +54,14 @@ def load_records(dir_path):
 
     Returns [] for a missing/empty dir — callers treat that as "nothing
     landed", not an error (a crashed round may legitimately have written 0).
+
+    The one torch touchpoint lives here lazily: the bridge must import on a
+    bare install (the exe owns search + inference; torch is the training
+    side's dependency — see requirements.txt), so load_records pulls torch
+    only when records actually land.
     """
+    import torch
+
     from safetensors.numpy import load_file
 
     games = []

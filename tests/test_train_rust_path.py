@@ -12,8 +12,10 @@ import os
 import numpy as np
 import pytest
 
-from az import alphazero
-from az import rustselfplay
+# torch is optional (requirements.txt deliberately omits it): skip the whole
+# module on a bare install — every test drives alphazero.train.
+alphazero = pytest.importorskip("az.alphazero")
+from az import rustselfplay  # noqa: E402
 
 
 def _write_records(out_dir, games, seed_base, sims):

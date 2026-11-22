@@ -15,9 +15,10 @@ import subprocess
 
 import numpy as np
 import pytest
-import torch
 
-from az import rustselfplay
+torch = pytest.importorskip("torch")
+
+from az import rustselfplay  # noqa: E402
 
 EXE = rustselfplay.find_bench()  # cpu debug build on CI, wgpu release locally
 pytestmark = pytest.mark.skipif(EXE is None, reason="bench_burn not built")

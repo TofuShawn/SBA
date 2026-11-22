@@ -43,6 +43,7 @@ def _run_planes_dump(tmp_path, games=3, seed=7, moves=10):
 
 
 def test_rust_planes_match_python_encode_bitwise(tmp_path):
+    pytest.importorskip("torch")  # the reference side IS alphazero.encode
     from core.game import UltimateGame  # the pure-Python reference, not the Rust one
 
     out = _run_planes_dump(tmp_path)

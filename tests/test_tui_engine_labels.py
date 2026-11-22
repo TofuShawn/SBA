@@ -67,6 +67,7 @@ def test_train_tui_python_note_when_no_exe():
 def test_train_tui_threads_resolved_engine_into_train():
     """the displayed engine is the engine that runs: the train call carries
     the engine resolved at mount, not a second auto."""
+    pytest.importorskip("torch")  # the patched train() lives in az.alphazero
 
     seen = {}
 
