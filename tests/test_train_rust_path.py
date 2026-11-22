@@ -96,8 +96,12 @@ def test_train_rust_engine_runs_and_emits(fake_rust, tmp_path):
         round_games=2,
     )
     assert model is not None
-    # two rounds of 2 games
+    # two rounds of 2 games; the seed stream continues across rounds (spec
+    # §3.4: seed = --seed-base + absolute game index — round 2 must NOT
+    # replay round 1's stream; with seed=None, round 1 starts at 0 and round
+    # 2 at round_games)
     assert [c["games"] for c in fake_rust] == [2, 2]
+    assert [c["seed_base"] for c in fake_rust] == [0, 2]
     types = [e["type"] for e in events]
     assert types.count("game") == 4  # one optimize step + one event per game
     assert [e["game"] for e in events if e["type"] == "game"] == [1, 2, 3, 4]
@@ -206,6 +210,67 @@ def test_train_rust_second_crash_raises(fake_rust, monkeypatch):
             selfplay_engine="rust",
             round_games=2,
         )
+
+
+def test_train_explicit_rust_stage1_raises(fake_rust):
+    # explicit --selfplay-engine rust + stage 1 is a caller error: the exe
+    # always plays network self-play with root-mean z (no stage-1 rollouts,
+    # no alternative value target), so the request is rejected up front
+    with pytest.raises(ValueError, match=r"--selfplay-engine rust.*--stage 1.*--value-target"):
+        alphazero.train(
+            "ultimate",
+            games=2,
+            sims=2,
+            eval_every=100,
+            eval_games=1,
+            eval_sims=32,
+            lr=1e-4,
+            steps_per_game=1,
+            channels=8,
+            blocks=1,
+            save=False,
+            quiet=True,
+            stage=1,
+            selfplay_engine="rust",
+            round_games=2,
+        )
+    assert fake_rust == []  # no round ever dispatched to the exe
+
+
+def test_train_auto_stage1_downgrades_to_python(fake_rust):
+    # rust resolved via auto + stage 1: silently falls back to the python
+    # paths (which do support stage 1), announced with a reason event — the
+    # rust announcement itself still fired first
+    events = []
+    model = alphazero.train(
+        "ultimate",
+        games=2,
+        sims=2,
+        eval_every=100,
+        eval_games=1,
+        eval_sims=32,
+        lr=1e-4,
+        steps_per_game=1,
+        channels=8,
+        blocks=1,
+        save=False,
+        quiet=True,
+        replay_cap=10,
+        stage=1,
+        on_event=events.append,
+        selfplay_engine="auto",
+        round_games=2,
+    )
+    assert model is not None
+    assert fake_rust == []  # the round loop never dispatched to the exe
+    engines = [e for e in events if e["type"] == "selfplay_engine"]
+    assert engines[0] == {"type": "selfplay_engine", "engine": "rust", "workers": 1}
+    assert engines[1] == {
+        "type": "selfplay_engine",
+        "engine": "python",
+        "reason": "stage/value_target unsupported by rust path",
+    }
+    assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]  # python path ran
 
 
 def test_auto_downgrades_to_python_without_exe(monkeypatch):

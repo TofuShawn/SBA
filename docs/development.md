@@ -28,13 +28,15 @@ command-line quoting from scratch.
 | Task | What it does |
 |---|---|
 | `python dev.py build` | compile all natives: sba_engine.dll (C), sba_game.dll (Rust state layer), the sba-core bench binary |
-| `python dev.py test` | the pytest suite (160 tests; args forwarded) |
+| `python dev.py test` | the pytest suite (args forwarded; count via `pytest tests --collect-only -q`) |
 | `python dev.py lint` | ruff check (F+E9+E7+B+SIM+PERF, see pyproject.toml) |
 | `python dev.py format` | ruff format --check (CI gate; `format-write` applies) |
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
+| `python dev.py clippy-core` | cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu) |
 | `python dev.py cgate` | C warnings gate: `-Wall -Wextra -Werror` over all five C files |
 | `python dev.py bench-rust` | the Rust state-layer A/B harness |
 | `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
+| `python dev.py test-rust` | cargo test: sba-game (default) + sba-core (cpu backend, no GPU) |
 
 A "ready to commit" state = `lint` + `format` + `clippy` + `cgate` + `test`
 all green. CI runs the same gates (plus the CLI entry smoke) on both
@@ -48,7 +50,8 @@ ubuntu and windows.
 - `native/` — `sba_*.c` (the C engines, one DLL) + two Rust crates:
   `sba-game` (state logistics cdylib) and `sba-core` (D55: the pure-Rust
   inference/self-play core, currently Phase A)
-- `tests/` — 160 tests; DLL-gated files skip themselves cleanly
+- `tests/` — the pytest suite; DLL-gated files skip themselves cleanly
+  (count via `pytest tests --collect-only -q`)
 - `docs/decisions.md` — every design decision, append-only (D1…)
 - `docs/releases/<tag>.md` — the release notes each tag publishes
 - `logs/` — gitignored scratch (bench artifacts, spike scripts)

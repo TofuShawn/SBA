@@ -162,8 +162,9 @@ def run_round(
     bounded tail — a stderr write bigger than the pipe buffer (a
     RUST_BACKTRACE panic) would otherwise wedge the exe mid-round with
     stdout stalled — and the main loop waits on the queue with the
-    remaining budget. No line for `timeout` seconds → proc.kill(),
-    crashed=True, stderr tail reported.
+    remaining budget. The `timeout` budget is round-total, fixed once at
+    spawn (train() sizes it `max(MP_GAME_TIMEOUT, round_games*120)`) —
+    blowing it → proc.kill(), crashed=True, stderr tail reported.
 
     `popen` replaces subprocess.Popen (tests inject a fake); `on_event`, if
     given, receives {"type": "selfplay_round", "games_done": n,

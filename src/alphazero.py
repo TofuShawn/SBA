@@ -1078,6 +1078,30 @@ def train(
         )
     if on_event:
         on_event({"type": "selfplay_engine", "engine": engine, "workers": workers})
+    # D57 guard, gating the rust branch below: the exe always plays network
+    # self-play with root-mean z — `stage 1` (heuristic-rollout games) and
+    # `value_target != "root_mean"` are python-path-only. An explicit
+    # `--selfplay-engine rust` combined with either is a caller error; a
+    # rust resolved by auto/downgrade silently falls back to the python
+    # paths (announced so the UI can relabel the run — the rust event above
+    # still fired).
+    if engine == "rust" and (stage != 2 or value_target != "root_mean"):
+        if selfplay_engine == "rust":
+            raise ValueError(
+                "--selfplay-engine rust is incompatible with --stage %d / "
+                "--value-target %s: the exe always plays network self-play "
+                "with root-mean z (use the python engine, or stage 2 + "
+                "root_mean)" % (stage, value_target)
+            )
+        engine = "python"
+        if on_event:
+            on_event(
+                {
+                    "type": "selfplay_engine",
+                    "engine": "python",
+                    "reason": "stage/value_target unsupported by rust path",
+                }
+            )
 
     def _absorb_game(records, it, temp):
         """One game's post-processing, shared verbatim by the single-process
@@ -1212,7 +1236,11 @@ def train(
                     games=round_games_n,
                     sims=sims,
                     threads=workers,
-                    seed_base=(seed or 0),
+                    # spec §3.4: seed = --seed-base + game index. The exe adds
+                    # the round-local idx (sba_selfplay.rs), so each round
+                    # starts one past the previous round's last absolute game
+                    # index — no seed stream is ever replayed across rounds
+                    seed_base=(seed or 0) + (it - 1),
                     temp_start=max(0.05, 1.0 - (it - 1) / games),
                     temp_end=temp_end,
                     temp_min=0.05,
@@ -1236,10 +1264,12 @@ def train(
                         games=missing,
                         sims=sims,
                         threads=workers,
-                        seed_base=(seed or 0) + res["games_done"],
+                        seed_base=(seed or 0) + (it - 1) + res["games_done"],
                         # advanced index: the retry's first game is absolute
                         # game it + games_done, whose schedule point is
                         # (game - 1) / games — same convention as temp_end
+                        # (the seed base advances past this round's completed
+                        # games too, not round 1's)
                         temp_start=max(0.05, 1.0 - (it - 1 + res["games_done"]) / games),
                         temp_end=temp_end,
                         temp_min=0.05,
