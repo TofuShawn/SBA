@@ -34,6 +34,7 @@ command-line quoting from scratch.
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
 | `python dev.py cgate` | C warnings gate: `-Wall -Wextra -Werror` over all five C files |
 | `python dev.py bench-rust` | the Rust state-layer A/B harness |
+| `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
 
 A "ready to commit" state = `lint` + `format` + `clippy` + `cgate` + `test`
 all green. CI runs the same gates (plus the CLI entry smoke) on both

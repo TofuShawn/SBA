@@ -300,6 +300,18 @@ fallback). Measured on this machine / 全部引擎熱路徑已下沉 C（`native
 | fullgame (legal + encode + clone per ply) | 1.64x |
 | AZ self-play stage-1 (C-tree dominated) | ~parity (1.04x) |
 
+| Rust self-play core / Rust 自對弈核心（D56） | vs Python mp.Pool path / 對比 Python mp.Pool 路徑 |
+|---|---|
+| end-to-end self-play @800 sims, 8 threads / 端到端自對弈（800 sims、8 threads） | 0.7 vs 24.3 pos/s（0.03x — Phase A ≥4x bar NOT met / ≥4x 線未達） |
+
+Phase A parity records (D56) / Phase A 對齊紀錄：search-stats 76.5% top-1 /
+0.59 nats KL（bars 95% / 0.1）；strength 27.5% rust score over 40 games @200
+sims（bar 40–60%）。The exe's root-parallel threads fill inference batches to
+~8 rows (avg_batch_fill 0.03), so per-dispatch GPU latency dominates /
+exe 的根平行 threads 每批只湊到約 8 行（avg_batch_fill 0.03），單次派發的
+GPU 延遲成了瓶頸。Re-measure: `python dev.py bench-selfplay` and
+`python native/parity_search.py`; details in docs/decisions.md D56.
+
 AZ self-play runs ~7–9 s/game @80 sims (128ch/5blocks, 1 worker) — the loop
 is NN-forward-bound, so state-layer gains are bounded by Amdahl / AZ 自對弈
 約 7–9 秒一局（80 sims、單 worker）——瓶頸在神經網路前向，狀態層加速受
