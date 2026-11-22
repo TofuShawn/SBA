@@ -6,3 +6,4 @@
 # PyTorch index, and Dependabot must not drag the CUDA bundle into that.
 pytest>=9.2,<10
 ruff==0.17.5
+mypy>=1.13,<2

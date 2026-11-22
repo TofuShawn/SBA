@@ -107,6 +107,19 @@ TASKS = {
         lambda a: venv(["-m", "pytest", "tests", "-q", *a]),
     ),
     "lint": ("ruff check", lambda a: venv(["-m", "ruff", "check", "."])),
+    "mypy": (
+        "mypy on the two FFI boundary modules (--check-untyped-defs; scope in pyproject)",
+        lambda a: venv(
+            [
+                "-m",
+                "mypy",
+                "--check-untyped-defs",
+                "src/engines/cengine.py",
+                "src/az/rustbridge.py",
+                *a,
+            ]
+        ),
+    ),
     "format": (
         "ruff format --check (same gate as CI)",
         lambda a: venv(["-m", "ruff", "format", "--check", "."]),

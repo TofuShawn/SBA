@@ -17,7 +17,7 @@ jobs:
   # lint is platform-independent and needs no torch — a lone job reports
   # red in seconds, before the test matrix pays for any heavy install
   lint:
-    name: Lint (ruff / format / C)
+    name: Lint (ruff / format / mypy / C)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -37,6 +37,14 @@ jobs:
 
       - name: Ruff format
         run: ruff format --check .
+
+      # Narrow mypy gate: ONLY the two ctypes FFI boundary modules, with
+      # untyped bodies checked. The scope (ignore_missing_imports,
+      # follow_imports=silent, the per-module check_untyped_defs override)
+      # lives in pyproject [tool.mypy] so a wider run is an explicit choice,
+      # not an accident.
+      - name: Mypy (FFI boundary)
+        run: mypy --check-untyped-defs src/engines/cengine.py src/az/rustbridge.py
 
       # D62: blocking gate. The lint env (requirements-dev + pip-audit, fresh
       # resolve) audits 0 findings, so `|| true` is gone — any NEW finding

@@ -30,6 +30,7 @@ command-line quoting from scratch.
 | `python dev.py build` | compile all natives: sba_engine.dll (C), sba_game.dll (Rust state layer), the sba-core bench binary |
 | `python dev.py test` | the pytest suite (args forwarded; count via `pytest tests --collect-only -q`) |
 | `python dev.py lint` | ruff check (F+E9+E7+B+SIM+PERF, see pyproject.toml) |
+| `python dev.py mypy` | mypy on the two ctypes FFI boundary modules (`engines/cengine.py` + `az/rustbridge.py`, `--check-untyped-defs`; scope config in pyproject `[tool.mypy]`) |
 | `python dev.py format` | ruff format --check (CI gate; `format-write` applies) |
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
 | `python dev.py clippy-core` | cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu) |
@@ -38,9 +39,9 @@ command-line quoting from scratch.
 | `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
 | `python dev.py test-rust` | cargo test: sba-game (default) + sba-core (cpu backend, no GPU) |
 
-A "ready to commit" state = `lint` + `format` + `clippy` + `clippy-core`
-+ `cgate` + `test-rust` + `test` all green. CI runs the same gates (plus
-the CLI entry smoke) on both ubuntu and windows.
+A "ready to commit" state = `lint` + `format` + `mypy` + `clippy`
++ `clippy-core` + `cgate` + `test-rust` + `test` all green. CI runs the
+same gates (plus the CLI entry smoke) on both ubuntu and windows.
 
 ## Commit convention / 提交規範
 

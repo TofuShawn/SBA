@@ -48,6 +48,9 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # probe order (D61): build.py's copy in src/az/ first (the canonical landing
 # spot next to the az modules it serves), then the workspace target/ tree at
 # the repo root — a bare `cargo build` without the build.py copy still loads.
+# probe candidates differ per OS, so the tuple lengths differ — annotate the
+# union shape up front instead of letting mypy pin the first branch's length
+_LIB_PATHS: tuple[str, ...]
 if os.name == "nt":
     _LIB_PATHS = (
         os.path.join(_ROOT, "src", "az", "sba_game.dll"),
@@ -65,7 +68,7 @@ _TRIED = False
 # wrapper states per game; freeing each in __del__ costs one ctypes call
 # per object, which profiled slower than the Python game's refcount
 # deallocation. Handles accumulate here and release in one batch.
-_DEAD_HANDLES = []
+_DEAD_HANDLES: list[int] = []
 _FREE_BATCH = 512
 # guards the swap below. Two threads flushing at once used to compute the
 # same `freed` count and then free whatever occupied those slots after the
@@ -248,13 +251,13 @@ class RustUltimateGame:
 
     def clone(self):
         g = type(self).__new__(type(self))
-        g._h = _LIB.sba_game_clone(self._h)
+        g._h = _LIB.sba_game_clone(self._h)  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
         g.current = self.current
         g.active_macro = self.active_macro
         return g
 
     def make_move(self, m, i):
-        rc = _LIB.sba_game_apply(self._h, m, i)
+        rc = _LIB.sba_game_apply(self._h, m, i)  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
         if rc != 0:
             raise ValueError(_ERR_TEXT.get(rc, "invalid move"))
         # mirrors advance in lockstep with the handle (same rules)
@@ -263,21 +266,21 @@ class RustUltimateGame:
 
     def legal_moves(self):
         buf = (ctypes.c_int32 * 81)()
-        n = _LIB.sba_game_legal(self._h, buf, 81)
+        n = _LIB.sba_game_legal(self._h, buf, 81)  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
         return [(v // 9, v % 9) for v in buf[:n]]
 
     # ------------------------------------------------- read-only surface
 
     def _state(self):
         st = SbaState()
-        _LIB.sba_game_state(self._h, ctypes.byref(st))
+        _LIB.sba_game_state(self._h, ctypes.byref(st))  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
         return st
 
     def result(self):
-        return _RES_CODES.get(_LIB.sba_game_result(self._h))
+        return _RES_CODES.get(_LIB.sba_game_result(self._h))  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
 
     def winner(self):
-        r = _RES_CODES.get(_LIB.sba_game_result(self._h))
+        r = _RES_CODES.get(_LIB.sba_game_result(self._h))  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
         return r if r in (X, O) else None
 
     def is_over(self):
@@ -287,7 +290,7 @@ class RustUltimateGame:
         return all(not self.macro_open(m) for m in range(9))
 
     def macro_open(self, m):
-        return bool(_LIB.sba_game_macro_open(self._h, m))
+        return bool(_LIB.sba_game_macro_open(self._h, m))  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
 
     def micro_winner(self, m):
         st = self._state()
@@ -340,7 +343,9 @@ class RustUltimateGame:
         macro = (ctypes.c_int32 * 9)()
         player = ctypes.c_int32()
         active = ctypes.c_int32()
-        _LIB.sba_game_serialize(self._h, cells, macro, ctypes.byref(player), ctypes.byref(active))
+        _LIB.sba_game_serialize(  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
+            self._h, cells, macro, ctypes.byref(player), ctypes.byref(active)
+        )
         return cells, macro, player.value, active.value
 
     def sba_planes_tensor(self):
@@ -349,7 +354,9 @@ class RustUltimateGame:
         import numpy as np
 
         buf = np.zeros(324, dtype=np.float32)
-        rc = _LIB.sba_game_planes(self._h, buf.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
+        rc = _LIB.sba_game_planes(  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
+            self._h, buf.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        )
         if rc != 0:
             raise RuntimeError("sba_game_planes failed")
         return buf.reshape(4, 9, 9)
@@ -360,7 +367,9 @@ class RustUltimateGame:
         side returns the child's routing macro)."""
         child = type(self).__new__(type(self))
         active = ctypes.c_int32()
-        child._h = _LIB.sba_game_clone_apply(self._h, m, i, ctypes.byref(active))
+        child._h = _LIB.sba_game_clone_apply(  # type: ignore[union-attr]  # _LIB is live: instances exist only after __init__/_load() succeeded
+            self._h, m, i, ctypes.byref(active)
+        )
         if not child._h:
             raise ValueError("clone_apply: illegal move")
         child.current = O if self.current == X else X
