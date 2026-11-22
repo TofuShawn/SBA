@@ -112,6 +112,10 @@ fn main() {
         sims: args.sims,
         c_puct: args.c_puct,
         dirichlet_eps: args.dirichlet_eps,
+        // python's self_play_game calls mcts_search with the default
+        // batch_size (BATCH_SIZE = 256) — the wave mode IS the training
+        // semantics, so play_game gets it as-is
+        batch_size: search::DEFAULT_BATCH_SIZE,
     };
     let next = std::sync::atomic::AtomicUsize::new(0);
     let done = std::sync::atomic::AtomicUsize::new(0);

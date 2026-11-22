@@ -4,7 +4,10 @@
 //! beyond — flushing when a bucket fills or a 2 ms deadline expires,
 //! whichever comes first. Zero rows pad each batch to its bucket size; one
 //! padded AzNet forward runs and the outputs are split back per request
-//! over a rendezvous reply channel.
+//! over a rendezvous reply channel. A request may carry MANY rows: the wave
+//! search's evaluate_batch submits a whole wave so k rows ride ONE channel
+//! message and fill the bucket in one send (a full 256-row wave flushes
+//! immediately; buckets count rows, not requests).
 //!
 //! CONTRACT: replies carry RAW LOGITS — no softmax in the worker; search
 //! applies softmax (mirror: Python applies softmax inside mcts_search after
@@ -36,8 +39,12 @@ pub struct WorkerStats {
 }
 
 struct Request {
-    planes: [f32; 324],
-    reply: SyncSender<(Vec<f32>, f32)>,
+    /// k leaf rows riding ONE channel message: `evaluate` sends k = 1; the
+    /// wave search's `evaluate_batch` submits a whole wave so the worker's
+    /// bucket fills in a single send (mirrors python mcts_search's one
+    /// batched forward per round).
+    planes: Vec<[f32; 324]>,
+    reply: SyncSender<Vec<(Vec<f32>, f32)>>,
 }
 
 /// Cloneable per-game-thread handle: sends one request to the worker and
@@ -49,13 +56,29 @@ pub struct WorkerHandle {
 
 impl search::Evaluator for WorkerHandle {
     fn evaluate(&mut self, planes: [f32; 324]) -> Result<(Vec<f32>, f32), String> {
+        let mut rows = self.evaluate_batch(vec![planes])?;
+        if rows.len() != 1 {
+            return Err(format!(
+                "worker replied {} rows for a 1-row submit",
+                rows.len()
+            ));
+        }
+        // Contract: the reply row is the network's RAW logit row (no softmax).
+        Ok(rows.remove(0))
+    }
+
+    /// Bulk path: ALL k rows ride one channel message into the worker's
+    /// bucket (a full 256-row wave flushes immediately; a partial wave
+    /// still answers within the 2 ms deadline), one padded forward, the
+    /// reply split back per row in input order. RAW LOGITS contract as in
+    /// evaluate — search applies softmax.
+    fn evaluate_batch(&mut self, planes: Vec<[f32; 324]>) -> Result<Vec<(Vec<f32>, f32)>, String> {
         let (rtx, rrx) = sync_channel(0); // rendezvous: the reply send IS the hand-off
         self.tx
             .lock()
             .map_err(|_| "worker tx poisoned")?
             .send(Request { planes, reply: rtx })
             .map_err(|_| "worker gone")?;
-        // Contract: the reply row is the network's RAW logit row (no softmax).
         rrx.recv().map_err(|_| String::from("worker dropped reply"))
     }
 }
@@ -99,49 +122,67 @@ fn worker_loop<B: Backend>(
     stats: Arc<WorkerStats>,
 ) {
     let mut pending: Vec<Request> = Vec::new();
+    let mut held_rows = 0usize; // total REAL rows across pending (a bulk request carries many)
     loop {
-        // Idle: block for the first row of the next batch — no busy-spin.
+        // Idle: block for the first request of the next batch — no busy-spin.
         // A disconnect with an empty queue means every handle is dropped and
         // nothing is owed a reply: shut down.
         while pending.is_empty() {
             match rx.recv() {
-                Ok(r) => pending.push(r),
+                Ok(r) => {
+                    held_rows += r.planes.len();
+                    pending.push(r);
+                }
                 Err(_) => return,
             }
         }
         // Accumulate toward the next bucket, but never wait past the 2 ms
-        // deadline once we hold at least one row (latency bound). A disconnect
-        // only surfaces once the queue is drained — requests sent before the
-        // senders dropped stay receivable — so the flush below still answers
-        // every accepted request.
+        // deadline once we hold at least one row (latency bound). A bulk
+        // wave that fills its bucket exactly (e.g. a 256-row wave) skips
+        // the wait and runs at once; a disconnect only surfaces once the
+        // queue is drained — requests sent before the senders dropped stay
+        // receivable — so the flush below still answers every accepted
+        // request.
         let deadline = Instant::now() + MAX_WAIT;
-        while pending.len() < MAX_BUCKET {
-            if pending.len() >= next_bucket(pending.len()) {
+        while held_rows < MAX_BUCKET {
+            if held_rows >= next_bucket(held_rows) {
                 break; // bucket filled exactly — run it now
             }
             let budget = deadline.saturating_duration_since(Instant::now());
             match rx.recv_timeout(budget) {
-                Ok(r) => pending.push(r),
+                Ok(r) => {
+                    held_rows += r.planes.len();
+                    pending.push(r);
+                }
                 Err(RecvTimeoutError::Timeout) => break,
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
         run_batch(&model, &device, &mut pending, &stats);
+        held_rows = 0; // run_batch drained every request it was handed
     }
 }
 
 /// Pad `pending` to its bucket, run one forward, reply per row, count stats.
+/// A request may carry many rows (the bulk wave path) — its reply carries
+/// the same rows back, in order.
 fn run_batch<B: Backend>(
     model: &AzNet<B>,
     device: &B::Device,
     pending: &mut Vec<Request>,
     stats: &WorkerStats,
 ) {
-    let n_real = pending.len(); // count BEFORE the drain — these are the real rows
+    let n_real: usize = pending.iter().map(|r| r.planes.len()).sum(); // BEFORE the drain
     let b = next_bucket(n_real);
     let mut flat = vec![0.0f32; b * 324];
-    for (i, r) in pending.iter().enumerate() {
-        flat[i * 324..(i + 1) * 324].copy_from_slice(&r.planes);
+    let mut offsets = Vec::with_capacity(pending.len());
+    let mut row = 0usize;
+    for r in pending.iter() {
+        offsets.push(row);
+        for p in &r.planes {
+            flat[row * 324..(row + 1) * 324].copy_from_slice(p);
+            row += 1;
+        }
     }
     let x = Tensor::<B, 4>::from_data(TensorData::new(flat, shape(&[b, 4, 9, 9])), device);
     // RAW LOGITS contract: no softmax here — search applies softmax to the
@@ -154,9 +195,18 @@ fn run_batch<B: Backend>(
         .expect("f32 policy logits");
     let values = values.into_data().to_vec::<f32>().expect("f32 values");
     for (i, r) in pending.drain(..).enumerate() {
+        let start = offsets[i];
+        let rows: Vec<(Vec<f32>, f32)> = (0..r.planes.len())
+            .map(|j| {
+                (
+                    logits[(start + j) * 81..(start + j + 1) * 81].to_vec(),
+                    values[start + j],
+                )
+            })
+            .collect();
         // A requester that died before recv makes this send fail — nothing to
         // do; the worker must keep serving the rest regardless.
-        let _ = r.reply.send((logits[i * 81..(i + 1) * 81].to_vec(), values[i]));
+        let _ = r.reply.send(rows);
     }
     stats.batches.fetch_add(1, Ordering::Relaxed);
     stats.real_rows.fetch_add(n_real as u64, Ordering::Relaxed);
@@ -224,13 +274,64 @@ mod tests {
                 });
             }
         });
-        assert!(
-            stats
-                .real_rows
-                .load(std::sync::atomic::Ordering::Relaxed)
-                >= 300
-        );
+        assert!(stats.real_rows.load(std::sync::atomic::Ordering::Relaxed) >= 300);
         assert!(stats.batches.load(std::sync::atomic::Ordering::Relaxed) >= 2);
+    }
+
+    #[test]
+    fn bulk_wave_is_one_message_one_forward() {
+        // The wave search's submit shape: a full-bucket bulk (256 rows) rides
+        // ONE channel message and runs ONE padded forward — no bucket
+        // splitting, no deadline wait — and the replies align per row with
+        // the direct single-row forwards (RAW LOGITS on both sides).
+        type B = DefaultBackend;
+        let device = default_device();
+        let model = AzNet::<B>::new(&device, 8, 1);
+        let (mut handle, stats) = spawn(model.clone(), device.clone());
+        let planes: Vec<[f32; 324]> = (0..256u32)
+            .map(|i| std::array::from_fn(|j| ((i * 31 + j as u32) % 97) as f32 / 97.0))
+            .collect();
+        let rows = search::Evaluator::evaluate_batch(&mut handle, planes.clone()).unwrap();
+        assert_eq!(rows.len(), 256);
+        assert_eq!(stats.batches.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.real_rows.load(Ordering::Relaxed), 256);
+        for i in [0usize, 1, 127, 255] {
+            let x = Tensor::<B, 4>::from_data(
+                TensorData::new(planes[i].to_vec(), shape(&[1, 4, 9, 9])),
+                &device,
+            );
+            let (p, v) = model.forward(x);
+            let (dp, dv) = (
+                p.into_data().to_vec::<f32>().unwrap(),
+                v.into_data().to_vec::<f32>().unwrap()[0],
+            );
+            let err = rows[i]
+                .0
+                .iter()
+                .zip(&dp)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            assert!(err < 1e-5, "row {i} policy err {err}");
+            assert!((rows[i].1 - dv).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn bulk_subbucket_stays_one_forward() {
+        // A partial wave (100 rows < the 256 bucket) still rides ONE message
+        // and lands in exactly ONE padded forward after the deadline — the
+        // bucket logic counts ROWS now, not requests.
+        type B = DefaultBackend;
+        let device = default_device();
+        let model = AzNet::<B>::new(&device, 8, 1);
+        let (mut handle, stats) = spawn(model, device);
+        let planes: Vec<[f32; 324]> = (0..100u32)
+            .map(|i| std::array::from_fn(|j| ((i * 17 + j as u32) % 89) as f32 / 89.0))
+            .collect();
+        let rows = search::Evaluator::evaluate_batch(&mut handle, planes).unwrap();
+        assert_eq!(rows.len(), 100);
+        assert_eq!(stats.batches.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.real_rows.load(Ordering::Relaxed), 100);
     }
 
     #[test]

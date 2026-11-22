@@ -10,16 +10,18 @@
 //!   meta/plane pair is a cross-language contract: tests/
 //!   test_encode_parity.py replays the moves on the pure-Python
 //!   UltimateGame and compares alphazero.encode() BITWISE.
-//! - `search --weights W --moves "m,i;m,i" --sims N`: apply the moves to a
-//!   fresh state, load the weights (architecture inferred via
-//!   net::infer_arch), spawn the batched worker and run search_position —
-//!   the SAME single-root loop play_game uses, with dirichlet_eps 0.0 (no
-//!   prior noise: deterministic, and the rng stream never touches the
-//!   result) — then print ONE JSON line
+//! - `search --weights W --moves "m,i;m,i" --sims N [--batch-size K]`:
+//!   apply the moves to a fresh state, load the weights (architecture
+//!   inferred via net::infer_arch), spawn the batched worker and run
+//!   search_position — the SAME single-root loop play_game uses, with
+//!   dirichlet_eps 0.0 (no prior noise: deterministic, and the rng stream
+//!   never touches the result) — then print ONE JSON line
 //!   `{"counts": {"<k>": visits, …}, "value": <root_value>}` where value
 //!   is the visit-weighted mean of the children's Q, the same z formula
 //!   play_game records. No sampling, no target — the root statistics are
-//!   the whole output.
+//!   the whole output. --batch-size mirrors python's
+//!   `mcts_search(batch_size=...)`: default 256 (the leaf-parallel wave
+//!   mode the layer-3 harness compares against), 1 = the serial mode.
 //!
 //! Exit codes: 0 ok, 1 runtime failure (weights, moves, IO); clap exits 2
 //! on bad usage itself.
@@ -57,6 +59,10 @@ enum Cmd {
         moves: String,
         #[arg(long)]
         sims: u32,
+        /// Leaf-parallel wave width (python mcts_search batch_size mirror):
+        /// default 256 = python's BATCH_SIZE; 1 = the serial mode.
+        #[arg(long, default_value_t = search::DEFAULT_BATCH_SIZE)]
+        batch_size: usize,
     },
 }
 
@@ -98,7 +104,7 @@ fn cmd_planes(games: usize, seed: u64, moves: usize, out: &std::path::Path) {
     }
 }
 
-fn cmd_search(weights: &std::path::Path, moves: &str, sims: u32) {
+fn cmd_search(weights: &std::path::Path, moves: &str, sims: u32, batch_size: usize) {
     let mut game = sba_game::SbaGame::fresh();
     if !moves.trim().is_empty() {
         for step in moves.split(';') {
@@ -132,6 +138,7 @@ fn cmd_search(weights: &std::path::Path, moves: &str, sims: u32) {
         sims,
         c_puct: 1.5,
         dirichlet_eps: 0.0, // no prior noise: the search is fully deterministic
+        batch_size,
     };
     let mut rng = rand::rngs::StdRng::seed_from_u64(0); // unused at eps 0.0
     let (counts, value) = search::search_position(game, &mut handle, &limits, &mut rng)
@@ -156,6 +163,7 @@ fn main() {
             weights,
             moves,
             sims,
-        } => cmd_search(&weights, &moves, sims),
+            batch_size,
+        } => cmd_search(&weights, &moves, sims, batch_size),
     }
 }

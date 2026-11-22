@@ -5,22 +5,27 @@
 
 Layer 3 (search-stats parity): --positions seeded positions (random
 openings + self-play midgames) searched by BOTH engines at --sims — the
-Rust PUCT (`sba_debug search`, sequential tree, dirichlet off) vs the
-Python batched PUCT (`alphazero.mcts_search`, dirichlet off and
-rollout_weight=0.0 — the only configuration where both implementations are
-asked the same question: pure PUCT + pure network values). Bars: top-1
-(argmax-of-counts, first-max tie-break on legal order) agreement >= 95%,
-policy KL (normalized visit shares, counts + 1e-8 smoothing — the
-self-play target convention) <= 0.1 nats.
+Rust wave search (`sba_debug search --batch-size 256`, leaf-parallel
+virtual-loss waves, dirichlet off) vs the Python batched PUCT
+(`alphazero.mcts_search(batch_size=256)`, the same wave mode, dirichlet
+off and rollout_weight=0.0 — the only configuration where both
+implementations are asked the same question: same-shaped wave search over
+pure network values). The wave port made this apples-to-apples: before it,
+rust ran serial PUCT while python ran waves, and the mode gap did not
+close with budget (diag-layer3-report). Bars: top-1 (argmax-of-counts,
+first-max tie-break on legal order) agreement >= 95%, policy KL
+(normalized visit shares, counts + 1e-8 smoothing — the self-play target
+convention) <= 0.1 nats.
 
 Layer 4 (strength parity): the Rust engine (`sba_debug search` per move,
 argmax pick — process spawn per move is sanctioned for this one-time
 acceptance) vs the Python AZ engine (`alphazero.alphazero_move`, its
 shipped defaults incl. the 0.5 rollout blend), alternating colors over
---games matches. Both engines are deterministic at temp 0, so each game
-opens from a seeded 0..4-ply random position — otherwise the match would
-replay one identical game per color. Bar: Rust score (draws half) within
-40-60%.
+--games matches. Both sides run the wave mode (batch_size 256, python's
+default both sides). Both engines are deterministic at temp 0, so each
+game opens from a seeded 0..4-ply random position — otherwise the match
+would replay one identical game per color. Bar: Rust score (draws half)
+within 40-60%.
 
 Nothing here runs in CI — both layers need the local GPU + the sba_debug
 exe (`python dev.py build`).
@@ -90,11 +95,24 @@ def _load_model(weights):
     return model, f"{weights} (size={size} ch={channels} blk={blocks})"
 
 
-def _rust_search(exe, weights, history, sims):
+def _rust_search(exe, weights, history, sims, batch_size=256):
     """One sba_debug search spawn -> ({move_code_str: visits}, root_value).
+    batch_size mirrors python's mcts_search batch_size (default 256 = the
+    wave mode, 1 = serial) so both engines run the same-shaped search.
     Any nonzero exit / bad JSON is a loud failure naming the position."""
     moves = ";".join(f"{m},{i}" for m, i in history)
-    cmd = [exe, "search", "--weights", weights, "--moves", moves, "--sims", str(sims)]
+    cmd = [
+        exe,
+        "search",
+        "--weights",
+        weights,
+        "--moves",
+        moves,
+        "--sims",
+        str(sims),
+        "--batch-size",
+        str(batch_size),
+    ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=SPAWN_TIMEOUT)
     except subprocess.TimeoutExpired as exc:
@@ -183,10 +201,10 @@ def _layer3(exe, weights, model, positions, sims, seed):
         if g.is_over() or not legal:
             continue
         t0 = time.perf_counter()
-        root, counts = mcts_search(g, model, sims, rollout_weight=0.0)
+        root, counts = mcts_search(g, model, sims, rollout_weight=0.0, batch_size=256)
         t_py += time.perf_counter() - t0
         t0 = time.perf_counter()
-        ru_counts, ru_value = _rust_search(exe, weights, history, sims)
+        ru_counts, ru_value = _rust_search(exe, weights, history, sims, batch_size=256)
         t_ru += time.perf_counter() - t0
         py_vec = np.array([counts.get(m, 0.0) for m in legal], dtype=np.float64)
         ru_vec = np.array([ru_counts.get(str(m * 9 + i), 0.0) for m, i in legal], dtype=np.float64)
@@ -210,7 +228,8 @@ def _layer3(exe, weights, model, positions, sims, seed):
     print(f"layer 3: search-stats parity  ({n_cmp} positions, seed={seed})")
     print(
         f"  settings: sims={sims} c_puct=1.5 dirichlet OFF both sides; "
-        "py rollout_weight=0.0 (pure PUCT + pure net values)"
+        "wave mode batch_size=256 BOTH sides; py rollout_weight=0.0 "
+        "(pure wave search + pure net values)"
     )
     print(
         f"  top-1 agreement: {agree}/{n_cmp} = {agree_pct:.2f}%  "
@@ -254,7 +273,7 @@ def _layer4(exe, weights, model, games, sims, seed):
                 break
             if (g.current == "X") == rust_is_x:
                 t0 = time.perf_counter()
-                ru_counts, _value = _rust_search(exe, weights, history, sims)
+                ru_counts, _value = _rust_search(exe, weights, history, sims, batch_size=256)
                 t_ru += time.perf_counter() - t0
                 vec = [ru_counts.get(str(m * 9 + j), 0.0) for m, j in legal]
                 mv = legal[_first_argmax(vec)]
