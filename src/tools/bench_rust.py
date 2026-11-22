@@ -5,7 +5,7 @@
 
 Measures the same self-play-shaped work against both game
 implementations: the pure-Python reference (UltimateGame) and the Rust
-wrapper (RustUltimateGame, only when native/sba_game.dll is built).
+wrapper (RustUltimateGame, only when src/sba_game.dll is built).
 Three numbers per side:
 
   playout   — apply_move + result per ply, driven by one shared seeded
@@ -14,7 +14,7 @@ Three numbers per side:
   stage1    — one C-tree search per move (_ce.mcts_search), the actual
               stage-1 self-play hot path
 
-Usage:  python native/bench_rust.py [--games 20] [--sims 100]
+Usage:  python src/tools/bench_rust.py [--games 20] [--sims 100]
 """
 
 import argparse
@@ -22,17 +22,17 @@ import os
 import sys
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
+ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the sba modules, ROOT for native/
+for _p in (SRC, ROOT):  # SRC for the flat sba modules (D36/D60)
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import rustbridge  # noqa: E402
 from alphazero import encode  # noqa: E402
 from game import UltimateGame, apply_move  # noqa: E402
-from native import cengine as _ce  # noqa: E402
+import cengine as _ce  # noqa: E402
 from ai import _c_search_opts  # noqa: E402
 
 SEED = 20261115

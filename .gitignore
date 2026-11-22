@@ -34,8 +34,10 @@ logs/
 
 # Node（靜態文件建置，見 docs/static-build/）
 docs/static-build/node_modules/
-native/*.dll
-native/*.o
+
+# Built engines (src/tools/build.py lands them next to the C sources; D60)
+src/*.dll
+src/*.o
 
 # Private local notes
 .priv/
@@ -44,10 +46,8 @@ native/*.o
 # Mimosa plugin state
 .mimosa/
 
-# Rust state layer build artifacts (D48) — only the crate sources are tracked
-native/sba-game/target/
-# sba-core (D55 Phase A) build artifacts
-native/sba-core/target/
+# Rust workspace build artifacts (D60) — only the crate sources are tracked
+/target/
 
 # ruff cache (D49 lint gate)
 .ruff_cache/

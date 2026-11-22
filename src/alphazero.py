@@ -277,11 +277,11 @@ def _c_rollout_value(g):
     if not _C_ROLLOUT_TRIED:
         _C_ROLLOUT_TRIED = True
         try:
-            from native import cengine as _ce  # noqa: F401
+            import cengine as _ce  # noqa: F401
         except ImportError:
             return None
     try:
-        from native import cengine as _ce
+        import cengine as _ce
 
         r = _ce.rollout_state(g)
     except Exception:  # noqa: BLE001 - best-effort probe: the caller
@@ -751,7 +751,7 @@ def self_play_game(
             # and value targets come from classical search quality. The
             # native C tree search (D30) runs it ~37x faster; root stats
             # carry (move, visits, wins, mover) exactly like MCTSNode.
-            from native import cengine as _ce
+            import cengine as _ce
             from ai import _c_search_opts
 
             root_mv, stats, _tree = _ce.mcts_search(game, sims, opts=_c_search_opts())
@@ -1125,7 +1125,7 @@ def train(cfg, ctx=None, hooks=None):
     if engine == "rust" and not exe:
         raise RuntimeError(
             "selfplay-engine=rust: no sba_selfplay exe found "
-            "(build native/sba-core or pass --selfplay-exe)"
+            "(build sba-core via `python dev.py build` or pass --selfplay-exe)"
         )
     if on_event:
         on_event({"type": "selfplay_engine", "engine": engine, "workers": workers})
@@ -1831,7 +1831,7 @@ def main(argv=None):
     tr.add_argument(
         "--selfplay-exe",
         default=None,
-        help="explicit path to sba_selfplay (default: probe native/sba-core/target)",
+        help="explicit path to sba_selfplay (default: probe target/ at the repo root)",
     )
     tr.add_argument(
         "--round-games",

@@ -1,24 +1,27 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Build the SBA native engines: native/sba_engine.dll (D27) and — when a
-Rust toolchain exists — native/sba_game.dll, the D48 state-layer cdylib.
+"""Build the SBA native engines: src/sba_engine.dll (D27) and — when a
+Rust toolchain exists — src/sba_game.dll, the D48 state-layer cdylib.
 
 C modules: sba_ultt.c (shared rules) + sba_rollout.c (plain/pattern) +
 sba_mcts.c (full tree search) + sba_minimax.c (normal solve / ultimate
-alpha-beta / flat MCTS). One DLL exports everything.
+alpha-beta / flat MCTS). One DLL exports everything. All five live flat in
+src/ beside the modules they serve (D60).
 
 Compiler search order:
 1. a Windows gcc/clang on PATH (native build)
 2. WSL's mingw-w64 cross compiler (x86_64-w64-mingw32-gcc), if WSL exists —
    installs via `pacman -S mingw-w64-gcc` on an Arch WSL
 
-Rust (sba-game crate): cargo on PATH builds the host target; otherwise WSL's
-cargo builds the x86_64-pc-windows-gnu target when its std is installed
-(`rustup target add x86_64-pc-windows-gnu`). No cargo -> skipped with a
-note; the Python game stays the fallback.
+Rust (sba-game crate, a workspace member): cargo on PATH builds the host
+target; otherwise WSL's cargo builds the x86_64-pc-windows-gnu target when
+its std is installed (`rustup target add x86_64-pc-windows-gnu`). No cargo
+-> skipped with a note; the Python game stays the fallback. Both routes
+land the cdylib in the workspace-shared target/ at the repo root (D60);
+this script copies it next to sba_engine.dll in src/.
 
-Usage:  python native/build.py
+Usage:  python src/tools/build.py
 """
 
 import os
@@ -26,14 +29,17 @@ import shutil
 import subprocess
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "sba_engine.dll")
+HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
+ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root (workspace)
+SRC = os.path.join(ROOT, "src")
+OUT = os.path.join(SRC, "sba_engine.dll")
 SOURCES = ["sba_ultt.c", "sba_rollout.c", "sba_mcts.c", "sba_rave.c", "sba_minimax.c"]
 
-RUST_DIR = os.path.join(HERE, "sba-game")
+RUST_DIR = os.path.join(SRC, "sba-game")
 RUST_MANIFEST = os.path.join(RUST_DIR, "Cargo.toml")
+TARGET_DIR = os.path.join(ROOT, "target")  # workspace-shared cargo output
 # cargo names the cdylib sba_game.dll (Windows) / libsba_game.so (Linux);
-# both ship as native/sba_game.dll|so next to sba_engine.dll
+# both ship as src/sba_game.dll|so next to sba_engine.dll
 RUST_PRODUCED = "sba_game.dll" if os.name == "nt" else "libsba_game.so"
 RUST_LIB = "sba_game.dll" if os.name == "nt" else "sba_game.so"
 
@@ -46,7 +52,7 @@ def build_rust():
     cargo = shutil.which("cargo")
     if cargo:
         cmd = [cargo, "build", "--release", "--manifest-path", RUST_MANIFEST]
-        produced = os.path.join(RUST_DIR, "target", "release", RUST_PRODUCED)
+        produced = os.path.join(TARGET_DIR, "release", RUST_PRODUCED)
     else:
         # WSL route: only worth it for a Windows dll, which needs the
         # x86_64-pc-windows-gnu std installed in the WSL rustup
@@ -98,15 +104,13 @@ def build_rust():
             "--manifest-path",
             wsl_path(RUST_MANIFEST),
         ]
-        produced = os.path.join(
-            RUST_DIR, "target", "x86_64-pc-windows-gnu", "release", RUST_PRODUCED
-        )
+        produced = os.path.join(TARGET_DIR, "x86_64-pc-windows-gnu", "release", RUST_PRODUCED)
     print("building rust:", " ".join(cmd) if cmd[0] != "wsl" else cmd[1])
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stderr[-2000:])
         return 1
-    out = os.path.join(HERE, RUST_LIB)
+    out = os.path.join(SRC, RUST_LIB)
     shutil.copyfile(produced, out)
     print(f"built: {out} ({os.path.getsize(out)} bytes)")
     return 0
@@ -142,7 +146,7 @@ def wsl_path(win_path):
 
 def main():
     for src in SOURCES:
-        if not os.path.isfile(os.path.join(HERE, src)):
+        if not os.path.isfile(os.path.join(SRC, src)):
             print(f"missing source: {src}")
             return 1
     rc = build_rust()
@@ -166,7 +170,7 @@ def main():
         extra.append("-static")
     for src in SOURCES:
         obj = src.replace(".c", ".o")
-        src_path, obj_path = os.path.join(HERE, src), os.path.join(HERE, obj)
+        src_path, obj_path = os.path.join(SRC, src), os.path.join(SRC, obj)
         if cc[0] == "wsl":
             src_path, obj_path = wsl_path(src_path), wsl_path(obj_path)
         cmd = cc + ["-O2", "-fPIC", "-Wall", "-Wextra", "-c", "-o", obj_path, src_path] + extra
@@ -184,7 +188,7 @@ def main():
     if cc[0] == "wsl":
         out = wsl_path(OUT)
     obj_paths = [
-        (wsl_path(os.path.join(HERE, o)) if cc[0] == "wsl" else os.path.join(HERE, o)) for o in objs
+        (wsl_path(os.path.join(SRC, o)) if cc[0] == "wsl" else os.path.join(SRC, o)) for o in objs
     ]
     cmd = cc + ["-O2", "-shared", "-o", out] + extra + obj_paths
     print("linking:", " ".join(cmd))

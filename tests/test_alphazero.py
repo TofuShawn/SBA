@@ -272,9 +272,10 @@ def test_training_csv_curve(tmp_path):
 def test_training_csv_disabled_without_save():
     """save=False and no explicit --csv -> no file (smoke runs stay clean)."""
     import os
-    import ai
 
-    default_csv = os.path.join(ai.ROOT, "models", "az_ultimate.csv")
+    from config import ROOT  # the repo root (ai no longer re-exports it, D60)
+
+    default_csv = os.path.join(ROOT, "models", "az_ultimate.csv")
     existed = os.path.exists(default_csv)
     alphazero.train(
         alphazero.TrainCfg(

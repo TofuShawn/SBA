@@ -348,7 +348,7 @@ def test_find_exe_explicit_and_env(tmp_path, monkeypatch):
 def test_find_exe_probe_priority(tmp_path, monkeypatch):
     monkeypatch.delenv("SBA_SELFPLAY_EXE", raising=False)
     monkeypatch.setattr(rustselfplay, "ROOT", str(tmp_path))
-    rel = "native/sba-core/target"
+    rel = "target"  # the workspace target dir at the repo root (D60)
     order = [
         f"{rel}/x86_64-pc-windows-gnu/release/sba_selfplay.exe",
         f"{rel}/release/sba_selfplay.exe",

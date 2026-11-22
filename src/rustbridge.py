@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""rustbridge — the ctypes boundary to native/sba_game.dll (D48, Rust
+"""rustbridge — the ctypes boundary to the sba_game.dll cdylib (D48, Rust
 Phase 1: the game LOGISTICS layer).
 
 RustUltimateGame duck-types the UltimateGame interface (legal_moves /
@@ -44,7 +44,18 @@ _ERR_TEXT = {
 _RES_CODES = {0: None, 1: X, 2: O, 3: "D"}
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_LIB_PATH = os.path.join(_ROOT, "native", "sba_game.dll" if os.name == "nt" else "sba_game.so")
+# probe order (D60): build.py's copy in src/ first (the canonical landing
+# spot next to sba_engine.dll), then the workspace target/ tree at the repo
+# root — a bare `cargo build` without the build.py copy still loads.
+if os.name == "nt":
+    _LIB_PATHS = (
+        os.path.join(_ROOT, "src", "sba_game.dll"),
+        os.path.join(_ROOT, "target", "x86_64-pc-windows-gnu", "release", "sba_game.dll"),
+        os.path.join(_ROOT, "target", "release", "sba_game.dll"),
+    )
+else:  # Linux CI: the cdylib lives in target/release, no build.py copy
+    _LIB_PATHS = (os.path.join(_ROOT, "src", "sba_game.so"),)
+_LIB_PATH = _LIB_PATHS[0]
 
 _LIB = None
 _TRIED = False
@@ -88,7 +99,7 @@ atexit.register(_flush_handles)
 
 class SbaState(ctypes.Structure):
     """Mirror of the Rust SbaState dump — field order IS the ABI
-    (rust cdylib native/sba-game/src/lib.rs #[repr(C)] SbaState)."""
+    (rust cdylib src/sba-game/src/lib.rs #[repr(C)] SbaState)."""
 
     _fields_ = [
         ("px", ctypes.c_uint16 * 9),
@@ -102,11 +113,15 @@ class SbaState(ctypes.Structure):
 
 
 def _load():
-    global _LIB, _TRIED
+    global _LIB, _TRIED, _LIB_PATH
     if _TRIED:
         return _LIB
     _TRIED = True
-    if not os.path.isfile(_LIB_PATH):
+    for path in _LIB_PATHS:
+        if os.path.isfile(path):
+            _LIB_PATH = path
+            break
+    else:
         return None
     try:
         lib = ctypes.CDLL(_LIB_PATH)
@@ -178,7 +193,7 @@ class RustUltimateGame:
         lib = _load()
         if lib is None:
             raise RuntimeError(
-                "sba_game native library not available (build it with `python native/build.py`)"
+                "sba_game native library not available (build it with `python dev.py build`)"
             )
         self._h = lib.sba_game_new()
         self.current = X

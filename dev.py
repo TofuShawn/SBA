@@ -27,7 +27,7 @@ TARGET = "x86_64-pc-windows-gnu"
 
 def wsl_cargo(args):
     """Cargo inside WSL, invoked by its absolute login-PATH location as a
-    pure argv call (see native/build.py for why bash -lc forwarding dies)."""
+    pure argv call (see src/tools/build.py for why bash -lc forwarding dies)."""
     cargo = subprocess.run(
         ["wsl", "bash", "-lc", "command -v cargo"], capture_output=True, text=True
     ).stdout.strip()
@@ -39,14 +39,15 @@ def wsl_cargo(args):
 
 
 def crate_task(crate, cargo_args):
-    manifest = f"{WSL_ROOT}/native/{crate}/Cargo.toml"
-    # the subcommand comes FIRST; --manifest-path must sit BEFORE the `--`
-    # passthrough separator (args after it go to rustc, not cargo)
+    """Workspace-aware (D60): cargo runs at the ROOT workspace manifest and
+    the crate is selected with `-p <crate>` — the shared lockfile and the
+    root target/ apply. `-p` must sit BEFORE the `--` passthrough separator
+    (args after it go to rustc, not cargo)."""
     if "--" in cargo_args:
         dash = cargo_args.index("--")
         pre, post = cargo_args[:dash], cargo_args[dash:]
-        return wsl_cargo([*pre, "--manifest-path", manifest, *post])
-    return wsl_cargo([*cargo_args, "--manifest-path", manifest])
+        return wsl_cargo([*pre, "-p", crate, *post])
+    return wsl_cargo([*cargo_args, "-p", crate])
 
 
 def wsl_gcc_check():
@@ -63,8 +64,8 @@ def wsl_gcc_check():
                 "-Wextra",
                 "-Werror",
                 "-D__stdcall=",
-                "-Inative",
-                f"{WSL_ROOT}/native/{f}",
+                "-Isrc",
+                f"{WSL_ROOT}/src/{f}",
             ],
             capture_output=True,
             text=True,
@@ -77,7 +78,7 @@ def wsl_gcc_check():
 
 
 def _rust_tests(_args):
-    rc = crate_task("sba-game", ["test"])
+    rc = crate_task("sba_game", ["test"])
     if rc:
         return rc
     # the cpu backend needs no GPU, so the whole suite runs in WSL
@@ -93,7 +94,7 @@ def venv(args):
 def task_build(_args):
     """All natives: sba_engine.dll (C) + sba_game.dll (Rust state layer),
     plus the sba-core bench binary (Phase A has no DLL yet)."""
-    rc = venv(["native/build.py"])
+    rc = venv(["src/tools/build.py"])
     if rc:
         return rc
     return crate_task("sba-core", ["build", "--release", "--target", TARGET])
@@ -114,7 +115,7 @@ TASKS = {
     "clippy": (
         "cargo clippy -D warnings on sba-game",
         lambda a: crate_task(
-            "sba-game", ["clippy", "--release", "--target", TARGET, "--", "-D", "warnings"]
+            "sba_game", ["clippy", "--release", "--target", TARGET, "--", "-D", "warnings"]
         ),
     ),
     "clippy-core": (
@@ -122,10 +123,10 @@ TASKS = {
         lambda a: crate_task("sba-core", ["clippy", "--release", "--", "-D", "warnings"]),
     ),
     "cgate": ("C warnings gate (-Wall -Wextra -Werror, mirrors CI)", lambda a: wsl_gcc_check()),
-    "bench-rust": ("Rust state-layer A/B harness", lambda a: venv(["native/bench_rust.py"])),
+    "bench-rust": ("Rust state-layer A/B harness", lambda a: venv(["src/tools/bench_rust.py"])),
     "bench-selfplay": (
         "self-play A/B: mp.Pool path vs rust exe (pos/s, speedup)",
-        lambda a: venv(["native/bench_selfplay.py", *a]),
+        lambda a: venv(["src/tools/bench_selfplay.py", *a]),
     ),
     "self-test": (
         "headless suite through the real entry point",

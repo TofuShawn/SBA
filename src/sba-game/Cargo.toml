@@ -13,6 +13,5 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[profile.release]
-opt-level = 3
-lto = true
+# [profile.release] moved to the workspace root Cargo.toml (D60) — cargo
+# ignores profile blocks in workspace members.

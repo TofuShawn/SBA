@@ -1,8 +1,9 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""ctypes interop with native/sba_engine.dll — the single boundary between
-the Python AI layer and the C backends (D27/D37).
+"""ctypes interop with sba_engine.dll (built to src/ by src/tools/build.py)
+— the single boundary between the Python AI layer and the C backends
+(D27/D37).
 
 Owns: DLL discovery/loading, the ABI signatures, state serialization
 (UltimateGame / BitUltimateGame -> the flat C encoding) and thin wrappers:
@@ -24,8 +25,8 @@ import threading
 import weakref
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_ENGINE_DLL = os.path.join(_ROOT, "native", "sba_engine.dll")
-_LEGACY_DLL = os.path.join(_ROOT, "native", "sba_rollout.dll")
+_ENGINE_DLL = os.path.join(_ROOT, "src", "sba_engine.dll")
+_LEGACY_DLL = os.path.join(_ROOT, "src", "sba_rollout.dll")
 
 _lib = None
 _has_engine = False

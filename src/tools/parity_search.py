@@ -31,8 +31,8 @@ Nothing here runs in CI — both layers need the local GPU + the sba_debug
 exe (`python dev.py build`).
 
 Usage:
-  python native/parity_search.py --weights models/az_ultimate.pt --layer 3
-  python native/parity_search.py --weights models/az_ultimate.pt --layer 4 --games 40
+  python src/tools/parity_search.py --weights models/az_ultimate.pt --layer 3
+  python src/tools/parity_search.py --weights models/az_ultimate.pt --layer 4 --games 40
 """
 
 import argparse
@@ -44,10 +44,10 @@ import sys
 import tempfile
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
+ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):
+for _p in (SRC, ROOT):  # SRC for the flat sba modules (D36/D60)
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

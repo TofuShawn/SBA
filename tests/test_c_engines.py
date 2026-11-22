@@ -15,7 +15,7 @@ from ai import get_ai_move, set_engine_config
 from game import X, UltimateGame, apply_move
 
 DLL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "native", "sba_engine.dll"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sba_engine.dll"
 )
 pytestmark = pytest.mark.skipif(not os.path.isfile(DLL), reason="native engine DLL not built")
 
@@ -39,7 +39,7 @@ def _out_of_book():
 
 
 def _ce():
-    from native import cengine as c
+    import cengine as c
 
     return c
 

@@ -26,7 +26,7 @@ exe's own batch_stats events (avg_batch_fill — the batching-health metric
 the spec asks recorded; run_round consumes those events internally, so the
 probe parses stdout directly).
 
-Usage:  python native/bench_selfplay.py [--weights models/az_ultimate.pt]
+Usage:  python src/tools/bench_selfplay.py [--weights models/az_ultimate.pt]
             [--games 16] [--sims 800] [--threads 8] [--engine both|rust|python]
 """
 
@@ -39,10 +39,10 @@ import sys
 import tempfile
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
+ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the sba modules, ROOT for native/
+for _p in (SRC, ROOT):  # SRC for the flat sba modules (D36/D60)
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

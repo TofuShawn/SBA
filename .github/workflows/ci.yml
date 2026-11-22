@@ -51,10 +51,10 @@ jobs:
       # -D__stdcall= is the same define build.py uses on a Linux host.
       - name: C warnings
         run: |
-          for f in native/sba_ultt.c native/sba_rollout.c native/sba_mcts.c \
-                   native/sba_rave.c native/sba_minimax.c; do
+          for f in src/sba_ultt.c src/sba_rollout.c src/sba_mcts.c \
+                   src/sba_rave.c src/sba_minimax.c; do
             gcc -std=c11 -fsyntax-only -Wall -Wextra -Werror \
-                -D__stdcall= -Inative "$f"
+                -D__stdcall= -Isrc "$f"
           done
 
   test:
@@ -83,8 +83,9 @@ jobs:
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       # the crate has compiled clean here since D49 — clippy is a gate now
+      # (D60 workspace: cargo runs at the repo root, -p selects the crate)
       - name: Clippy
-        run: cargo clippy --release --manifest-path native/sba-game/Cargo.toml -- -D warnings
+        run: cargo clippy --release -p sba_game -- -D warnings
 
       - name: Install Rust (Linux)
         if: runner.os == 'Linux'
@@ -92,11 +93,11 @@ jobs:
 
       - name: Clippy (sba-core)
         if: runner.os == 'Linux'
-        run: cargo clippy --release --manifest-path native/sba-core/Cargo.toml -- -D warnings
+        run: cargo clippy --release -p sba-core -- -D warnings
 
       - name: Rust tests (sba-core, cpu backend)
         if: runner.os == 'Linux'
-        run: cargo test --manifest-path native/sba-core/Cargo.toml --no-default-features --features cpu
+        run: cargo test -p sba-core --no-default-features --features cpu
 
       # The debug exes must exist BEFORE pytest: test_encode_parity drives
       # sba_debug (found via the debug probe paths) and the Task 12 bench
@@ -104,7 +105,7 @@ jobs:
       # three bins. The Windows leg skips these tests (find_exe() -> None).
       - name: Build sba_debug (cpu)
         if: runner.os == 'Linux'
-        run: cargo build --manifest-path native/sba-core/Cargo.toml --no-default-features --features cpu --bin sba_debug --bin sba_selfplay --bin bench_burn
+        run: cargo build -p sba-core --no-default-features --features cpu --bin sba_debug --bin sba_selfplay --bin bench_burn
 
       # PySide6 (the offscreen BoardWidget test) needs an EGL/GL stack on
       # the ubuntu runner; without it the import raises and collection fails
@@ -128,7 +129,7 @@ jobs:
           echo "C:\ProgramData\mingw64\mingw64\bin" >> "$GITHUB_PATH"
 
       - name: Build native engine (sba_engine.dll)
-        run: python native/build.py
+        run: python src/tools/build.py
 
       - name: Run tests
         run: python -m pytest tests -q

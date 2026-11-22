@@ -20,7 +20,7 @@ from ai import (
     get_ai_move,
     set_engine_config,
 )
-from native import cengine as _ce
+import cengine as _ce
 from game import (
     BitUltimateGame,
     NormalGame,
@@ -33,10 +33,10 @@ from game import (
 )
 
 DLL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "native", "sba_engine.dll"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sba_engine.dll"
 )
 LEGACY_DLL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "native", "sba_rollout.dll"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sba_rollout.dll"
 )
 
 pytestmark = pytest.mark.skipif(

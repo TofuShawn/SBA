@@ -49,7 +49,7 @@ pip install -r requirements.txt
 ```
 
 PySide6（Qt for Python，桌面版用）已併入 `requirements.txt`，不需要另外安裝檔。
-原生 C 引擎核心：`python native/build.py` 編譯 `native/sba_engine.dll`
+原生 C 引擎核心：`python src/tools/build.py` 編譯 `src/sba_engine.dll`
 （Windows 本機 gcc 或 WSL mingw 交叉編譯；CI 自動構建）。DLL 缺失時引擎
 自動回退純 Python 實作，功能不受影響、僅速度下降。
 
@@ -242,11 +242,11 @@ bitboard、多執行緒 MCTS、UCT/RAVE 常數，以及 session 預設值（`mct
 
   SIDE CAR (no layer — loads in from the side)
     config.toml -------------- > src/config.py  every engine switch + session defaults (D11)
-    native/cengine.py + dll -- > src/cbridge.py C backends (D25-D30, D37): full MCTS tree,
+    src/cengine.py + dll ---- > src/cbridge.py C backends (D25-D30, D37): full MCTS tree,
                                               rollouts and the minimax family live in
                                               sba_engine.dll (~37x; built via
-                                              native/build.py, auto-fallback to Python)
-    native/sba-game (Rust) --- > src/rustbridge.py  state layer for AZ self-play (D48):
+                                              src/tools/build.py, auto-fallback to Python)
+    src/sba-game (Rust) ----- > src/rustbridge.py  state layer for AZ self-play (D48):
                                               clone/apply/legal/result on packed
                                               bitboards in sba_game.dll|so; built
                                               when cargo exists, game.py stays the
@@ -280,11 +280,11 @@ Reading-route highlights, condensed from the retired
 
 ## Native C engine / 原生 C 引擎
 
-All engine hot paths run in C since D25–D51 (`python native/build.py` builds
-`native/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
+All engine hot paths run in C since D25–D51 (`python src/tools/build.py` builds
+`src/sba_engine.dll`; WSL mingw cross-compile or any local gcc; CI builds
 it automatically) and the game state runs in Rust since D48/D50
-(`native/sba_game.dll`, cargo; the Python game stays the reference and the
-fallback). Measured on this machine / 全部引擎熱路徑已下沉 C（`native/build.py`
+(`src/sba_game.dll`, cargo; the Python game stays the reference and the
+fallback). Measured on this machine / 全部引擎熱路徑已下沉 C（`src/tools/build.py`
 編譯；缺失時自動回退 Python，僅速度下降），遊戲狀態層下沉 Rust（D48/D50）：
 
 | Metric / 指標 | Python | C (1 thread) | C (threads, D30) |
@@ -314,7 +314,7 @@ remaining throughput gap is backend-bound: the burn/cubecl forward costs
 ≈1.4x on this hardware / 剩餘吞吐差距為後端限制：burn/cubecl 前向在 RDNA3
 Vulkan 上每 229 行批約 37 ms，torch/ROCm-HIP 每 256 行批 2.84 ms（≈13 倍
 kernel 差），多 queue 流水線在本機的天花板約 1.4x。Re-measure:
-`python dev.py bench-selfplay` and `python native/parity_search.py`; details
+`python dev.py bench-selfplay` and `python src/tools/parity_search.py`; details
 in docs/decisions.md D57.
 
 AZ self-play runs ~7–9 s/game @80 sims (128ch/5blocks, 1 worker) — the loop

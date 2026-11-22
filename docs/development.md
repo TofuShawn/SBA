@@ -12,7 +12,7 @@ command-line quoting from scratch.
   requirements.txt -r requirements-dev.txt`; torch optional, see README)
 - **WSL** with `mingw-w64-gcc` (the C cross-compiler → `sba_engine.dll`)
   and **rustup** with the `x86_64-pc-windows-gnu` target (→ `sba_game.dll`
-  + `native/sba-core`) — or any local gcc/cargo; `native/build.py` probes
+  + the sba-core exes) — or any local gcc/cargo; `src/tools/build.py` probes
   PATH first and falls back to WSL
 - ruff lives **only in `.venv`** — always via `python -m ruff` or dev.py
 
@@ -44,14 +44,25 @@ ubuntu and windows.
 
 ## Layout / 佈局
 
-- `src/` — flat module layout (D36): the two UIs (`qtui.py`, `tui.py`),
+One rule since D60: **src/ = everything by function** (D36's flat src/
+amended — the former native/ dissolved into it).
+
+- `src/` — flat Python modules (D36): the two UIs (`qtui.py`, `tui.py`),
   the engine facade (`ai.py`) over the engine modules, `alphazero.py`
-  (training + self-play), `config.py` (the leaf)
-- `native/` — `sba_*.c` (the C engines, one DLL) + two Rust crates:
-  `sba-game` (state logistics cdylib) and `sba-core` (D55: the pure-Rust
-  inference/self-play core, currently Phase A)
+  (training + self-play), `config.py` (the leaf), `cengine.py` (the ctypes
+  boundary to `sba_engine.dll`, which build.py lands here)
+- `src/sba_*.c` + `sba_ultt.h` — the C engines, compiled into one
+  `sba_engine.dll` beside the modules they serve
+- `src/sba-game/`, `src/sba-core/` — the two Rust crates; the root
+  `Cargo.toml` is a minimal workspace (members + profiles), one
+  `Cargo.lock`, cargo output in the root `target/`
+- `src/tools/` — the dev harnesses: `build.py` (C DLL + cdylib copy),
+  `bench_rust.py`, `bench_selfplay.py`, `parity_search.py`
 - `tests/` — the pytest suite; DLL-gated files skip themselves cleanly
   (count via `pytest tests --collect-only -q`)
 - `docs/decisions.md` — every design decision, append-only (D1…)
 - `docs/releases/<tag>.md` — the release notes each tag publishes
 - `logs/` — gitignored scratch (bench artifacts, spike scripts)
+
+The human contract is unchanged: `python dev.py` (from the repo root)
+still runs every task.

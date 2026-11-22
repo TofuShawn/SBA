@@ -1,22 +1,18 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""cbridge — the ctypes boundary to native/sba_engine.dll (D27/D37).
+"""cbridge — the ctypes boundary to sba_engine.dll (D27/D37).
 Owns the DLL handles, state serialization, the search-switch
 snapshot and the C tree reuse cache. Engines call into this; the
 deny-stub tests patch here."""
 
 import random
-import sys
 import threading
 
 from game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
-from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, ROOT, cfg_engine
+from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine
 
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)  # the native/ package lives at the repo root
-
-from native import cengine as _ce
+import cengine as _ce  # the flat src/ modules (D36/D60)
 
 
 def move_text(move):

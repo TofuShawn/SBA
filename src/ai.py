@@ -14,7 +14,6 @@ working.
 
 import logging
 import random
-import sys
 import threading
 
 from game import (
@@ -31,7 +30,6 @@ from config import (
     _CFG_DEFAULTS,
     MIN_VISIT_DIVISOR,
     MIN_VISIT_FLOOR,
-    ROOT,
     cfg_engine,
     cfg_session,
     save_engine_config,
@@ -107,9 +105,6 @@ from analysis import (
     position_win_rates,
     reason_for_move,
 )
-
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)  # the native/ package lives at the repo root
 
 log = logging.getLogger("sba.ai")
 

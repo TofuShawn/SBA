@@ -184,7 +184,7 @@ def _random_positions(rng, n):
 def test_serialize_ffi_matches_cengine_packing():
     """D50 fast path: sba_ffi() must equal cengine.serialize_ultimate's
     list contract, cell for cell, across random positions."""
-    from native import cengine
+    import cengine
 
     rng = random.Random(SEED + 3)
     for py, ru in _random_positions(rng, 30):

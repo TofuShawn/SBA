@@ -34,15 +34,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # probe order: the WSL mingw cross-build first (the Windows dev-machine
 # artifact), then plain release, then debug. The extension-less spellings
 # are the Linux ELF names — CI builds the cpu backend there and runs the
-# exe without an .exe suffix.
+# exe without an .exe suffix. All under the workspace-shared target/ at the
+# repo root (D60).
 def _probe_paths(name):
     """The probe list for one sba-core binary name (see find_exe)."""
     return (
-        f"native/sba-core/target/x86_64-pc-windows-gnu/release/{name}.exe",
-        f"native/sba-core/target/release/{name}.exe",
-        f"native/sba-core/target/release/{name}",
-        f"native/sba-core/target/debug/{name}.exe",
-        f"native/sba-core/target/debug/{name}",
+        f"target/x86_64-pc-windows-gnu/release/{name}.exe",
+        f"target/release/{name}.exe",
+        f"target/release/{name}",
+        f"target/debug/{name}.exe",
+        f"target/debug/{name}",
     )
 
 
@@ -166,7 +167,7 @@ def build_round_cmd(args):
     outside the bridge (bench_selfplay's batch_stats probe, which parses
     stdout directly because run_round consumes the non-game_done events)
     prepend the exe path themselves. argv-list only (shell=False) — same
-    discipline as rustbridge/native/build. --start-idx is emitted only when
+    discipline as rustbridge and src/tools/build. --start-idx is emitted only when
     nonzero (the exe defaults to 0, so single-process rounds keep the
     exact historical argv)."""
     cmd = [
