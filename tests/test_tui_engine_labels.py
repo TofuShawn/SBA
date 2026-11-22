@@ -70,7 +70,8 @@ def test_train_tui_threads_resolved_engine_into_train():
 
     seen = {}
 
-    def fake_train(*args, **kwargs):
+    def fake_train(cfg, **kwargs):
+        seen["cfg"] = cfg
         seen.update(kwargs)
 
     async def _run():
@@ -92,4 +93,4 @@ def test_train_tui_threads_resolved_engine_into_train():
                     assert deadline > 0, "train worker did not finish in time"
 
     asyncio.run(_run())
-    assert seen.get("selfplay_engine") == "rust"
+    assert seen["cfg"].selfplay_engine == "rust"

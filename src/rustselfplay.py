@@ -17,6 +17,7 @@ import queue
 import subprocess
 import threading
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -128,34 +129,75 @@ _STDERR_KEEP = 8192  # stderr chars the drain thread retains (bounded buffer)
 _READER_JOIN = 1.0  # seconds granted to the drain threads after the exe exits
 
 
-def run_round(
-    exe,
-    weights_path,
-    out_dir,
-    *,
-    games,
-    sims,
-    threads,
-    seed_base,
-    temp_start,
-    temp_end,
-    temp_min=TEMP_MIN,
-    c_puct=1.5,
-    dirichlet_eps=0.25,
-    game_type="ultimate",
-    on_event=None,
-    timeout=MP_GAME_TIMEOUT,
-    popen=None,
-):
+@dataclass
+class RoundArgs:
+    """One round's parameters — everything the exe needs to play it.
+
+    The round contract in one object: callers (train()'s rust loop, the
+    bench probe) build one and hand it to run_round; the retry path rewrites
+    just the changed fields with dataclasses.replace, so an override can
+    never silently drop the rest."""
+
+    weights_path: str
+    out_dir: str
+    games: int
+    sims: int
+    threads: int
+    seed_base: int
+    temp_start: float
+    temp_end: float
+    temp_min: float = TEMP_MIN
+    c_puct: float = 1.5
+    dirichlet_eps: float = 0.25
+    game_type: str = "ultimate"
+
+
+def build_round_cmd(args):
+    """The exe's flag list for one round — the SINGLE copy of the argv
+    contract (flag spellings, str() conversions, the %.6f temperature
+    formatting). run_round spawns [exe, *build_round_cmd(args)]; callers
+    outside the bridge (bench_selfplay's batch_stats probe, which parses
+    stdout directly because run_round consumes the non-game_done events)
+    prepend the exe path themselves. argv-list only (shell=False) — same
+    discipline as rustbridge/native/build."""
+    return [
+        "--weights",
+        str(args.weights_path),
+        "--out",
+        str(args.out_dir),
+        "--games",
+        str(args.games),
+        "--sims",
+        str(args.sims),
+        "--threads",
+        str(args.threads),
+        "--seed-base",
+        str(args.seed_base),
+        "--game-type",
+        args.game_type,
+        "--c-puct",
+        str(args.c_puct),
+        "--dirichlet-eps",
+        str(args.dirichlet_eps),
+        "--temp-start",
+        f"{args.temp_start:.6f}",
+        "--temp-end",
+        f"{args.temp_end:.6f}",
+        "--temp-min",
+        f"{args.temp_min:.6f}",
+    ]
+
+
+def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None):
     """Run one exe round; returns {games_done, crashed, stderr_tail}.
 
-    argv-list only (shell=False) — same discipline as rustbridge/native/build.
-    stdout is the exe's JSONL event stream (start → (game_done|batch_stats)*
-    → clean exit 0): game_done events are counted toward games_done, every
-    other type — including future ones — is ignored, and non-JSON lines are
-    skipped. crashed is True on a nonzero exit, when fewer than `games`
-    game_done events arrived, or when the exe stayed silent for `timeout`
-    seconds.
+    `args` is a RoundArgs (the round's parameters); `exe` is the binary to
+    spawn. stdout is the exe's JSONL event stream (start → (game_done|
+    batch_stats)* → clean exit 0): game_done events are counted toward
+    games_done, every other type — including future ones — is ignored, and
+    non-JSON lines are skipped. crashed is True on a nonzero exit, when
+    fewer than `args.games` game_done events arrived, or when the exe stayed
+    silent for `timeout` seconds.
 
     The watchdog is a deadline, not a per-line gap: a daemon reader thread
     pumps stdout into a queue while stderr is drained concurrently into a
@@ -171,33 +213,7 @@ def run_round(
     "crashed": bool} once at the end — game_done events are collected, not
     forwarded raw.
     """
-    cmd = [
-        exe,
-        "--weights",
-        str(weights_path),
-        "--out",
-        str(out_dir),
-        "--games",
-        str(games),
-        "--sims",
-        str(sims),
-        "--threads",
-        str(threads),
-        "--seed-base",
-        str(seed_base),
-        "--game-type",
-        game_type,
-        "--c-puct",
-        str(c_puct),
-        "--dirichlet-eps",
-        str(dirichlet_eps),
-        "--temp-start",
-        f"{temp_start:.6f}",
-        "--temp-end",
-        f"{temp_end:.6f}",
-        "--temp-min",
-        f"{temp_min:.6f}",
-    ]
+    cmd = [exe, *build_round_cmd(args)]
     spawn = popen or subprocess.Popen
     proc = spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     lines = queue.Queue()
@@ -267,7 +283,7 @@ def run_round(
     stderr_tail = ""
     if rc != 0 or timed_out:
         stderr_tail = (stderr_tails[0] if stderr_tails else "")[-400:]
-    crashed = timed_out or rc != 0 or games_done < games
+    crashed = timed_out or rc != 0 or games_done < args.games
     if on_event:
         on_event({"type": "selfplay_round", "games_done": games_done, "crashed": crashed})
     return {"games_done": games_done, "crashed": crashed, "stderr_tail": stderr_tail}

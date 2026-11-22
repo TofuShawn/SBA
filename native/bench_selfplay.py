@@ -50,7 +50,7 @@ import torch  # noqa: E402
 
 from alphazero import DEVICE, AZNet, _mp_worker_init, export_safetensors  # noqa: E402
 from config import TEMP_MIN  # noqa: E402
-from rustselfplay import find_exe, load_records, run_round  # noqa: E402
+from rustselfplay import RoundArgs, build_round_cmd, find_exe, load_records, run_round  # noqa: E402
 
 TEMP = 1.0  # campaign start temperature; both sides play all games at it
 
@@ -113,15 +113,17 @@ def bench_rust(model, games, sims, threads):
     sha = export_safetensors(model, weights)
     t0 = time.perf_counter()
     res = run_round(
-        exe,
-        weights,
-        out_dir,
-        games=games,
-        sims=sims,
-        threads=threads,
-        seed_base=0,
-        temp_start=TEMP,
-        temp_end=TEMP,
+        RoundArgs(
+            weights_path=weights,
+            out_dir=out_dir,
+            games=games,
+            sims=sims,
+            threads=threads,
+            seed_base=0,
+            temp_start=TEMP,
+            temp_end=TEMP,
+        ),
+        exe=exe,
     )
     elapsed = time.perf_counter() - t0
     if res["crashed"]:
@@ -142,35 +144,22 @@ def probe_batch_stats(exe, weights, games, sims, threads):
     failing the bench — the timed round already proved the exe works.
     """
     out_dir = os.path.join(tempfile.mkdtemp(prefix="bench-fill-"), "games")
-    # same argv run_round builds (mirrored here because run_round consumes
-    # the non-game_done events internally instead of forwarding them)
-    cmd = [
-        exe,
-        "--weights",
-        str(weights),
-        "--out",
-        str(out_dir),
-        "--games",
-        str(games),
-        "--sims",
-        str(sims),
-        "--threads",
-        str(threads),
-        "--seed-base",
-        "0",
-        "--game-type",
-        "ultimate",
-        "--c-puct",
-        "1.5",
-        "--dirichlet-eps",
-        "0.25",
-        "--temp-start",
-        f"{TEMP:.6f}",
-        "--temp-end",
-        f"{TEMP:.6f}",
-        "--temp-min",
-        f"{TEMP_MIN:.6f}",
-    ]
+    # the argv comes from the bridge's own builder (one copy of the flag
+    # contract, no mirror to drift) — run_round consumes the non-game_done
+    # events internally instead of forwarding them, so the probe spawns and
+    # parses stdout itself
+    rargs = RoundArgs(
+        weights_path=weights,
+        out_dir=out_dir,
+        games=games,
+        sims=sims,
+        threads=threads,
+        seed_base=0,
+        temp_start=TEMP,
+        temp_end=TEMP,
+        temp_min=TEMP_MIN,
+    )
+    cmd = [exe, *build_round_cmd(rargs)]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=games * 120 + 600)
     except subprocess.TimeoutExpired:

@@ -48,17 +48,17 @@ def fake_rust(monkeypatch, tmp_path):
     """Patch the bridge so train() sees a rust engine without any exe."""
     calls = []
 
-    def fake_run_round(exe, weights_path, out_dir, **kw):
+    def fake_run_round(args, **kw):
         calls.append(
             {
-                "exe": exe,
-                "games": kw["games"],
-                "seed_base": kw["seed_base"],
-                "out_dir": out_dir,
+                "exe": kw["exe"],
+                "games": args.games,
+                "seed_base": args.seed_base,
+                "out_dir": args.out_dir,
             }
         )
-        _write_records(out_dir, kw["games"], kw["seed_base"], kw["sims"])
-        res = {"games_done": kw["games"], "crashed": False, "stderr_tail": ""}
+        _write_records(args.out_dir, args.games, args.seed_base, args.sims)
+        res = {"games_done": args.games, "crashed": False, "stderr_tail": ""}
         # the real bridge announces the round once at the end (Task 8 contract)
         if kw.get("on_event"):
             kw["on_event"](
@@ -77,23 +77,24 @@ def fake_rust(monkeypatch, tmp_path):
 def test_train_rust_engine_runs_and_emits(fake_rust, tmp_path):
     events = []
     model = alphazero.train(
-        "ultimate",
-        games=4,
-        sims=2,
-        eval_every=100,
-        eval_games=1,
-        eval_sims=32,
-        lr=1e-4,
-        steps_per_game=1,
-        channels=8,
-        blocks=1,
-        save=False,
-        quiet=True,
-        replay_cap=10,
-        csv_path=str(tmp_path / "curve.csv"),
-        on_event=events.append,
-        selfplay_engine="rust",
-        round_games=2,
+        alphazero.TrainCfg(
+            games=4,
+            sims=2,
+            eval_every=100,
+            eval_games=1,
+            eval_sims=32,
+            lr=1e-4,
+            steps_per_game=1,
+            channels=8,
+            blocks=1,
+            save=False,
+            quiet=True,
+            replay_cap=10,
+            csv_path=str(tmp_path / "curve.csv"),
+            selfplay_engine="rust",
+            round_games=2,
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert model is not None
     # two rounds of 2 games; the seed stream continues across rounds (spec
@@ -120,23 +121,23 @@ def test_train_rust_retry_after_crash(fake_rust, monkeypatch):
     state = {"n": 0}
     calls = fake_rust
 
-    def flaky_run_round(exe, weights_path, out_dir, **kw):
+    def flaky_run_round(args, **kw):
         state["n"] += 1
         calls.append(
             {
-                "exe": exe,
-                "games": kw["games"],
-                "seed_base": kw["seed_base"],
-                "out_dir": out_dir,
+                "exe": kw["exe"],
+                "games": args.games,
+                "seed_base": args.seed_base,
+                "out_dir": args.out_dir,
             }
         )
         if state["n"] == 1:
             # game 1 completed (its record landed) before the exe died
-            _write_records(out_dir, 1, kw["seed_base"], kw["sims"])
+            _write_records(args.out_dir, 1, args.seed_base, args.sims)
             res = {"games_done": 1, "crashed": True, "stderr_tail": "boom"}
         else:
-            _write_records(out_dir, kw["games"], kw["seed_base"], kw["sims"])
-            res = {"games_done": kw["games"], "crashed": False, "stderr_tail": ""}
+            _write_records(args.out_dir, args.games, args.seed_base, args.sims)
+            res = {"games_done": args.games, "crashed": False, "stderr_tail": ""}
         # the real bridge announces the round once at the end (Task 8 contract)
         if kw.get("on_event"):
             kw["on_event"](
@@ -151,22 +152,23 @@ def test_train_rust_retry_after_crash(fake_rust, monkeypatch):
     monkeypatch.setattr(rustselfplay, "run_round", flaky_run_round)
     events = []
     alphazero.train(
-        "ultimate",
-        games=2,
-        sims=2,
-        eval_every=100,
-        eval_games=1,
-        eval_sims=32,
-        lr=1e-4,
-        steps_per_game=1,
-        channels=8,
-        blocks=1,
-        save=False,
-        quiet=True,
-        replay_cap=10,
-        on_event=events.append,
-        selfplay_engine="rust",
-        round_games=2,
+        alphazero.TrainCfg(
+            games=2,
+            sims=2,
+            eval_every=100,
+            eval_games=1,
+            eval_sims=32,
+            lr=1e-4,
+            steps_per_game=1,
+            channels=8,
+            blocks=1,
+            save=False,
+            quiet=True,
+            replay_cap=10,
+            selfplay_engine="rust",
+            round_games=2,
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert state["n"] == 2  # one retry, exactly
     # retry spawn (ruling 4): the round's MISSING games only, seed advanced
@@ -187,28 +189,28 @@ def test_train_rust_retry_after_crash(fake_rust, monkeypatch):
 
 
 def test_train_rust_second_crash_raises(fake_rust, monkeypatch):
-    def always_crash(exe, weights_path, out_dir, **kw):
+    def always_crash(args, **kw):
         return {"games_done": 0, "crashed": True, "stderr_tail": "panic: nope"}
 
     monkeypatch.setattr(rustselfplay, "run_round", always_crash)
     # the exe's stderr tail rides along in the message (spec §5.4: "then raise")
     with pytest.raises(RuntimeError, match=r"died twice.*panic: nope"):
         alphazero.train(
-            "ultimate",
-            games=2,
-            sims=2,
-            eval_every=100,
-            eval_games=1,
-            eval_sims=32,
-            lr=1e-4,
-            steps_per_game=1,
-            channels=8,
-            blocks=1,
-            save=False,
-            quiet=True,
-            on_event=None,
-            selfplay_engine="rust",
-            round_games=2,
+            alphazero.TrainCfg(
+                games=2,
+                sims=2,
+                eval_every=100,
+                eval_games=1,
+                eval_sims=32,
+                lr=1e-4,
+                steps_per_game=1,
+                channels=8,
+                blocks=1,
+                save=False,
+                quiet=True,
+                selfplay_engine="rust",
+                round_games=2,
+            ),
         )
 
 
@@ -218,21 +220,22 @@ def test_train_explicit_rust_stage1_raises(fake_rust):
     # no alternative value target), so the request is rejected up front
     with pytest.raises(ValueError, match=r"--selfplay-engine rust.*--stage 1.*--value-target"):
         alphazero.train(
-            "ultimate",
-            games=2,
-            sims=2,
-            eval_every=100,
-            eval_games=1,
-            eval_sims=32,
-            lr=1e-4,
-            steps_per_game=1,
-            channels=8,
-            blocks=1,
-            save=False,
-            quiet=True,
-            stage=1,
-            selfplay_engine="rust",
-            round_games=2,
+            alphazero.TrainCfg(
+                games=2,
+                sims=2,
+                eval_every=100,
+                eval_games=1,
+                eval_sims=32,
+                lr=1e-4,
+                steps_per_game=1,
+                channels=8,
+                blocks=1,
+                save=False,
+                quiet=True,
+                stage=1,
+                selfplay_engine="rust",
+                round_games=2,
+            )
         )
     assert fake_rust == []  # no round ever dispatched to the exe
 
@@ -243,23 +246,24 @@ def test_train_auto_stage1_downgrades_to_python(fake_rust):
     # rust announcement itself still fired first
     events = []
     model = alphazero.train(
-        "ultimate",
-        games=2,
-        sims=2,
-        eval_every=100,
-        eval_games=1,
-        eval_sims=32,
-        lr=1e-4,
-        steps_per_game=1,
-        channels=8,
-        blocks=1,
-        save=False,
-        quiet=True,
-        replay_cap=10,
-        stage=1,
-        on_event=events.append,
-        selfplay_engine="auto",
-        round_games=2,
+        alphazero.TrainCfg(
+            games=2,
+            sims=2,
+            eval_every=100,
+            eval_games=1,
+            eval_sims=32,
+            lr=1e-4,
+            steps_per_game=1,
+            channels=8,
+            blocks=1,
+            save=False,
+            quiet=True,
+            replay_cap=10,
+            stage=1,
+            selfplay_engine="auto",
+            round_games=2,
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert model is not None
     assert fake_rust == []  # the round loop never dispatched to the exe

@@ -20,17 +20,18 @@ def test_az_smoke_train_ultimate():
     covered on exe-less boxes."""
     events = []
     model = alphazero.train(
-        "ultimate",
-        games=2,
-        sims=6,
-        quiet=True,
-        save=False,
-        eval_games=1,
-        eval_sims=32,
-        channels=32,
-        blocks=2,
-        on_event=events.append,
-        selfplay_engine="python",
+        alphazero.TrainCfg(
+            games=2,
+            sims=6,
+            quiet=True,
+            save=False,
+            eval_games=1,
+            eval_sims=32,
+            channels=32,
+            blocks=2,
+            selfplay_engine="python",
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert model is not None
     # Task 9 engine arbitration, python flavour (workers=1 default)
@@ -67,15 +68,16 @@ def test_train_eval_every_schedule(monkeypatch, capsys):
 
     monkeypatch.setattr(alphazero, "alphazero_move", fast)
     alphazero.train(
-        "ultimate",
-        games=6,
-        sims=3,
-        eval_every=2,
-        eval_games=1,
-        quiet=False,
-        save=False,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=6,
+            sims=3,
+            eval_every=2,
+            eval_games=1,
+            quiet=False,
+            save=False,
+            channels=32,
+            blocks=2,
+        )
     )
     out = capsys.readouterr().out
     assert out.count("win=") == 3
@@ -131,16 +133,17 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
         lambda game, model, budget=800: random.choice(game.legal_moves()),
     )
     alphazero.train(
-        "ultimate",
-        games=3,
-        sims=2,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=True,
-        ckpt_every=2,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=3,
+            sims=2,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=True,
+            ckpt_every=2,
+            channels=32,
+            blocks=2,
+        )
     )
     assert target.exists()  # final canonical save
     assert ck2.exists()  # the game-2 curve point
@@ -160,18 +163,19 @@ def test_train_parallel_workers(monkeypatch):
     )
     events = []
     model = alphazero.train(
-        "ultimate",
-        games=2,
-        sims=2,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=False,
-        channels=32,
-        blocks=2,
-        workers=2,
-        on_event=events.append,
-        selfplay_engine="python",
+        alphazero.TrainCfg(
+            games=2,
+            sims=2,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=False,
+            channels=32,
+            blocks=2,
+            workers=2,
+            selfplay_engine="python",
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert model is not None
     assert [e for e in events if e["type"] == "selfplay_engine"] == [
@@ -224,17 +228,18 @@ def test_training_csv_curve(tmp_path):
     csv_p = tmp_path / "curve.csv"
     model_p = tmp_path / "m.pt"
     alphazero.train(
-        "ultimate",
-        games=2,
-        sims=4,
-        eval_every=1,
-        eval_games=1,
-        quiet=True,
-        save=True,
-        save_path=str(model_p),
-        csv_path=str(csv_p),
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=2,
+            sims=4,
+            eval_every=1,
+            eval_games=1,
+            quiet=True,
+            save=True,
+            save_path=str(model_p),
+            csv_path=str(csv_p),
+            channels=32,
+            blocks=2,
+        )
     )
     rows = list(_csv.reader(csv_p.read_text(encoding="utf-8").splitlines()))
     assert rows[0][:2] == ["stage", "game"]
@@ -246,17 +251,18 @@ def test_training_csv_curve(tmp_path):
 
     # resume appends to the same curve, no duplicated header
     alphazero.train(
-        "ultimate",
-        games=1,
-        sims=4,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=False,
-        resume=str(model_p),
-        csv_path=str(csv_p),
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=1,
+            sims=4,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=False,
+            resume=str(model_p),
+            csv_path=str(csv_p),
+            channels=32,
+            blocks=2,
+        )
     )
     rows2 = list(_csv.reader(csv_p.read_text(encoding="utf-8").splitlines()))
     assert len(rows2) == 4  # header + 2 + 1
@@ -271,14 +277,15 @@ def test_training_csv_disabled_without_save():
     default_csv = os.path.join(ai.ROOT, "models", "az_ultimate.csv")
     existed = os.path.exists(default_csv)
     alphazero.train(
-        "ultimate",
-        games=1,
-        sims=3,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=False,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=1,
+            sims=3,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=False,
+            channels=32,
+            blocks=2,
+        )
     )
     assert os.path.exists(default_csv) == existed

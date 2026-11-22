@@ -71,7 +71,8 @@ def _popen_factory(lines, crash_after=None, delay=0.0, stderr_text="boom at game
     return factory
 
 
-def _round_kwargs(**over):
+def _round_args(out_dir, **over):
+    """One RoundArgs with the round scalars the fakes play against."""
     kw = dict(
         games=2,
         sims=8,
@@ -81,7 +82,7 @@ def _round_kwargs(**over):
         temp_end=1.0,
     )
     kw.update(over)
-    return kw
+    return rustselfplay.RoundArgs(weights_path="w.safetensors", out_dir=out_dir, **kw)
 
 
 # -----------------------------------------------------------------------
@@ -97,12 +98,10 @@ def test_run_round_parses_events(tmp_path):
     ]
     called = []
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path)),
+        exe="fake-exe",
         on_event=called.append,
         popen=_popen_factory(events),
-        **_round_kwargs(),
     )
     assert res["games_done"] == 2 and res["crashed"] is False
     assert res["stderr_tail"] == ""
@@ -120,16 +119,16 @@ def test_run_round_counts_only_game_done_events(tmp_path):
     ]
     # clean exit with the expected game count
     res = rustselfplay.run_round(
-        "fake-exe", "w.safetensors", str(tmp_path), popen=_popen_factory(lines), **_round_kwargs()
+        _round_args(str(tmp_path)),
+        exe="fake-exe",
+        popen=_popen_factory(lines),
     )
     assert res["games_done"] == 2 and res["crashed"] is False
     # same stream but only 2 of 4 games delivered -> short count crashes
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path), games=4),
+        exe="fake-exe",
         popen=_popen_factory(lines),
-        **_round_kwargs(games=4),
     )
     assert res["games_done"] == 2 and res["crashed"] is True  # clean exit, short count
     assert res["stderr_tail"] == ""
@@ -142,11 +141,9 @@ def test_run_round_detects_crash(tmp_path):
         {"type": "game_done", "game": 1, "moves": 6, "result": "O", "temp": 1.0, "elapsed_s": 0.2},
     ]
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path), games=3),
+        exe="fake-exe",
         popen=_popen_factory(events, crash_after=2),  # dies after game 0 of 3
-        **_round_kwargs(games=3),
     )
     assert res["crashed"] is True and res["games_done"] == 1
     assert "boom" in res["stderr_tail"]
@@ -157,11 +154,9 @@ def test_run_round_ignores_garbage_lines(tmp_path):
     # none of them may count as a game or crash the parser
     lines = ["not json", "[1, 2]", "123", {"type": "game_done", "game": 0, "moves": 3}]
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path), games=1),
+        exe="fake-exe",
         popen=_popen_factory(lines),
-        **_round_kwargs(games=1),
     )
     assert res["games_done"] == 1 and res["crashed"] is False
     assert res["stderr_tail"] == ""
@@ -170,11 +165,9 @@ def test_run_round_ignores_garbage_lines(tmp_path):
 def test_run_round_stderr_tail_is_truncated(tmp_path):
     long_err = "x" * 1000 + "END"
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path), games=1),
+        exe="fake-exe",
         popen=_popen_factory([{"type": "start", "games": 1}], crash_after=0, stderr_text=long_err),
-        **_round_kwargs(games=1),
     )
     assert res["crashed"] is True  # stderr present but no game ever finished
     assert len(res["stderr_tail"]) == 400
@@ -192,16 +185,14 @@ def test_run_round_watchdog_kills_silent_exe(tmp_path):
     # the wait must time out before the first line arrives — nothing parsed,
     # process killed, round reported crashed
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path), games=1),
+        exe="fake-exe",
         timeout=0.05,
         popen=_popen_factory(
             [{"type": "start", "games": 1}, {"type": "game_done", "game": 0, "moves": 4}],
             delay=0.15,
             procs=procs,
         ),
-        **_round_kwargs(games=1),
     )
     assert res["crashed"] is True and res["games_done"] == 0
     assert procs[0].killed is True  # the watchdog, not the fake, ended it
@@ -253,12 +244,10 @@ def test_run_round_watchdog_kills_truly_silent_exe(tmp_path):
 
     start = time.monotonic()
     res = rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        _round_args(str(tmp_path), games=1),
+        exe="fake-exe",
         timeout=0.05,
         popen=SilentProc,
-        **_round_kwargs(games=1),
     )
     elapsed = time.monotonic() - start
     assert elapsed < 2.0  # run_round returned instead of hanging on the wedge
@@ -274,12 +263,11 @@ def test_run_round_watchdog_kills_truly_silent_exe(tmp_path):
 
 def test_run_round_spawns_argv_list(tmp_path):
     procs = []
+    rargs = _round_args(str(tmp_path))
     rustselfplay.run_round(
-        "fake-exe",
-        "w.safetensors",
-        str(tmp_path),
+        rargs,
+        exe="fake-exe",
         popen=_popen_factory([], procs=procs),
-        **_round_kwargs(),
     )
     assert len(procs) == 1
     proc = procs[0]
@@ -300,6 +288,9 @@ def test_run_round_spawns_argv_list(tmp_path):
         "--temp-end": "1.000000",
         "--temp-min": "0.050000",
     }
+    # the argv IS the shared builder's output (bench_selfplay's probe spawns
+    # the exact same list — one flag contract, no mirror to drift)
+    assert cmd == ["fake-exe", *rustselfplay.build_round_cmd(rargs)]
     assert proc.kwargs["stdout"] is subprocess.PIPE
     assert proc.kwargs["stderr"] is subprocess.PIPE
     assert proc.kwargs["text"] is True

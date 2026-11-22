@@ -444,23 +444,27 @@ class TrainTUI(App):
             import alphazero
 
             alphazero.train(
-                "ultimate",
-                games=cfg["games"],
-                sims=cfg["sims"],
-                workers=cfg["workers"],
-                # the engine resolved at mount, not a second auto - the
-                # dashboard's engine note must be the engine that runs
-                selfplay_engine=self._engine,
-                eval_every=cfg["eval_every"],
-                channels=cfg["channels"],
-                blocks=cfg["blocks"],
-                stage=cfg["stage"],
-                resume=cfg["resume"],
-                save_path=cfg["model_path"],
-                csv_path=cfg["csv_path"],
-                ckpt_every=cfg["ckpt_every"],
-                quiet=True,
-                on_event=lambda ev: self.call_from_thread(self._on_event, ev),
+                alphazero.TrainCfg(
+                    game_type="ultimate",
+                    games=cfg["games"],
+                    sims=cfg["sims"],
+                    workers=cfg["workers"],
+                    # the engine resolved at mount, not a second auto - the
+                    # dashboard's engine note must be the engine that runs
+                    selfplay_engine=self._engine,
+                    eval_every=cfg["eval_every"],
+                    channels=cfg["channels"],
+                    blocks=cfg["blocks"],
+                    stage=cfg["stage"],
+                    resume=cfg["resume"],
+                    save_path=cfg["model_path"],
+                    csv_path=cfg["csv_path"],
+                    ckpt_every=cfg["ckpt_every"],
+                    quiet=True,
+                ),
+                hooks=alphazero.TrainHooks(
+                    on_event=lambda ev: self.call_from_thread(self._on_event, ev)
+                ),
             )
         except Exception:
             self.call_from_thread(self._worker_error, "train", traceback.format_exc())

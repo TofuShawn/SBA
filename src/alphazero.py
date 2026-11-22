@@ -57,7 +57,7 @@ import torch.nn.functional as F
 
 import rustbridge
 import rustselfplay
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import config
 from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, TEMP_MIN, cfg_engine, writable_path
@@ -939,38 +939,86 @@ def _absorb_records(replay, records, *, replay_cap):
     return total
 
 
-def train(
-    game_type,
-    games=300,
-    sims=80,
-    eval_every=25,
-    eval_games=20,
-    lr=1e-3,
-    seed=None,
-    save=True,
-    quiet=False,
-    steps_per_game=5,
-    replay_cap=500,
-    channels=128,
-    blocks=5,
-    ckpt_every=None,
-    dirichlet_eps=DIRICHLET_EPS,
-    workers=1,
-    weight_decay=1e-4,
-    value_target="root_mean",
-    policy_loss="kl",
-    augment=True,
-    stage=2,
-    resume=None,
-    save_path=None,
-    eval_ai="MCTS",
-    eval_sims=800,
-    csv_path=None,
-    on_event=None,
-    selfplay_engine="auto",
-    selfplay_exe=None,
-    round_games=32,
-):
+def train(cfg, ctx=None, hooks=None):
+    """One training run on the shared config shape.
+
+    `cfg` is a TrainCfg (the one config BOTH trainer paths consume — this
+    signature and _train_multiprocess(cfg, ctx, hooks) below are the same
+    shape); `ctx`, when given, receives the live objects train() builds
+    (model/optimizer/evaluate/replay/start — construction stays here, the
+    caller only opts into observing them); `hooks` carries the optional
+    observers (on_event today, csv_log/progress/task filled in here).
+
+    The body is unchanged from the keyword-signature era: the unpack below
+    IS the signature change — the engine arbitration, the rust round loop /
+    retry, the guard and the seed-base arithmetic are verbatim.
+    """
+    hooks = hooks or TrainHooks()
+    ctx = ctx or TrainCtx()
+    on_event = hooks.on_event
+    global ROLLOUT_WEIGHT
+    ROLLOUT_WEIGHT = cfg.rollout_weight
+    (
+        game_type,
+        games,
+        sims,
+        eval_every,
+        eval_games,
+        lr,
+        seed,
+        save,
+        quiet,
+        steps_per_game,
+        replay_cap,
+        channels,
+        blocks,
+        ckpt_every,
+        dirichlet_eps,
+        workers,
+        weight_decay,
+        value_target,
+        policy_loss,
+        augment,
+        stage,
+        resume,
+        save_path,
+        eval_ai,
+        eval_sims,
+        csv_path,
+        selfplay_engine,
+        selfplay_exe,
+        round_games,
+    ) = (
+        cfg.game_type,
+        cfg.games,
+        cfg.sims,
+        cfg.eval_every,
+        cfg.eval_games,
+        cfg.lr,
+        cfg.seed,
+        cfg.save,
+        cfg.quiet,
+        cfg.steps_per_game,
+        cfg.replay_cap,
+        cfg.channels,
+        cfg.blocks,
+        cfg.ckpt_every,
+        cfg.dirichlet_eps,
+        cfg.workers,
+        cfg.weight_decay,
+        cfg.value_target,
+        cfg.policy_loss,
+        cfg.augment,
+        cfg.stage,
+        cfg.resume,
+        cfg.save_path,
+        cfg.eval_ai,
+        cfg.eval_sims,
+        cfg.csv_path,
+        cfg.selfplay_engine,
+        cfg.selfplay_exe,
+        cfg.round_games,
+    )
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
@@ -1230,10 +1278,9 @@ def train(
                     os.path.join(logs_dir, "selfplay-%d.safetensors" % time.time_ns())
                 )
                 export_safetensors(model, weights_path)
-                res = rustselfplay.run_round(
-                    exe,
-                    weights_path,
-                    out_dir,
+                round_args = rustselfplay.RoundArgs(
+                    weights_path=weights_path,
+                    out_dir=out_dir,
                     games=round_games_n,
                     sims=sims,
                     threads=workers,
@@ -1246,6 +1293,10 @@ def train(
                     temp_end=temp_end,
                     temp_min=TEMP_MIN,
                     dirichlet_eps=dirichlet_eps,
+                )
+                res = rustselfplay.run_round(
+                    round_args,
+                    exe=exe,
                     on_event=on_event,
                     # round deadline, not a per-line gap: a legitimate large
                     # round (games x 2min floor) is never falsely killed
@@ -1258,13 +1309,10 @@ def train(
                     # fresh round dir, advanced seed base; records land
                     # beside the first attempt's
                     missing = round_games_n - res["games_done"]
-                    res = rustselfplay.run_round(
-                        exe,
-                        weights_path,
-                        out_dir + "-retry",
+                    round_args = replace(
+                        round_args,
+                        out_dir=out_dir + "-retry",
                         games=missing,
-                        sims=sims,
-                        threads=workers,
                         seed_base=(seed or 0) + (it - 1) + res["games_done"],
                         # advanced index: the retry's first game is absolute
                         # game it + games_done, whose schedule point is
@@ -1272,9 +1320,10 @@ def train(
                         # (the seed base advances past this round's completed
                         # games too, not round 1's)
                         temp_start=max(TEMP_MIN, 1.0 - (it - 1 + res["games_done"]) / games),
-                        temp_end=temp_end,
-                        temp_min=TEMP_MIN,
-                        dirichlet_eps=dirichlet_eps,
+                    )
+                    res = rustselfplay.run_round(
+                        round_args,
+                        exe=exe,
                         on_event=on_event,
                         timeout=max(config.MP_GAME_TIMEOUT, round_games * 120),
                     )
@@ -1294,38 +1343,22 @@ def train(
                     )
                     it += 1
         elif workers > 1:
+            # the handoff keeps one config shape: the caller's cfg plus the
+            # fields train() derives (size / use_network / save_path), the
+            # caller's ctx filled with the live objects, the caller's hooks
+            # filled with the loggers built here
+            ctx.model = model
+            ctx.optimizer = optimizer
+            ctx.evaluate = evaluate
+            ctx.replay = replay
+            ctx.start = start
+            hooks.csv_log = csv_log
+            hooks.progress = progress
+            hooks.task = task
             return _train_multiprocess(
-                TrainCfg(
-                    games=games,
-                    sims=sims,
-                    eval_every=eval_every,
-                    lr=lr,
-                    save=save,
-                    quiet=quiet,
-                    steps_per_game=steps_per_game,
-                    replay_cap=replay_cap,
-                    size=size,
-                    channels=channels,
-                    blocks=blocks,
-                    ckpt_every=ckpt_every,
-                    dirichlet_eps=dirichlet_eps,
-                    workers=workers,
-                    game_type=game_type,
-                    rollout_weight=ROLLOUT_WEIGHT,
-                    value_target=value_target,
-                    use_network=use_network,
-                    policy_loss=policy_loss,
-                    augment=augment,
-                    save_path=save_path,
-                ),
-                TrainCtx(
-                    model=model,
-                    optimizer=optimizer,
-                    evaluate=evaluate,
-                    replay=replay,
-                    start=start,
-                ),
-                TrainHooks(csv_log=csv_log, progress=progress, task=task, on_event=on_event),
+                replace(cfg, size=size, use_network=use_network, save_path=save_path),
+                ctx,
+                hooks,
             )
         else:
             for it in range(1, games + 1):
@@ -1357,45 +1390,66 @@ def train(
 
 @dataclass
 class TrainCfg:
-    """What to train: the 22 knobs that used to be positional arguments.
+    """What to train: the one config BOTH trainer paths consume.
 
-    Keyword construction is the point. With 28 positional parameters, passing
-    `sims` where `eval_every` belonged silently changed the schedule and no
-    type check could catch it (most of them are ints).
+    The 22 knobs the multiprocess path needed (they used to be positional
+    arguments — with 28 of them, passing `sims` where `eval_every` belonged
+    silently changed the schedule and no type check could catch it) merged
+    with the tunables train()'s keyword signature carried, so `train(cfg,
+    ctx)` and `_train_multiprocess(cfg, ctx, hooks)` finally share one shape.
+
+    Keyword construction is the point. `size`, `use_network` and `save_path`
+    are derivation targets: train() fills them in (from game_type / resume /
+    the stage recipe) before handing the cfg to the multiprocess path.
     """
 
-    games: int
-    sims: int
-    eval_every: int
-    lr: float
-    save: bool
-    quiet: bool
-    steps_per_game: int
-    replay_cap: int
-    size: int
-    channels: int
-    blocks: int
-    ckpt_every: int
-    dirichlet_eps: float
-    workers: int
-    game_type: str
-    rollout_weight: float
-    value_target: str
-    use_network: bool
-    policy_loss: str
-    augment: bool
-    save_path: str
+    games: int = 300
+    sims: int = 80
+    eval_every: int = 25
+    lr: float = 1e-3
+    save: bool = True
+    quiet: bool = False
+    steps_per_game: int = 5
+    replay_cap: int = 500
+    size: int = 9
+    channels: int = 128
+    blocks: int = 5
+    ckpt_every: int | None = None
+    dirichlet_eps: float = DIRICHLET_EPS
+    workers: int = 1
+    game_type: str = "ultimate"
+    rollout_weight: float = ROLLOUT_WEIGHT
+    value_target: str = "root_mean"
+    use_network: bool = True
+    policy_loss: str = "kl"
+    augment: bool = True
+    save_path: str | None = None
+    eval_games: int = 20
+    seed: int | None = None
+    weight_decay: float = 1e-4
+    stage: int = 2
+    resume: str | None = None
+    eval_ai: str = "MCTS"
+    eval_sims: int = 800
+    csv_path: str | None = None
+    selfplay_engine: str = "auto"
+    selfplay_exe: str | None = None
+    round_games: int = 32
 
 
 @dataclass
 class TrainCtx:
-    """The live objects a trainer mutates."""
+    """The live objects a trainer mutates.
 
-    model: object
-    optimizer: object
-    evaluate: object
-    replay: list
-    start: float
+    train() constructs all of them itself and fills a passed-in ctx (callers
+    opt into observing, not into building); _train_multiprocess consumes the
+    same object, so the handoff keeps one shape."""
+
+    model: object = None
+    optimizer: object = None
+    evaluate: object = None
+    replay: list = None
+    start: float = None
 
 
 @dataclass
@@ -1831,33 +1885,38 @@ def main(argv=None):
     args = ap.parse_args(argv)
     ROLLOUT_WEIGHT = args.rollout_weight
     if args.cmd == "train":
+        # argparse → cfg fields 1:1 (flags and defaults unchanged); train()
+        # consumes the one TrainCfg shape from here on
         train(
-            "ultimate",
-            args.games,
-            args.sims,
-            args.eval_every,
-            args.eval_games,
-            args.lr,
-            args.seed,
-            channels=args.channels,
-            blocks=args.blocks,
-            ckpt_every=args.ckpt_every,
-            dirichlet_eps=args.dirichlet_eps,
-            workers=args.workers,
-            replay_cap=args.replay_cap,
-            weight_decay=args.weight_decay,
-            value_target=args.value_target,
-            policy_loss=args.policy_loss,
-            augment=not args.no_augment,
-            stage=args.stage,
-            resume=args.resume,
-            save_path=args.model_path,
-            eval_ai=args.eval_ai,
-            eval_sims=args.eval_sims,
-            csv_path=args.csv,
-            selfplay_engine=args.selfplay_engine,
-            selfplay_exe=args.selfplay_exe,
-            round_games=args.round_games,
+            TrainCfg(
+                game_type="ultimate",
+                games=args.games,
+                sims=args.sims,
+                eval_every=args.eval_every,
+                eval_games=args.eval_games,
+                lr=args.lr,
+                seed=args.seed,
+                channels=args.channels,
+                blocks=args.blocks,
+                ckpt_every=args.ckpt_every,
+                dirichlet_eps=args.dirichlet_eps,
+                workers=args.workers,
+                replay_cap=args.replay_cap,
+                weight_decay=args.weight_decay,
+                value_target=args.value_target,
+                policy_loss=args.policy_loss,
+                augment=not args.no_augment,
+                stage=args.stage,
+                resume=args.resume,
+                save_path=args.model_path,
+                eval_ai=args.eval_ai,
+                eval_sims=args.eval_sims,
+                csv_path=args.csv,
+                selfplay_engine=args.selfplay_engine,
+                selfplay_exe=args.selfplay_exe,
+                round_games=args.round_games,
+                rollout_weight=args.rollout_weight,
+            )
         )
     else:
         model = load_model("ultimate")
