@@ -40,7 +40,7 @@
 ## Requirements / 環境需求
 
 - Python **3.12+**（於 3.13 開發）
-- 核心依賴：`pyside6>=6.12,<7`（桌面版）、`textual>=8.2,<9`（終端機版）、`rich>=15,<16`、`numpy>=2.0,<3`
+- 核心依賴：`pyside6>=6.12,<7`（桌面版）、`textual>=8.2,<9`（終端機版）、`rich>=15,<16`、`numpy>=2.0,<3`、`safetensors>=0.4,<2`（AlphaZero 權重／自對弈記錄格式）
 
 Install core dependencies / 安裝核心依賴：
 
@@ -73,8 +73,9 @@ AlphaZero 訓練方法與效能分析見
 [`docs/tutorial-zh.md`](docs/tutorial-zh.md)（簡體中文）／
 [`docs/tutorial-zh-Hant.md`](docs/tutorial-zh-Hant.md)（繁體中文）。
 
-Working on the repo? `python dev.py` is the task runner (build / test /
-lint / clippy / cgate); the branch model and prerequisites live in
+Working on the repo? `python dev.py` is the task runner（build / test / test-rust /
+lint / format / clippy / clippy-core / cgate / bench-selfplay / self-test）;
+the branch model and prerequisites live in
 [`docs/development.md`](docs/development.md)。
 
 ---
@@ -160,7 +161,10 @@ python sba.py --eval-az --games 30 --sims 200
 Training extras / 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoint）、
 `--dirichlet-eps 0.25`（根節點探索噪聲，0 停用）、`--lr 1e-3`（線性退火到 1/5）、
 `--workers 8`（多進程自對弈，每個 worker 一份 GPU 模型副本）、
-`--rollout-weight 0.5`（葉節點混合 win/block 啟發式隨機對弈，0 = 純網路）、
+`--rollout-weight 0`（純網路葉值——標準 AlphaZero 配方（D58），也是 exe 的配方；
+>0 重新啟用舊版 win/block 啟發式隨機對弈混合）、
+`--selfplay-engine auto|rust|python`（自對弈來源：Rust exe／Python mp.Pool；
+auto 探測 exe，缺席自動降級）、`--selfplay-procs N`（K 個 exe 進程分攤對局）、
 `--csv`（訓練曲線 CSV——每局一行：loss / LR / temp / eval 勝敗和 / checkpoint，
 預設 `<model>.csv`；新 run 覆寫、resume 續寫）、
 `--channels 128`、`--blocks 5`。自對弈前段 temp 從 1.0 線性退到 0.05，
@@ -312,7 +316,10 @@ remaining throughput gap is backend-bound: the burn/cubecl forward costs
 Vulkan 上每 229 行批約 37 ms，torch/ROCm-HIP 每 256 行批 2.84 ms（≈13 倍
 kernel 差），多 queue 流水線在本機的天花板約 1.4x。Re-measure:
 `python dev.py bench-selfplay` and `python src/tools/parity_search.py`; details
-in docs/decisions.md D57.
+in docs/decisions.md D57. The Python wave-search reference is frozen as golden
+vectors (`tests/golden/`) — the parity anchor survives any future retirement
+of the Python implementation / Python wave 搜尋參考已凍結為 golden 向量
+（`tests/golden/`）——Python 實作未來退場後，對齊錨仍在。
 
 AZ self-play runs ~7–9 s/game @80 sims (128ch/5blocks, 1 worker) — the loop
 is NN-forward-bound, so state-layer gains are bounded by Amdahl / AZ 自對弈

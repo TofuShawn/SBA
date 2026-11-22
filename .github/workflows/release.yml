@@ -1,8 +1,10 @@
 name: Release
 
-# Publish a release package: the tracked source tree (git archive) plus the
-# natively built sba_engine.dll and a start.bat that bootstraps .venv on
-# first launch — users only need Python, not a compiler.
+# Publish a release package: the tracked source tree (git archive; docs/ is
+# export-ignored via .gitattributes — the notes live on the release page,
+# the paper trail stays in the repo) plus the natively built sba_engine.dll
+# and a start.bat that bootstraps .venv on first launch — users only need
+# Python, not a compiler.
 #
 # Triggers: push a v* tag, or run manually from the Actions tab. The manual
 # run publishes only when the `tag` input is filled (e.g. v0.1.0 — the tag
