@@ -2,7 +2,6 @@
 
 import math
 import random
-import sys
 import threading
 
 import pytest

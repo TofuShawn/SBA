@@ -54,6 +54,9 @@ class FakePopen:
         self.killed = True
         self.returncode = -9
 
+    def poll(self):
+        return self.returncode
+
     def wait(self, timeout=None):
         return self.returncode
 
@@ -238,6 +241,9 @@ def test_run_round_watchdog_kills_truly_silent_exe(tmp_path):
             self.killed = True
             self.returncode = -9
             released.set()  # the kill tears the wedged pipe down
+
+        def poll(self):
+            return self.returncode
 
         def wait(self, timeout=None):
             return self.returncode
@@ -472,6 +478,56 @@ def test_run_round_procs_temp_schedule_slices(tmp_path):
     assert cmds[1]["--temp-end"] == "0.500000"  # global idx 4 == the round end
 
 
+def test_run_round_surfaces_exe_game_temps(tmp_path):
+    """B4 temp truth: the exe's game_done event carries each game's ACTUAL
+    sampling temp — run_round must surface it keyed by round-game index (the
+    CSV/event temp is the exe's report, never a Python recomputation)."""
+    # single process: the "game" field is the round-game index itself
+    lines = [
+        {"type": "game_done", "game": 0, "moves": 5, "temp": 1.0},
+        {"type": "game_done", "game": 1, "moves": 5, "temp": 0.75},
+    ]
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=2),
+        exe="fake-exe",
+        popen=_popen_factory(lines),
+    )
+    assert res["games_done"] == 2 and res["crashed"] is False
+    assert res["temps"] == {0: 1.0, 1: 0.75}
+    # K-process merge: every process reports PROC-LOCAL game indices, so the
+    # surfaced temps are keyed by the ABSOLUTE round-game index (the spec's
+    # start_idx + the process's idx) — the same keys the record names carry
+    procs = []
+    lines = [
+        [
+            {"type": "game_done", "game": 0, "moves": 5, "temp": 1.0},
+            {"type": "game_done", "game": 1, "moves": 5, "temp": 0.9},
+        ],
+        [{"type": "game_done", "game": 0, "moves": 5, "temp": 0.8}],
+    ]
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=3, threads=2),
+        exe="fake-exe",
+        popen=_multi_factory(lines, procs),
+        procs=2,
+    )
+    assert res["games_done"] == 3 and res["crashed"] is False
+    assert res["temps"] == {0: 1.0, 1: 0.9, 2: 0.8}
+    # events without a temp (or a non-numeric one) leave the key out: the
+    # caller falls back to its own schedule for exactly those games
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=2),
+        exe="fake-exe",
+        popen=_popen_factory(
+            [
+                {"type": "game_done", "game": 0, "moves": 5},
+                {"type": "game_done", "game": 1, "moves": 5, "temp": "0.5"},
+            ]
+        ),
+    )
+    assert res["temps"] == {}
+
+
 def test_run_round_procs_kill_all_on_crash(tmp_path):
     procs = []
     # proc 0 dies after 1 game of its quota; proc 1 is slow (nothing parsed
@@ -544,7 +600,10 @@ def test_run_round_procs_watchdog_kills_all_on_timeout(tmp_path):
     procs = []
     # proc 0 goes silent (wedged pipe, no EOF, no exit); proc 1 delivers one
     # game then wedges MID-QUOTA — the shared round deadline must kill BOTH
-    # (per-process watchdog on one round-total budget, kill-all on timeout)
+    # (per-process watchdog on one round-total budget, kill-all on timeout;
+    # a watcher whose stdout EOFs while the sibling's abort is still
+    # propagating exits without killing, so the merge's final sweep is what
+    # guarantees no live proc survives a failed round)
     released = threading.Event()
 
     def wedged_after_first(first_line, released):

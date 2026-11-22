@@ -38,9 +38,9 @@ command-line quoting from scratch.
 | `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
 | `python dev.py test-rust` | cargo test: sba-game (default) + sba-core (cpu backend, no GPU) |
 
-A "ready to commit" state = `lint` + `format` + `clippy` + `cgate` + `test`
-all green. CI runs the same gates (plus the CLI entry smoke) on both
-ubuntu and windows.
+A "ready to commit" state = `lint` + `format` + `clippy` + `clippy-core`
++ `cgate` + `test-rust` + `test` all green. CI runs the same gates (plus
+the CLI entry smoke) on both ubuntu and windows.
 
 ## Layout / 佈局
 

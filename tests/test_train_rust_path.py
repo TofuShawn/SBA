@@ -59,7 +59,14 @@ def fake_rust(monkeypatch, tmp_path):
             }
         )
         _write_records(args.out_dir, args.games, args.seed_base, args.sims)
-        res = {"games_done": args.games, "crashed": False, "stderr_tail": ""}
+        res = {
+            "games_done": args.games,
+            "crashed": False,
+            "stderr_tail": "",
+            # B4: the exe reports each game's ACTUAL sampling temp in its
+            # game_done events; the bridge surfaces it keyed by round index
+            "temps": {g: 1.0 - 0.25 * g for g in range(args.games)},
+        }
         # the real bridge announces the round once at the end (Task 8 contract)
         if kw.get("on_event"):
             kw["on_event"](
@@ -112,10 +119,13 @@ def test_train_rust_engine_runs_and_emits(fake_rust, tmp_path):
     assert [e for e in events if e["type"] == "selfplay_engine"] == [
         {"type": "selfplay_engine", "engine": "rust", "workers": 1}
     ]
-    # CSV: one row per game (D41 contract holds through the rust path)
+    # CSV: one row per game (D41 contract holds through the rust path), and
+    # B4 temp truth: the temp column is the exe's reported sampling temp,
+    # NOT a recomputation of the round schedule
     with open(tmp_path / "curve.csv") as f:
         rows = list(_csv.DictReader(f))
     assert len(rows) == 4
+    assert [r["temp"] for r in rows] == ["1.000", "0.750", "1.000", "0.750"]
 
 
 def test_train_rust_retry_after_crash(fake_rust, monkeypatch):

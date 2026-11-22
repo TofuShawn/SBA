@@ -74,6 +74,18 @@ def load_records(dir_path):
     return games
 
 
+def record_indices(dir_path):
+    """The round-game indices of the records load_records() returns, in the
+    SAME sorted order (the g%05d file name IS the round-game index: the
+    exe's start_idx + its per-process idx, records.rs). Pairs
+    position-for-position with load_records, so a caller can join per-game
+    exe events (the game_done temps) onto the loaded records."""
+    return [
+        int(os.path.splitext(os.path.basename(p))[0][1:])
+        for p in sorted(glob.glob(os.path.join(dir_path, "g*.safetensors")))
+    ]
+
+
 def _find_bin(explicit, name, env_var):
     """Shared probe order behind find_exe / find_bench: explicit argument
     (final — a missing explicit path is NOT silently replaced by a probe
@@ -131,6 +143,7 @@ _STDOUT_EOF = object()  # sentinel: the stdout stream has been exhausted
 _STDERR_KEEP = 8192  # stderr chars the drain thread retains (bounded buffer)
 _READER_JOIN = 1.0  # seconds granted to the drain threads after the exe exits
 _ABORT_POLL = 0.2  # seconds between wakeups so a sibling proc's abort is seen
+_EXIT_GRACE = 1.0  # seconds granted to a process that outlived its stdout
 
 
 @dataclass
@@ -249,12 +262,13 @@ class _ProcWatch:
     an `abort` event — when any sibling process times out or crashes, every
     watcher kills its own process (kill-all on any failure)."""
 
-    def __init__(self, cmd, expected_games, deadline, abort, popen):
+    def __init__(self, cmd, expected_games, deadline, abort, popen, first_game=0):
         spawn = popen or subprocess.Popen
         self.proc = spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         self.expected_games = expected_games
         self.deadline = deadline
         self.abort = abort
+        self.first_game = first_game  # this proc's first absolute round-game index
         self.lines = queue.Queue()
         self.stderr_tails = []  # one entry, appended when the drain thread finishes
 
@@ -286,7 +300,9 @@ class _ProcWatch:
 
     def watch(self):
         """Count game_done events until EOF, deadline, or abort; kill on
-        timeout/abort. Returns (games_done, timed_out, rc, stderr_tail)."""
+        timeout/abort. Returns (games_done, timed_out, rc, stderr_tail,
+        temps) — temps maps this proc's absolute round-game indices to the
+        exe-reported sampling temperatures (missing keys = no temp event)."""
         proc = self.proc
         reader = threading.Thread(
             target=self._pump_stdout, args=(proc,), name="selfplay-stdout", daemon=True
@@ -299,6 +315,7 @@ class _ProcWatch:
 
         games_done = 0
         timed_out = False
+        temps = {}
         while True:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
@@ -321,6 +338,12 @@ class _ProcWatch:
                 continue
             if isinstance(ev, dict) and ev.get("type") == "game_done":
                 games_done += 1
+                # the exe reports each game's ACTUAL sampling temp (B4):
+                # surface it keyed by the absolute round-game index so the
+                # CSV/event temp is the exe's truth, not a recomputation
+                g_idx, temp = ev.get("game"), ev.get("temp")
+                if isinstance(g_idx, int) and isinstance(temp, (int, float)):
+                    temps[self.first_game + g_idx] = float(temp)
 
         if timed_out or self.abort.is_set():
             # a sibling's abort can race this proc's clean exit — kill on an
@@ -328,17 +351,24 @@ class _ProcWatch:
             # on a dead handle); the verdict below still holds
             with contextlib.suppress(OSError):
                 proc.kill()
-        rc = proc.wait()
+        try:
+            rc = proc.wait(timeout=_EXIT_GRACE)
+        except subprocess.TimeoutExpired:
+            # the process outlived its own stdout (or the kill above): the
+            # watchdog must RETURN — finish it like any wedged exe and reap
+            with contextlib.suppress(OSError):
+                proc.kill()
+            rc = proc.wait()
         reader.join(_READER_JOIN)
         drainer.join(_READER_JOIN)
         stderr_tail = ""
         if rc != 0 or timed_out:
             stderr_tail = (self.stderr_tails[0] if self.stderr_tails else "")[-400:]
-        return games_done, timed_out, rc, stderr_tail
+        return games_done, timed_out, rc, stderr_tail, temps
 
 
 def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, procs=1):
-    """Run one exe round; returns {games_done, crashed, stderr_tail}.
+    """Run one exe round; returns {games_done, crashed, stderr_tail, temps}.
 
     `args` is a RoundArgs (the round's parameters); `exe` is the binary to
     spawn. stdout is the exe's JSONL event stream (start → (game_done|
@@ -369,12 +399,25 @@ def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, 
     given, receives {"type": "selfplay_round", "games_done": n,
     "crashed": bool} once at the end — game_done events are collected, not
     forwarded raw.
+
+    The result also carries "temps": {round_game_index: temp} — the ACTUAL
+    per-game sampling temperatures the exe reported in its game_done events
+    (B4: the CSV/event temp is the exe's truth, never a recomputation).
+    Missing keys mean that game's event carried no temp (callers fall back
+    to the round schedule themselves).
     """
     deadline = time.monotonic() + timeout
     abort = threading.Event()
     specs = [args] if procs <= 1 else _partition_round(args, procs)
     watchers = [
-        _ProcWatch([exe, *build_round_cmd(spec)], spec.games, deadline, abort, popen)
+        _ProcWatch(
+            [exe, *build_round_cmd(spec)],
+            spec.games,
+            deadline,
+            abort,
+            popen,
+            first_game=spec.start_idx,
+        )
         for spec in specs
     ]
 
@@ -385,10 +428,10 @@ def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, 
             results[i] = w.watch()
         except Exception as e:  # noqa: BLE001 - a broken watcher fails the
             # ROUND (the retry contract re-dispatches), never the merge
-            results[i] = (0, False, -1, f"watcher {i} died: {e!r}")
+            results[i] = (0, False, -1, f"watcher {i} died: {e!r}", {})
             abort.set()
             return
-        games_done, timed_out, rc, _tail = results[i]
+        games_done, timed_out, rc, _tail, _temps = results[i]
         if timed_out or rc != 0 or games_done < w.expected_games:
             abort.set()  # kill-all: this merged round has failed once already
 
@@ -402,11 +445,30 @@ def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, 
         t.join()
 
     games_done = sum(r[0] for r in results)
+    temps = {}
+    for r in results:
+        temps.update(r[4])
     tails = [r[3] for r in results if r[3]]
     stderr_tail = tails[0][-400:] if tails else ""
     # crashed when any process failed (its own timeout/crash/short count set
     # the abort flag) or the merged total fell short of the round's games
     crashed = abort.is_set() or games_done < args.games
+    if crashed:
+        # kill-ALL is unconditional over every LIVE process (the watchdog
+        # contract): a watcher can reach its own EOF-break before the
+        # sibling's abort flag has propagated and exit without killing, so
+        # the merge sweeps every process one final time — a failed round
+        # never leaves a live exe behind
+        for w in watchers:
+            if w.proc.poll() is None:
+                with contextlib.suppress(OSError):
+                    w.proc.kill()
+                w.proc.wait()
     if on_event:
         on_event({"type": "selfplay_round", "games_done": games_done, "crashed": crashed})
-    return {"games_done": games_done, "crashed": crashed, "stderr_tail": stderr_tail}
+    return {
+        "games_done": games_done,
+        "crashed": crashed,
+        "stderr_tail": stderr_tail,
+        "temps": temps,
+    }

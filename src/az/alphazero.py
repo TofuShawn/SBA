@@ -1314,6 +1314,11 @@ def train(cfg, ctx=None, hooks=None):
                     # re-dispatches the missing games single-process
                     procs=selfplay_procs,
                 )
+                # B4 temp truth: the exe's game_done events report each
+                # game's ACTUAL sampling temp; the CSV/event temp is that
+                # report (keyed by the round-game index the record names
+                # carry), never a Python recomputation of the schedule
+                round_temps = res.get("temps") or {}
                 if res["crashed"]:
                     if on_event:
                         on_event({"type": "worker_lost", "game": it})
@@ -1341,18 +1346,27 @@ def train(cfg, ctx=None, hooks=None):
                     )
                     if res["crashed"]:
                         raise RuntimeError("rust self-play died twice: %s" % res["stderr_tail"])
+                    retry_temps = res.get("temps") or {}
+                else:
+                    retry_temps = {}
+                # record_indices pairs position-for-position with
+                # load_records, so each record finds its exe-reported temp
                 records = rustselfplay.load_records(out_dir) + rustselfplay.load_records(
                     out_dir + "-retry"
                 )
-                for g_states, g_targets, g_zs in records:
-                    # per-game temp under the exe's linear round schedule:
-                    # game g sits at exactly (g - 1) / games between the
-                    # round's temp_start and temp_end endpoints
-                    _absorb_game(
-                        [(g_states, g_targets, g_zs)],
-                        it,
-                        max(TEMP_MIN, 1.0 - (it - 1) / games),
-                    )
+                first_idx = rustselfplay.record_indices(out_dir)
+                retry_idx = rustselfplay.record_indices(out_dir + "-retry")
+                for pos, (g_states, g_targets, g_zs) in enumerate(records):
+                    if pos < len(first_idx):
+                        temp = round_temps.get(first_idx[pos])
+                    else:
+                        temp = retry_temps.get(retry_idx[pos - len(first_idx)])
+                    if temp is None:
+                        # no exe-reported temp for this record (an exe older
+                        # than the game_done temp field): keep the historical
+                        # round-schedule estimate for exactly that game
+                        temp = max(TEMP_MIN, 1.0 - (it - 1) / games)
+                    _absorb_game([(g_states, g_targets, g_zs)], it, temp)
                     it += 1
         elif workers > 1:
             # the handoff keeps one config shape: the caller's cfg plus the
