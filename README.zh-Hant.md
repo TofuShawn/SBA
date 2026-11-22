@@ -367,8 +367,13 @@ n = 20；95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C �
 ## 致謝
 
 - [Qt for Python (PySide6)](https://github.com/qtproject/pyside-pyside-setup) — 桌面版 UI 框架
+- [Textual](https://github.com/Textualize/textual) — 終端機版 UI 框架
+- [Rich](https://github.com/Textualize/rich) — CLI 表格、進度條與量測儀表
 - [PyTorch](https://github.com/pytorch/pytorch) — AlphaZero 的神經網路
 - [NumPy](https://github.com/numpy/numpy) — AlphaZero 訓練用的陣列工具
+- [safetensors](https://github.com/huggingface/safetensors) — 權重與自對弈記錄格式
+- [burn + cubecl](https://github.com/tracel-ai/burn) — 自對弈 exe 背後的純 Rust 推論引擎（wgpu/Vulkan 後端）
+- 以及讓 exe 保持精簡的 Rust crate：[clap](https://github.com/clap-rs/clap)、[rand/rand_distr](https://github.com/rust-random/rand)、[serde_json](https://github.com/serde-rs/json)、[sha2](https://github.com/RustCrypto/hashes)、[bytemuck](https://github.com/Lokathor/bytemuck)
 
 ### 算法出處
 

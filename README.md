@@ -406,8 +406,13 @@ All three share one playout policy: the plain win/block heuristic kernel
 ## Credits
 
 - [Qt for Python (PySide6)](https://github.com/qtproject/pyside-pyside-setup) — the desktop UI framework
-- [PyTorch](https://github.com/pytorch/pytorch) — neural networks for the AlphaZero engine
+- [Textual](https://github.com/Textualize/textual) — the terminal UI framework
+- [Rich](https://github.com/Textualize/rich) — CLI tables, progress bars and gauges
+- [PyTorch](https://github.com/pytorch/pytorch) — neural networks for the AlphaZero trainer
 - [NumPy](https://github.com/numpy/numpy) — tensor utilities in the AlphaZero trainer
+- [safetensors](https://github.com/huggingface/safetensors) — the weights and self-play record format
+- [burn + cubecl](https://github.com/tracel-ai/burn) — the pure-Rust inference engine behind the self-play exe (wgpu/Vulkan backends)
+- and the Rust crates that keep the exe small: [clap](https://github.com/clap-rs/clap), [rand/rand_distr](https://github.com/rust-random/rand), [serde_json](https://github.com/serde-rs/json), [sha2](https://github.com/RustCrypto/hashes), [bytemuck](https://github.com/Lokathor/bytemuck)
 
 ### Algorithm sources
 
