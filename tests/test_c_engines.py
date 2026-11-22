@@ -10,12 +10,12 @@ import time
 
 import pytest
 
-import ai
-from ai import get_ai_move, set_engine_config
-from game import X, UltimateGame, apply_move
+from engines import ai
+from engines.ai import get_ai_move, set_engine_config
+from core.game import X, UltimateGame, apply_move
 
 DLL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "native", "sba_engine.dll"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "engines", "sba_engine.dll"
 )
 pytestmark = pytest.mark.skipif(not os.path.isfile(DLL), reason="native engine DLL not built")
 
@@ -39,7 +39,7 @@ def _out_of_book():
 
 
 def _ce():
-    from native import cengine as c
+    from engines import cengine as c
 
     return c
 
@@ -100,7 +100,7 @@ def test_dispatch_raves_use_the_c_backend(monkeypatch):
 def test_dispatch_raves_fall_back_to_python(monkeypatch):
     """c_mcts off -> the pure-Python RAVE/GRAVE trees answer (the DLL-less
     contract). The spy wraps the OWNING module's functions."""
-    import mcts
+    from engines import mcts
 
     calls = []
     orig_rave = mcts.mcts_rave_search
@@ -130,7 +130,7 @@ def test_tree_reuse_switch_gates_the_c_mcts_path(monkeypatch):
     """tree_reuse=false must gate BOTH ends of the C reuse cycle: no prev
     handed to cengine and no arena parked in _C_PREV (the D53 fix — the
     switch used to be read by the Python tree only)."""
-    import cbridge
+    from engines import cbridge
 
     seen = []
     real = _ce().mcts_search
@@ -161,7 +161,7 @@ def test_tree_reuse_switch_gates_the_c_mcts_path(monkeypatch):
 def test_tree_reuse_switch_gates_the_c_rave_path(monkeypatch):
     """Same gate on the RAVE/GRAVE wrapper — it shares the _C_PREV slots
     and had the same unconditional-reuse bug."""
-    import cbridge
+    from engines import cbridge
 
     seen = []
     real = _ce().rave_search
@@ -202,7 +202,7 @@ def test_c_minimax_pro_dispatch_and_normal_delegation(monkeypatch):
     g = _out_of_book()
     assert get_ai_move(g, "Minimax Pro", 3, 4) in g.legal_moves()
     assert calls == [4]
-    from game import NormalGame
+    from core.game import NormalGame
 
     calls.clear()
     ng = NormalGame()

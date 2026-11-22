@@ -4,7 +4,7 @@ import random
 
 import pytest
 
-from game import (
+from core.game import (
     X,
     O,
     EMPTY,

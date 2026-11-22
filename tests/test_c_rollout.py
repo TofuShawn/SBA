@@ -10,9 +10,9 @@ import time
 
 import pytest
 
-import ai
+from engines import ai
 
-from ai import (
+from engines.ai import (
     _c_rollout_state,
     _get_c_rollout,
     _rollout_move,
@@ -20,8 +20,8 @@ from ai import (
     get_ai_move,
     set_engine_config,
 )
-from native import cengine as _ce
-from game import (
+from engines import cengine as _ce
+from core.game import (
     BitUltimateGame,
     NormalGame,
     O,
@@ -33,10 +33,10 @@ from game import (
 )
 
 DLL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "native", "sba_engine.dll"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "engines", "sba_engine.dll"
 )
 LEGACY_DLL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "native", "sba_rollout.dll"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "engines", "sba_rollout.dll"
 )
 
 pytestmark = pytest.mark.skipif(
@@ -129,7 +129,7 @@ def test_kernel_search_faster_than_python(monkeypatch=None):
             {"engine": {"c_mcts": False, "opening_book": False, "multithreaded": False}}
         )
         t0 = time.perf_counter()
-        from ai import mcts_search as pure_mcts
+        from engines.ai import mcts_search as pure_mcts
 
         pure_mcts(g.clone(), 400)
         t_p = time.perf_counter() - t0

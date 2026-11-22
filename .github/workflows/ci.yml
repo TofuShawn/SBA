@@ -1,11 +1,11 @@
 name: CI
 
-# PRs carry the checks for feature branches; push runs only on the default
-# branch. Concurrency cancels superseded runs on the same ref (a rapid
-# push used to queue two full matrix runs for the same commit).
+# PRs carry the checks for feature branches; push runs on main and on the
+# integration branch dev (work landing there is CI-verified before the
+# merge to main). Concurrency cancels superseded runs on the same ref.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
     branches: [main]
 
@@ -38,15 +38,92 @@ jobs:
       - name: Ruff format
         run: ruff format --check .
 
+      # D62: blocking gate. The lint env (requirements-dev + pip-audit, fresh
+      # resolve) audits 0 findings, so `|| true` is gone — any NEW finding
+      # fails the job. The 59 --ignore-vuln IDs are the D62 baseline for the
+      # pillow 11.3.0 residue that lives only in the local dev venv:
+      # parent-constrained by arcade==3.3.3 (pins pillow~=11.3.0; no 11.x fix
+      # release exists, fixes start at 12.1.1). arcade is a local dev-tool
+      # install that never appears in this CI env, so the flags are an inert
+      # documented baseline — drop them once arcade allows pillow>=12.
+      - name: pip-audit (gate)
+        run: |
+          pip install pip-audit
+          IGNORED=(
+            CVE-2026-112390  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112391  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112393  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112395  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112399  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112400  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112401  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112404  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112406  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112891  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112892  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112893  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112894  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112895  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112897  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112899  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-112900  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-128066  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-128067  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-96638  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-96640  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            CVE-2026-96778  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            GHSA-78g4-xqwv-q3g8  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-165  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2249  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2250  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2251  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2252  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2253  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2254  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2255  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2256  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2257  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-2874  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3451  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3453  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3454  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3493  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3494  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3495  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-3496  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4326  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4327  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4328  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4329  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4330  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4331  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4332  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4334  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4335  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4336  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4337  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4338  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4339  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4340  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4341  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4342  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4343  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+            PYSEC-2026-4363  # pillow: parent-pinned by arcade~=11.3.0, no 11.x fix (dev-venv only)
+          )
+          FLAGS=()
+          for id in "${IGNORED[@]}"; do FLAGS+=(--ignore-vuln "$id"); done
+          pip-audit --desc off "${FLAGS[@]}"
+
       # The C engine used to compile with no warning flags at all, and
       # build.py swallowed successful builds' stderr. This is the gate;
       # -D__stdcall= is the same define build.py uses on a Linux host.
       - name: C warnings
         run: |
-          for f in native/sba_ultt.c native/sba_rollout.c native/sba_mcts.c \
-                   native/sba_rave.c native/sba_minimax.c; do
+          for f in src/engines/sba_ultt.c src/engines/sba_rollout.c \
+                   src/engines/sba_mcts.c src/engines/sba_rave.c \
+                   src/engines/sba_minimax.c; do
             gcc -std=c11 -fsyntax-only -Wall -Wextra -Werror \
-                -D__stdcall= -Inative "$f"
+                -D__stdcall= -Isrc/engines "$f"
           done
 
   test:
@@ -71,13 +148,33 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install numpy
+          pip install -r requirements.txt -r requirements-dev.txt
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
       # the crate has compiled clean here since D49 — clippy is a gate now
+      # (D60 workspace: cargo runs at the repo root, -p selects the crate)
       - name: Clippy
-        run: cargo clippy --release --manifest-path native/sba-game/Cargo.toml -- -D warnings
+        run: cargo clippy --release -p sba_game -- -D warnings
+
+      - name: Install Rust (Linux)
+        if: runner.os == 'Linux'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Clippy (sba-core)
+        if: runner.os == 'Linux'
+        run: cargo clippy --release -p sba-core -- -D warnings
+
+      - name: Rust tests (sba-core, cpu backend)
+        if: runner.os == 'Linux'
+        run: cargo test -p sba-core --no-default-features --features cpu
+
+      # The debug exes must exist BEFORE pytest: test_encode_parity drives
+      # sba_debug (found via the debug probe paths) and the Task 12 bench
+      # will drive bench_burn the same way — one cpu debug build covers all
+      # three bins. The Windows leg skips these tests (find_exe() -> None).
+      - name: Build sba_debug (cpu)
+        if: runner.os == 'Linux'
+        run: cargo build -p sba-core --no-default-features --features cpu --bin sba_debug --bin sba_selfplay --bin bench_burn
 
       # PySide6 (the offscreen BoardWidget test) needs an EGL/GL stack on
       # the ubuntu runner; without it the import raises and collection fails
@@ -101,7 +198,7 @@ jobs:
           echo "C:\ProgramData\mingw64\mingw64\bin" >> "$GITHUB_PATH"
 
       - name: Build native engine (sba_engine.dll)
-        run: python native/build.py
+        run: python src/tools/build.py
 
       - name: Run tests
         run: python -m pytest tests -q

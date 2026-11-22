@@ -8,24 +8,38 @@ pytest.importorskip("torch")
 import numpy as np
 import random
 
-import alphazero
-from game import X, O, EMPTY, NormalGame, UltimateGame
-from ai import get_ai_move
+from az import alphazero
+from core.game import X, O, EMPTY, NormalGame, UltimateGame
+from engines.ai import get_ai_move
 
 
 def test_az_smoke_train_ultimate():
+    """Single-process python self-play, pinned (selfplay-engine=python):
+    `auto` resolves to the rust exe on dev machines, so the fakes-free python
+    loop (real self_play_game, real tiny torch model) would otherwise only be
+    covered on exe-less boxes."""
+    events = []
     model = alphazero.train(
-        "ultimate",
-        games=2,
-        sims=6,
-        quiet=True,
-        save=False,
-        eval_games=1,
-        eval_sims=32,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=2,
+            sims=6,
+            quiet=True,
+            save=False,
+            eval_games=1,
+            eval_sims=32,
+            channels=32,
+            blocks=2,
+            selfplay_engine="python",
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert model is not None
+    # Task 9 engine arbitration, python flavour (workers=1 default)
+    assert [e for e in events if e["type"] == "selfplay_engine"] == [
+        {"type": "selfplay_engine", "engine": "python", "workers": 1}
+    ]
+    # one `game` event per completed game, in order
+    assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
     g = UltimateGame()
     assert alphazero.select_move(g, model, 20) in g.legal_moves()
 
@@ -54,15 +68,16 @@ def test_train_eval_every_schedule(monkeypatch, capsys):
 
     monkeypatch.setattr(alphazero, "alphazero_move", fast)
     alphazero.train(
-        "ultimate",
-        games=6,
-        sims=3,
-        eval_every=2,
-        eval_games=1,
-        quiet=False,
-        save=False,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=6,
+            sims=3,
+            eval_every=2,
+            eval_games=1,
+            quiet=False,
+            save=False,
+            channels=32,
+            blocks=2,
+        )
     )
     out = capsys.readouterr().out
     assert out.count("win=") == 3
@@ -80,6 +95,13 @@ def test_mcts_search_batch_larger_than_budget():
     root, counts = alphazero.mcts_search(g, model, 30, batch_size=64)
     assert root.visits == 30
     assert counts and all(v >= 1 for v in counts.values())
+
+
+def test_rollout_weight_is_pure_network():
+    """D58 recipe guard: shipped default is the pure-network leaf value the
+    exe trains on; a silent revert to the 0.5 blend would split the trainer
+    and the exe recipes again."""
+    assert alphazero.ROLLOUT_WEIGHT == 0
 
 
 def test_mcts_root_dirichlet_noise(monkeypatch):
@@ -111,16 +133,17 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
         lambda game, model, budget=800: random.choice(game.legal_moves()),
     )
     alphazero.train(
-        "ultimate",
-        games=3,
-        sims=2,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=True,
-        ckpt_every=2,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=3,
+            sims=2,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=True,
+            ckpt_every=2,
+            channels=32,
+            blocks=2,
+        )
     )
     assert target.exists()  # final canonical save
     assert ck2.exists()  # the game-2 curve point
@@ -130,24 +153,35 @@ def test_train_ckpt_every_saves(monkeypatch, tmp_path):
 
 
 def test_train_parallel_workers(monkeypatch):
+    """The mp.Pool fork (spec §5.4's fallback), pinned python: `auto` picks
+    the rust exe on dev machines, which would silently stop exercising
+    _train_multiprocess on exactly the boxes that run the suite."""
     monkeypatch.setattr(
         alphazero,
         "alphazero_move",
         lambda game, model, budget=800: random.choice(game.legal_moves()),
     )
+    events = []
     model = alphazero.train(
-        "ultimate",
-        games=2,
-        sims=2,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=False,
-        channels=32,
-        blocks=2,
-        workers=2,
+        alphazero.TrainCfg(
+            games=2,
+            sims=2,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=False,
+            channels=32,
+            blocks=2,
+            workers=2,
+            selfplay_engine="python",
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
     )
     assert model is not None
+    assert [e for e in events if e["type"] == "selfplay_engine"] == [
+        {"type": "selfplay_engine", "engine": "python", "workers": 2}
+    ]
+    assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
     g = UltimateGame()
     assert alphazero.select_move(g, model, 10) in g.legal_moves()
 
@@ -156,7 +190,7 @@ def test_policy_vector_masks_and_renormalises():
     """D40: the raw priors are masked to legal moves and renormalised —
     zero mass outside the legal set, one forward pass, no search."""
     model = alphazero.AZNet(9, 8, 1).to(alphazero.DEVICE)
-    from game import apply_move
+    from core.game import apply_move
 
     g = UltimateGame()
     apply_move(g, (0, 0))
@@ -173,7 +207,7 @@ def test_policy_vector_masks_and_renormalises():
 
 def test_az_policy_priors_guards(monkeypatch):
     """No heat for Normal boards, decided boards, or without a model."""
-    import ai
+    from engines import ai
 
     assert ai.az_policy_priors(NormalGame()) is None
     gu = UltimateGame()
@@ -194,17 +228,18 @@ def test_training_csv_curve(tmp_path):
     csv_p = tmp_path / "curve.csv"
     model_p = tmp_path / "m.pt"
     alphazero.train(
-        "ultimate",
-        games=2,
-        sims=4,
-        eval_every=1,
-        eval_games=1,
-        quiet=True,
-        save=True,
-        save_path=str(model_p),
-        csv_path=str(csv_p),
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=2,
+            sims=4,
+            eval_every=1,
+            eval_games=1,
+            quiet=True,
+            save=True,
+            save_path=str(model_p),
+            csv_path=str(csv_p),
+            channels=32,
+            blocks=2,
+        )
     )
     rows = list(_csv.reader(csv_p.read_text(encoding="utf-8").splitlines()))
     assert rows[0][:2] == ["stage", "game"]
@@ -216,17 +251,18 @@ def test_training_csv_curve(tmp_path):
 
     # resume appends to the same curve, no duplicated header
     alphazero.train(
-        "ultimate",
-        games=1,
-        sims=4,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=False,
-        resume=str(model_p),
-        csv_path=str(csv_p),
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=1,
+            sims=4,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=False,
+            resume=str(model_p),
+            csv_path=str(csv_p),
+            channels=32,
+            blocks=2,
+        )
     )
     rows2 = list(_csv.reader(csv_p.read_text(encoding="utf-8").splitlines()))
     assert len(rows2) == 4  # header + 2 + 1
@@ -236,19 +272,21 @@ def test_training_csv_curve(tmp_path):
 def test_training_csv_disabled_without_save():
     """save=False and no explicit --csv -> no file (smoke runs stay clean)."""
     import os
-    import ai
 
-    default_csv = os.path.join(ai.ROOT, "models", "az_ultimate.csv")
+    from config import ROOT  # the repo root (ai no longer re-exports it, D60)
+
+    default_csv = os.path.join(ROOT, "models", "az_ultimate.csv")
     existed = os.path.exists(default_csv)
     alphazero.train(
-        "ultimate",
-        games=1,
-        sims=3,
-        eval_every=99,
-        eval_games=1,
-        quiet=True,
-        save=False,
-        channels=32,
-        blocks=2,
+        alphazero.TrainCfg(
+            games=1,
+            sims=3,
+            eval_every=99,
+            eval_games=1,
+            quiet=True,
+            save=False,
+            channels=32,
+            blocks=2,
+        )
     )
     assert os.path.exists(default_csv) == existed

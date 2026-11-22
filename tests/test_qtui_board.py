@@ -18,7 +18,7 @@ try:
 except ImportError as exc:  # pragma: no cover - GL-less environments
     pytest.skip(f"PySide6/OpenGL stack unavailable: {exc}", allow_module_level=True)
 
-from game import UltimateGame, apply_move  # noqa: E402
+from core.game import UltimateGame, apply_move  # noqa: E402
 
 # NOTE: the cache must NOT share its name with the accessor — a global
 # `_app = None` next to `def _app()` gets shadowed by the def, so
@@ -44,7 +44,7 @@ def _midgame_board(widget):
 
 def test_policy_heat_paints_and_clears():
     _qapp()
-    from qtui import BoardWidget
+    from ui.qtui import BoardWidget
 
     w = BoardWidget()
     w.resize(450, 450)
@@ -65,3 +65,47 @@ def test_policy_heat_paints_and_clears():
     assert w._heat == {}
     _midgame_board(w)
     assert w.grab().toImage() == plain  # and the midgame looks un-heated
+
+
+def test_pages_build_and_render_offscreen():
+    """The three pages construct and paint offscreen — a guard for the
+    _build_ui split (M12): every _build_* helper must leave the same widget
+    tree and attributes the monolith did, and the paint path must run."""
+    _qapp()
+    from session.SBA import new_session
+    from ui.qtui import GamePage, MenuPage, SettingsPage
+
+    menu = MenuPage()
+    menu.resize(900, 700)
+    menu.grab()  # exercises the backdrop/contour paintEvent
+
+    settings = SettingsPage()
+    settings.resize(900, 700)
+    settings.grab()
+    # the numeric knobs the split must keep binding to their attributes
+    assert settings.workers_spin.value() >= 1
+    assert settings.assistant_sims_spin.value() >= 200
+    assert settings.pro_time_spin.value() >= 100
+
+    page = GamePage()
+    page.resize(1200, 800)
+    page.start_session(new_session())
+    img = page.grab().toImage()
+    assert not img.isNull()
+    # the attributes other code reaches for all still exist after the split
+    for attr in (
+        "revert_btn",
+        "pause_btn",
+        "next_btn",
+        "step_lbl",
+        "clock_lbl",
+        "board",
+        "hist_chart_view",
+        "hist_list",
+        "analysis_list",
+        "assistant_switch",
+        "heat_switch",
+        "cvc_card",
+        "footer_lbl",
+    ):
+        assert getattr(page, attr) is not None, attr

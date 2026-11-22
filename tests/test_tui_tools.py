@@ -13,7 +13,7 @@ import pytest  # noqa: E402
 
 pytest.importorskip("textual")
 
-from tui_tools import BenchTUI, TrainTUI  # noqa: E402
+from ui.tui_tools import BenchTUI, TrainTUI  # noqa: E402
 
 
 def test_bench_tui_runs_and_reports():
@@ -100,8 +100,8 @@ def test_train_tui_event_updates():
 def test_bench_tui_entry_parses_flags(monkeypatch):
     """--bench-tui routes through run_bench with the flags parsed from the
     forwarded argv (this path is what the user's traceback missed)."""
-    import SBA
-    import tui_tools
+    from session import SBA
+    from ui import tui_tools
 
     seen = {}
 
@@ -135,8 +135,8 @@ def test_bench_tui_entry_parses_flags(monkeypatch):
 
 
 def test_train_tui_entry_parses_flags(monkeypatch):
-    import SBA
-    import tui_tools
+    from session import SBA
+    from ui import tui_tools
 
     seen = {}
 

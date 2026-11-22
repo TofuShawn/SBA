@@ -1,0 +1,47 @@
+[package]
+name = "sba-core"
+version = "0.1.0"
+edition = "2021"
+
+# D55 Phase A: the Rust core. The AZNet model is hand-written in burn
+# (readable, no codegen), weights come from PyTorch via safetensors, and
+# the wgpu backend runs inference on Vulkan/DX12 — pure Rust, no C++
+# runtime. bench_burn is the inference spike; the PUCT tree and the
+# self-play loop land here next.
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "bench_burn"
+path = "src/bench_burn.rs"
+
+[[bin]]
+name = "sba_selfplay"
+path = "src/sba_selfplay.rs"
+
+[[bin]]
+name = "sba_debug"
+path = "src/sba_debug.rs"
+
+[features]
+default = ["wgpu"]
+wgpu = ["burn/wgpu"]
+cpu = ["burn/candle"]
+
+[dependencies]
+burn = { version = "0.16", default-features = false }
+safetensors = "0.4"
+bytemuck = "1"
+# search.rs: StdRng seeding + uniform move sampling (rand), root-prior
+# Dirichlet noise (rand_distr) — 0.8/0.4 lines to match the sketch APIs
+# (Rng::gen, Dirichlet::new(&[f64]) -> Vec<f64>).
+rand = "0.8"
+rand_distr = "0.4"
+# sba_selfplay: clap derive for the exe contract, serde_json for the JSONL
+# event stream (and records.rs's deterministic metadata splice), sha2 for
+# the weights_sha fingerprint in the start event and record metadata.
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sba_game = { path = "../sba-game" }

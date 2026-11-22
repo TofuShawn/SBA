@@ -1,4 +1,14 @@
-pyside6>=6.12.0
-pytest>=9.2.0
-textual>=8.2.8
-rich>=15.0.0
+# Runtime dependencies only (UI + the numeric array the Rust bridge and
+# AlphaZero hand back and forth).
+#   torch is NOT here on purpose: it is an optional feature (AlphaZero) and
+#   pinning it would drag the CUDA bundle into Dependabot's updates. Install
+#   it yourself to train/evaluate:
+#     pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pytest lives in requirements-dev.txt (dev tooling, not runtime).
+# Upper bounds are deliberate: all of these are at their declared lower
+# bound today, so the next major would break the project silently.
+pyside6>=6.12,<7
+textual>=8.2,<9
+rich>=15,<16
+numpy>=2.0,<3
+safetensors>=0.4,<2   # record files the Rust self-play exe writes/reads

@@ -11,3 +11,8 @@
 *.dll binary
 *.pt binary
 *.bin binary
+
+# The release zip (git archive in release.yml) ships the runtime, not the
+# paper trail: the decision log, release notes, tutorials and the technical
+# report live in the repository, not in a user's install folder.
+docs/ export-ignore

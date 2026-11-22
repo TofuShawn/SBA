@@ -1,17 +1,14 @@
-"""Shared pytest fixtures: repo path, config reset, and deterministic RNG."""
+"""Shared pytest fixture: engine/config reset and a deterministic RNG.
 
-import os
+The `src/` import path comes from pyproject.toml
+(`tool.pytest.ini_options.pythonpath`) — no sys.path surgery here.
+"""
+
 import random
-import sys
 
 import pytest
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "src")
-if SRC not in sys.path:
-    sys.path.insert(0, SRC)
-
-from ai import reset_engine_caches, set_engine_config  # noqa: E402
+from engines.ai import reset_engine_caches, set_engine_config
 
 
 @pytest.fixture(autouse=True)

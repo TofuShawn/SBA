@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pytest
 
-import rustbridge
-from native import cengine
+from az import rustbridge
+from engines import cengine
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADER = (ROOT / "native" / "sba_ultt.h").read_text(encoding="utf-8")
-RUST = (ROOT / "native" / "sba-game" / "src" / "lib.rs").read_text(encoding="utf-8")
+HEADER = (ROOT / "src" / "engines" / "sba_ultt.h").read_text(encoding="utf-8")
+RUST = (ROOT / "src" / "sba-game" / "src" / "lib.rs").read_text(encoding="utf-8")
 
 C_TYPES = {
     "double": ctypes.c_double,

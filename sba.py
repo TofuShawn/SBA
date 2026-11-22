@@ -3,9 +3,9 @@
 
 """sba.py — the root-level entry point: every command starts here.
 
-The implementation lives in src/SBA.py; this shim only puts src/ on
-sys.path and forwards argv. Lowercase on purpose — a root `SBA.py`
-would collide with the src/SBA.py module on case-insensitive
+The implementation lives in src/session/SBA.py (D61); this shim only puts
+src/ on sys.path and forwards argv. Lowercase on purpose — a root `SBA.py`
+would collide with the session/SBA.py module on case-insensitive
 filesystems (Windows) once `import SBA` resolves.
 
     python sba.py                    # PySide6 desktop app (default)
@@ -25,11 +25,11 @@ SRC = os.path.join(ROOT, "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from SBA import main  # noqa: E402
+from session.SBA import main  # noqa: E402
 
 # $SBA_CONFIG is honoured inside config.py at import time — by the time
 # this line runs, CONFIG is already loaded from the right file, and every
-# other entry point (src/SBA.py included) inherits the same behaviour.
+# other entry point (src/session/SBA.py included) inherits the same behaviour.
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

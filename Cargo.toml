@@ -1,0 +1,13 @@
+# The cargo workspace root (D60): both Rust crates live under src/ and
+# share one Cargo.lock and one target/ at the repo root. Keep this file
+# minimal — members + profiles only; each crate's dependencies stay in its
+# own Cargo.toml. Profiles must live here: cargo ignores [profile] blocks
+# in workspace members, so sba-game's release profile moved up verbatim.
+
+[workspace]
+resolver = "2"
+members = ["src/sba-game", "src/sba-core"]
+
+[profile.release]
+opt-level = 3
+lto = true

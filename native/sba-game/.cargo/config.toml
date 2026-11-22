@@ -1,5 +1,0 @@
-# The WSL cross-build route (native/build.py) links the windows-gnu target
-# with the mingw-w64 gcc that the C engine already uses. Host builds (CI
-# Windows MSVC, Linux) never select this target, so the line is inert there.
-[target.x86_64-pc-windows-gnu]
-linker = "x86_64-w64-mingw32-gcc"
