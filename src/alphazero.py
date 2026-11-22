@@ -988,6 +988,7 @@ def train(cfg, ctx=None, hooks=None):
         selfplay_engine,
         selfplay_exe,
         round_games,
+        selfplay_procs,
     ) = (
         cfg.game_type,
         cfg.games,
@@ -1018,6 +1019,7 @@ def train(cfg, ctx=None, hooks=None):
         cfg.selfplay_engine,
         cfg.selfplay_exe,
         cfg.round_games,
+        cfg.selfplay_procs,
     )
     if seed is not None:
         random.seed(seed)
@@ -1301,6 +1303,11 @@ def train(cfg, ctx=None, hooks=None):
                     # round deadline, not a per-line gap: a legitimate large
                     # round (games x 2min floor) is never falsely killed
                     timeout=max(config.MP_GAME_TIMEOUT, round_games * 120),
+                    # D59: K exe processes share the round (disjoint seed
+                    # ranges + record indices, merged watchdog) — the merged
+                    # round stays ONE round for the retry below, which
+                    # re-dispatches the missing games single-process
+                    procs=selfplay_procs,
                 )
                 if res["crashed"]:
                     if on_event:
@@ -1435,6 +1442,7 @@ class TrainCfg:
     selfplay_engine: str = "auto"
     selfplay_exe: str | None = None
     round_games: int = 32
+    selfplay_procs: int = 1  # D59: exe processes per rust round (stream overlap attempt)
 
 
 @dataclass
@@ -1831,6 +1839,13 @@ def main(argv=None):
         default=32,
         help="games per rust self-play round (default: 32)",
     )
+    tr.add_argument(
+        "--selfplay-procs",
+        type=int,
+        default=1,
+        help="exe processes per rust round, disjoint seed ranges merged into "
+        "one round (D59; default: 1). Round game threads split across them.",
+    )
     tr.add_argument("--replay-cap", type=int, default=500, help="replay buffer cap (default: 500)")
     tr.add_argument(
         "--weight-decay", type=float, default=1e-4, help="Adam L2 weight decay (default: 1e-4)"
@@ -1915,6 +1930,7 @@ def main(argv=None):
                 selfplay_engine=args.selfplay_engine,
                 selfplay_exe=args.selfplay_exe,
                 round_games=args.round_games,
+                selfplay_procs=args.selfplay_procs,
                 rollout_weight=args.rollout_weight,
             )
         )

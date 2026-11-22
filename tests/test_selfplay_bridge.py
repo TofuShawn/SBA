@@ -366,3 +366,231 @@ def test_find_exe_probe_priority(tmp_path, monkeypatch):
         assert rustselfplay.find_exe() == os.path.normpath(str(expected))
         paths[i].unlink()
     assert rustselfplay.find_exe() is None  # nothing left -> nothing found
+
+
+# -----------------------------------------------------------------------
+# run_round: the K-process round (D59 stream-overlap attempt) — K exes
+# share one round with disjoint seeds/records; merged watchdog, kill-all
+# on any failure, one merged selfplay_round event
+# -----------------------------------------------------------------------
+
+
+def _multi_factory(lines_per_proc, procs):
+    """One fake exe process per entry in `lines_per_proc` (spawn order =
+    list order); `procs` collects the spawned FakePopens so tests can read
+    their cmd/kill state."""
+
+    def factory(cmd, **kwargs):
+        p = FakePopen(lines_per_proc[len(procs)])
+        p.stdout = p.stream()
+        p.cmd = cmd
+        p.kwargs = kwargs
+        procs.append(p)
+        return p
+
+    return factory
+
+
+def _cmds(procs):
+    """The spawned argv lists as flag->value dicts (one per process)."""
+    return [dict(zip(p.cmd[1::2], p.cmd[2::2], strict=True)) for p in procs]
+
+
+def _done(i):
+    return {"type": "game_done", "game": i, "moves": 5, "result": "X"}
+
+
+def test_run_round_procs_partition_and_merge(tmp_path):
+    procs = []
+    # 8 games over 4 procs: 2 each; seeds and --start-idx advance by 2;
+    # every process delivers its quota -> merged round is clean
+    lines = [[_done(0), _done(1)]] * 4
+    events = []
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=8, threads=8),
+        exe="fake-exe",
+        on_event=events.append,
+        popen=_multi_factory(lines, procs),
+        procs=4,
+    )
+    assert len(procs) == 4
+    cmds = _cmds(procs)
+    assert [c["--games"] for c in cmds] == ["2", "2", "2", "2"]
+    # disjoint seed bases: seed_base + k*games_per_proc — the merged round
+    # replays the SAME stream a single process would (seed_base + round idx)
+    assert [c["--seed-base"] for c in cmds] == ["0", "2", "4", "6"]
+    # disjoint record names: --start-idx = the process's first round index
+    # (0 keeps the historical argv — the exe defaults to 0)
+    assert [c.get("--start-idx") for c in cmds] == [None, "2", "4", "6"]
+    # game threads split so the CPU shape stays comparable: threads // procs
+    assert [c["--threads"] for c in cmds] == ["2", "2", "2", "2"]
+    # same shared out dir (records partition by NAME, not by directory)
+    assert {c["--out"] for c in cmds} == {str(tmp_path)}
+    # merged round: games_done sums across processes, ONE selfplay_round event
+    assert res["games_done"] == 8 and res["crashed"] is False
+    assert res["stderr_tail"] == ""
+    assert events == [{"type": "selfplay_round", "games_done": 8, "crashed": False}]
+
+
+def test_run_round_procs_remainder_partition(tmp_path):
+    procs = []
+    # 7 games over 4 procs: games/K rounds UP (2) for every process except
+    # the remainder-short last (1) — the total stays exactly 7 and the seed
+    # stream stays contiguous ([0, 2, 4, 6] with [2, 2, 2, 1] games = 7 seeds)
+    lines = [[_done(0), _done(1)], [_done(0), _done(1)], [_done(0), _done(1)], [_done(0)]]
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=7, threads=4),
+        exe="fake-exe",
+        popen=_multi_factory(lines, procs),
+        procs=4,
+    )
+    cmds = _cmds(procs)
+    assert [c["--games"] for c in cmds] == ["2", "2", "2", "1"]
+    assert [c["--seed-base"] for c in cmds] == ["0", "2", "4", "6"]
+    assert [c.get("--start-idx") for c in cmds] == [None, "2", "4", "6"]
+    assert res["games_done"] == 7 and res["crashed"] is False
+
+
+def test_run_round_procs_temp_schedule_slices(tmp_path):
+    procs = []
+    lines = [[_done(0)], [_done(0)]]
+
+    # 5 games over 2 procs (3 + 2), temp 1.0 -> 0.5 over the round: each
+    # process gets its EXACT slice of the linear schedule so per-game temps
+    # match the single-process round (the round denominator is games-1 = 4)
+    rustselfplay.run_round(
+        _round_args(str(tmp_path), games=5, temp_start=1.0, temp_end=0.5),
+        exe="fake-exe",
+        popen=_multi_factory(lines, procs),
+        procs=2,
+    )
+    cmds = _cmds(procs)
+    assert [c["--games"] for c in cmds] == ["3", "2"]
+    assert cmds[0]["--temp-start"] == "1.000000"  # global idx 0
+    assert cmds[0]["--temp-end"] == "0.750000"  # global idx 2: 1.0 + (0.5-1)*2/4
+    assert cmds[1]["--temp-start"] == "0.625000"  # global idx 3: 1.0 + (0.5-1)*3/4
+    assert cmds[1]["--temp-end"] == "0.500000"  # global idx 4 == the round end
+
+
+def test_run_round_procs_kill_all_on_crash(tmp_path):
+    procs = []
+    # proc 0 dies after 1 game of its quota; proc 1 is slow (nothing parsed
+    # before the abort wakes its watcher) — the kill-all must reach it
+    fast = [{"type": "game_done", "game": 0, "moves": 5}]
+    slow = [{"type": "game_done", "game": 0, "moves": 5}]
+
+    def factory(cmd, **kwargs):
+        p = FakePopen(fast, crash_after=1) if len(procs) == 0 else FakePopen(slow, delay=1.0)
+        p.stdout = p.stream()
+        p.cmd = cmd
+        p.kwargs = kwargs
+        procs.append(p)
+        return p
+
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=4, threads=2),
+        exe="fake-exe",
+        popen=factory,
+        procs=2,
+    )
+    assert res["crashed"] is True
+    assert res["games_done"] == 1  # only proc 0's completed game
+    assert "boom" in res["stderr_tail"]
+    assert procs[0].killed is False  # it died on its own before the abort
+    assert procs[1].killed is True  # the kill-all, not the fake, ended it
+
+
+def test_run_round_procs_abort_after_clean_exit_swallows_kill(tmp_path):
+    """The abort-vs-EOF race: a sibling crashes while this proc is finishing.
+    When the abort wins, the kill-all fires on an ALREADY-EXITED process —
+    real Popen.kill raises OSError there (TerminateProcess on a dead handle,
+    Windows) — and the watcher must swallow it: the round's verdict is the
+    sibling's failure, not a broken watcher."""
+    procs = []
+    good = [_done(0), _done(1)]
+
+    class ExitedKillProc(FakePopen):
+        """kill() on an already-exited process: raises like real Popen does."""
+
+        def kill(self):
+            self.kill_attempts = getattr(self, "kill_attempts", 0) + 1
+            raise OSError("process already exited")
+
+    def factory(cmd, **kwargs):
+        if len(procs) == 0:
+            p = ExitedKillProc(good, delay=0.3, stderr_text="")  # finishes slowly
+        else:
+            p = FakePopen([], crash_after=0)  # dies instantly, 0 games
+        p.stdout = p.stream()
+        p.cmd = cmd
+        p.kwargs = kwargs
+        procs.append(p)
+        return p
+
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=4, threads=2),
+        exe="fake-exe",
+        popen=factory,
+        procs=2,
+    )
+    assert res["crashed"] is True  # the sibling's crash, propagated
+    assert procs[0].kill_attempts == 1  # the abort reached a clean-exited proc
+    # the swallow: the tail is the sibling's crash, not a watcher death
+    assert "boom" in res["stderr_tail"]
+    assert "watcher" not in res["stderr_tail"]
+
+
+def test_run_round_procs_watchdog_kills_all_on_timeout(tmp_path):
+    procs = []
+    # proc 0 goes silent (wedged pipe, no EOF, no exit); proc 1 delivers one
+    # game then wedges MID-QUOTA — the shared round deadline must kill BOTH
+    # (per-process watchdog on one round-total budget, kill-all on timeout)
+    released = threading.Event()
+
+    def wedged_after_first(first_line, released):
+        yield json.dumps(first_line) + "\n"
+        released.wait(timeout=5.0)  # wedged: EOF only when kill tears it down
+
+    class HalfFastProc(FakePopen):
+        """Delivers one game, then wedges mid-round like a real hung exe."""
+
+        def __init__(self, first_line):
+            super().__init__([first_line])
+            self.stdout = wedged_after_first(first_line, released)
+            self.stderr = io.StringIO("wedged mid-quota")
+
+        def kill(self):
+            self.killed = True
+            self.returncode = -9
+            released.set()  # the kill tears the wedged pipe down
+
+    def factory(cmd, **kwargs):
+        if len(procs) == 0:
+            p = FakePopen([{"type": "start", "games": 4}])  # silent after start
+            p.stdout = WedgedPipe(released)  # never a line, EOF only on kill
+
+            def kill_silent():
+                p.killed = True
+                p.returncode = -9
+                released.set()
+
+            p.kill = kill_silent
+        else:
+            p = HalfFastProc(_done(0))
+        p.cmd = cmd
+        p.kwargs = kwargs
+        procs.append(p)
+        return p
+
+    res = rustselfplay.run_round(
+        _round_args(str(tmp_path), games=4, threads=2),
+        exe="fake-exe",
+        timeout=0.05,
+        popen=factory,
+        procs=2,
+    )
+    assert res["crashed"] is True
+    assert res["games_done"] == 1  # proc 1's one completed game before the kill
+    assert procs[0].killed is True  # the silent proc: the deadline
+    assert procs[1].killed is True  # mid-quota sibling: the kill-all
+    assert "boom" in res["stderr_tail"]  # the fake's stderr tail rides along

@@ -34,6 +34,13 @@ struct Args {
     threads: usize,
     #[arg(long, default_value_t = 0)]
     seed_base: u64,
+    /// D59: first absolute round index for the record names — the K-process
+    /// split (the Python bridge spawns K exes with disjoint slices) passes
+    /// k*games_per_proc so every g%05d name is globally unique inside the
+    /// shared out dir. Games/seeds are unaffected (seeds still come from
+    /// --seed-base alone); 0 keeps the historical single-process naming.
+    #[arg(long, default_value_t = 0)]
+    start_idx: usize,
     #[arg(long, default_value = "ultimate")]
     game_type: String,
     #[arg(long, default_value_t = 1.5)]
@@ -105,6 +112,7 @@ fn main() {
     event(serde_json::json!({
         "type": "start", "games": args.games, "threads": args.threads,
         "sims": args.sims, "seed_base": args.seed_base,
+        "start_idx": args.start_idx,
         "device": dev_name,
         "weights_sha": weights_sha,
     }));
@@ -147,7 +155,7 @@ fn main() {
                 rec.meta.seed = seed;
                 rec.meta.result = game.result.clone();
                 rec.meta.weights_sha = weights_sha.clone();
-                rec.write(out, idx)
+                rec.write(out, args.start_idx + idx)
                     .unwrap_or_else(|e| fail(4, &format!("record write failed: {e}")));
                 total_moves.fetch_add(rec.moves(), std::sync::atomic::Ordering::SeqCst);
                 let d = done.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;

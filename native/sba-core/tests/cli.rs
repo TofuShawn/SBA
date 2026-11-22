@@ -84,6 +84,61 @@ fn same_seed_bitwise_identical_records() {
     );
 }
 
+/// D59 K-process split: `--start-idx k` shifts the g%05d record names
+/// (g{start_idx+idx}) so K exes writing ONE shared out dir never collide,
+/// while game CONTENT rides on --seed-base alone — same seed, shifted
+/// name, bitwise-identical record.
+#[test]
+fn start_idx_shifts_record_names_not_content() {
+    let dir = std::env::temp_dir().join("sba_selfplay_cli_startidx");
+    let _ = std::fs::remove_dir_all(&dir);
+    let weights = dir.join("w.safetensors");
+    write_random_weights(&weights);
+    let common = [
+        "--weights",
+        weights.to_str().unwrap(),
+        "--games",
+        "1",
+        "--sims",
+        "8",
+        "--threads",
+        "1",
+    ];
+    let base = dir.join("base");
+    let mut args_base = common.to_vec();
+    args_base.extend(["--seed-base", "9", "--out", base.to_str().unwrap()]);
+    let (cb, _, sb) = run(&args_base);
+    assert_eq!(cb, 0, "stderr: {sb}");
+    let shifted = dir.join("shifted");
+    let mut args_shift = common.to_vec();
+    args_shift.extend([
+        "--seed-base",
+        "9",
+        "--start-idx",
+        "7",
+        "--out",
+        shifted.to_str().unwrap(),
+    ]);
+    let (cs, stdout, ss) = run(&args_shift);
+    assert_eq!(cs, 0, "stderr: {ss}");
+    assert!(!base.join("g00007.safetensors").exists());
+    assert!(base.join("g00000.safetensors").exists());
+    // the shifted round writes the GLOBAL index, nothing at the local one
+    assert!(!shifted.join("g00000.safetensors").exists());
+    assert!(shifted.join("g00007.safetensors").exists());
+    // the start event announces the offset (the bridge's merged-round view)
+    let lines: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("jsonl"))
+        .collect();
+    assert_eq!(lines[0]["start_idx"], 7);
+    // content depends on the seed alone: shifted name, identical bytes
+    assert_eq!(
+        std::fs::read(base.join("g00000.safetensors")).unwrap(),
+        std::fs::read(shifted.join("g00007.safetensors")).unwrap()
+    );
+}
+
 #[test]
 fn normal_game_type_is_usage_error() {
     let dir = std::env::temp_dir().join("sba_selfplay_cli_err");

@@ -55,6 +55,7 @@ def fake_rust(monkeypatch, tmp_path):
                 "games": args.games,
                 "seed_base": args.seed_base,
                 "out_dir": args.out_dir,
+                "procs": kw.get("procs", 1),  # D59: the merged-round dimension
             }
         )
         _write_records(args.out_dir, args.games, args.seed_base, args.sims)
@@ -186,6 +187,115 @@ def test_train_rust_retry_after_crash(fake_rust, monkeypatch):
     assert rounds[0] < lost < rounds[1]
     # records came from BOTH dirs and were absorbed in order
     assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
+
+
+def test_train_rust_procs_passthrough(fake_rust, tmp_path):
+    """D59: cfg.selfplay_procs rides into the merged round's run_round call;
+    the K-process round is ONE round (one selfplay_round event per round,
+    games_done = the round's games), and the seed formula is untouched (the
+    round args still carry seed_base = (seed or 0) + (it - 1) — the
+    per-process offsets live INSIDE run_round's partition)."""
+    calls = fake_rust
+    events = []
+    alphazero.train(
+        alphazero.TrainCfg(
+            games=8,
+            sims=2,
+            eval_every=100,
+            eval_games=1,
+            eval_sims=32,
+            lr=1e-4,
+            steps_per_game=1,
+            channels=8,
+            blocks=1,
+            save=False,
+            quiet=True,
+            replay_cap=10,
+            csv_path=str(tmp_path / "curve.csv"),
+            seed=7,
+            selfplay_engine="rust",
+            round_games=8,
+            selfplay_procs=4,
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
+    )
+    # one merged round of 8 games, dispatched with procs=4 and the D57
+    # round-level seed base (seed + it - 1 = 7 + 0)
+    assert len(calls) == 1
+    assert calls[0]["games"] == 8
+    assert calls[0]["seed_base"] == 7
+    assert calls[0]["procs"] == 4
+    types = [e["type"] for e in events]
+    assert types.count("game") == 8  # the merged round is 8 absorbed games
+    assert types.count("selfplay_round") == 1  # ONE round event, not K
+
+
+def test_train_rust_procs_retry_is_single_process(fake_rust, monkeypatch):
+    """A crashed K-process round re-dispatches as ONE single-process round:
+    the retry's run_round call carries NO procs (default 1), the seed base
+    advances by the merged games_done, records land in the -retry dir —
+    the T9 contract is untouched by the process dimension."""
+    calls = fake_rust
+    state = {"n": 0}
+
+    def flaky_procs_run_round(args, **kw):
+        state["n"] += 1
+        calls.append(
+            {
+                "exe": kw["exe"],
+                "games": args.games,
+                "seed_base": args.seed_base,
+                "out_dir": args.out_dir,
+                "procs": kw.get("procs", 1),
+            }
+        )
+        if state["n"] == 1:
+            # 5 of 8 games completed across the K processes before one died
+            _write_records(args.out_dir, 5, args.seed_base, args.sims)
+            res = {"games_done": 5, "crashed": True, "stderr_tail": "boom"}
+        else:
+            _write_records(args.out_dir, args.games, args.seed_base, args.sims)
+            res = {"games_done": args.games, "crashed": False, "stderr_tail": ""}
+        if kw.get("on_event"):
+            kw["on_event"](
+                {
+                    "type": "selfplay_round",
+                    "games_done": res["games_done"],
+                    "crashed": res["crashed"],
+                }
+            )
+        return res
+
+    monkeypatch.setattr(rustselfplay, "run_round", flaky_procs_run_round)
+    events = []
+    alphazero.train(
+        alphazero.TrainCfg(
+            games=8,
+            sims=2,
+            eval_every=100,
+            eval_games=1,
+            eval_sims=32,
+            lr=1e-4,
+            steps_per_game=1,
+            channels=8,
+            blocks=1,
+            save=False,
+            quiet=True,
+            replay_cap=10,
+            selfplay_engine="rust",
+            round_games=8,
+            selfplay_procs=4,
+        ),
+        hooks=alphazero.TrainHooks(on_event=events.append),
+    )
+    assert state["n"] == 2  # one retry, exactly
+    # attempt 1: the merged K-process round (procs=4); retry: single process
+    assert calls[0]["procs"] == 4 and calls[0]["games"] == 8
+    assert calls[1]["procs"] == 1
+    assert calls[1]["games"] == 3  # 8 - 5 missing
+    assert calls[1]["seed_base"] == 5  # advanced past the merged games_done
+    assert calls[1]["out_dir"] == calls[0]["out_dir"] + "-retry"
+    assert [e["game"] for e in events if e["type"] == "game"] == list(range(1, 9))
 
 
 def test_train_rust_second_crash_raises(fake_rust, monkeypatch):

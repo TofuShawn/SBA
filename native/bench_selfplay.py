@@ -100,10 +100,12 @@ def bench_python(state_dict, model_meta, games, sims, threads):
     return positions, time.perf_counter() - t0
 
 
-def bench_rust(model, games, sims, threads):
+def bench_rust(model, games, sims, threads, procs=1):
     """The sba_selfplay exe path, end to end (weights export excluded —
-    export_safetensors runs before the timer starts). Returns (positions,
-    elapsed, sha, exe_path, weights_path).
+    export_safetensors runs before the timer starts). `procs` splits the
+    round across K concurrent exe processes (D59 stream-overlap attempt —
+    run_round partitions seeds/records/threads and merges the watchdog).
+    Returns (positions, elapsed, sha, exe_path, weights_path).
     """
     exe = find_exe()
     if not exe:
@@ -124,6 +126,7 @@ def bench_rust(model, games, sims, threads):
             temp_end=TEMP,
         ),
         exe=exe,
+        procs=procs,
     )
     elapsed = time.perf_counter() - t0
     if res["crashed"]:
@@ -202,11 +205,20 @@ def main():
     ap.add_argument("--sims", type=int, default=800)
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--engine", choices=["both", "rust", "python"], default="both")
+    ap.add_argument(
+        "--procs",
+        type=int,
+        default=1,
+        help="exe processes for the rust round (D59: disjoint seed ranges, "
+        "merged round; round game threads split across them)",
+    )
     a = ap.parse_args()
     model, model_meta, label = _load_model(a.weights)
 
     print(f"self-play A/B — weights {label}, device {DEVICE}")
-    print(f"settings: games={a.games} sims={a.sims} threads={a.threads} temp={TEMP}")
+    print(
+        f"settings: games={a.games} sims={a.sims} threads={a.threads} procs={a.procs} temp={TEMP}"
+    )
 
     rows = []  # (name, positions, elapsed)
     sha = exe = weights = None
@@ -215,8 +227,10 @@ def main():
         positions, elapsed = bench_python(state_dict, model_meta, a.games, a.sims, a.threads)
         rows.append(("python mp.Pool", positions, elapsed))
     if a.engine in ("both", "rust"):
-        positions, elapsed, sha, exe, weights = bench_rust(model, a.games, a.sims, a.threads)
-        rows.append(("rust sba_selfplay", positions, elapsed))
+        positions, elapsed, sha, exe, weights = bench_rust(
+            model, a.games, a.sims, a.threads, a.procs
+        )
+        rows.append((f"rust sba_selfplay x{a.procs}", positions, elapsed))
 
     print()
     rates = [(name, pos / el, el, pos) for name, pos, el in rows]
@@ -233,7 +247,10 @@ def main():
         verdict = "MEET" if speedup >= 4.0 else "MISS"
         print(f"throughput speedup: {speedup:.2f}x  (Phase A bar >= 4x) -> {verdict}")
         print(f"weights sha256: {sha}")
-        events = probe_batch_stats(exe, weights, probe_games, a.sims, a.threads)
+        # the probe replays ONE process's shape: at K procs each owns
+        # threads//K game threads (run_round's split), so probe at that
+        # thread count for a representative batch fill
+        events = probe_batch_stats(exe, weights, probe_games, a.sims, max(1, a.threads // a.procs))
         if events:
             detail = ", ".join(
                 f"batches={ev.get('batches')} fill={ev.get('avg_batch_fill'):.3f} "

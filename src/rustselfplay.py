@@ -10,14 +10,16 @@ loading the records into the replay format. The exe never talks to torch;
 Python never touches the tree.
 """
 
+import contextlib
 import glob
 import json
+import math
 import os
 import queue
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import torch
@@ -127,6 +129,7 @@ def resolve_engine(engine_arg, exe):
 _STDOUT_EOF = object()  # sentinel: the stdout stream has been exhausted
 _STDERR_KEEP = 8192  # stderr chars the drain thread retains (bounded buffer)
 _READER_JOIN = 1.0  # seconds granted to the drain threads after the exe exits
+_ABORT_POLL = 0.2  # seconds between wakeups so a sibling proc's abort is seen
 
 
 @dataclass
@@ -136,7 +139,10 @@ class RoundArgs:
     The round contract in one object: callers (train()'s rust loop, the
     bench probe) build one and hand it to run_round; the retry path rewrites
     just the changed fields with dataclasses.replace, so an override can
-    never silently drop the rest."""
+    never silently drop the rest. `start_idx` offsets the exe's record
+    numbering (g%05d names become g{start_idx+idx}) so the K-process split
+    (run_round's `procs`) writes disjoint filenames into the shared out
+    dir; 0 keeps the historical numbering."""
 
     weights_path: str
     out_dir: str
@@ -150,6 +156,7 @@ class RoundArgs:
     c_puct: float = 1.5
     dirichlet_eps: float = 0.25
     game_type: str = "ultimate"
+    start_idx: int = 0
 
 
 def build_round_cmd(args):
@@ -159,8 +166,10 @@ def build_round_cmd(args):
     outside the bridge (bench_selfplay's batch_stats probe, which parses
     stdout directly because run_round consumes the non-game_done events)
     prepend the exe path themselves. argv-list only (shell=False) — same
-    discipline as rustbridge/native/build."""
-    return [
+    discipline as rustbridge/native/build. --start-idx is emitted only when
+    nonzero (the exe defaults to 0, so single-process rounds keep the
+    exact historical argv)."""
+    cmd = [
         "--weights",
         str(args.weights_path),
         "--out",
@@ -186,51 +195,80 @@ def build_round_cmd(args):
         "--temp-min",
         f"{args.temp_min:.6f}",
     ]
+    if args.start_idx:
+        cmd += ["--start-idx", str(args.start_idx)]
+    return cmd
 
 
-def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None):
-    """Run one exe round; returns {games_done, crashed, stderr_tail}.
+def _partition_round(args, procs):
+    """Split one round across `procs` exe processes (D59): disjoint game
+    counts (games/procs rounded up for every process except the last, which
+    takes the remainder — the total stays exactly args.games), disjoint
+    seed bases (args.seed_base + k*games_per_proc — the per-process offsets
+    are contiguous, so the merged round replays the SAME seed stream a
+    single process would: seed = seed_base + absolute round index),
+    disjoint record filenames (--start-idx = the process's first absolute
+    round index), and each process's EXACT slice of the round's linear temp
+    schedule (the exe interpolates temp_start→temp_end over its own games,
+    and linear interpolation between the endpoints of a linear function is
+    that function, so per-game temps match the single-process round).
+    Game threads split evenly too: `threads // procs` per process (min 1)
+    so the CPU shape stays comparable to the single-process round."""
+    per = math.ceil(args.games / procs)
+    specs = []
+    for k in range(procs):
+        first = k * per
+        if first >= args.games:
+            break  # more processes than games: the tail stays idle
+        count = min(per, args.games - first)
+        # the exe's per-game temp: temp_start + (temp_end - temp_start) *
+        # i/(games-1) — slice it at this process's absolute round indices
+        span = max(1, args.games - 1)
+        lo = args.temp_start + (args.temp_end - args.temp_start) * first / span
+        hi = args.temp_start + (args.temp_end - args.temp_start) * (first + count - 1) / span
+        specs.append(
+            replace(
+                args,
+                games=count,
+                threads=max(1, args.threads // procs),
+                seed_base=args.seed_base + first,
+                start_idx=first,
+                temp_start=lo,
+                temp_end=hi,
+            )
+        )
+    return specs
 
-    `args` is a RoundArgs (the round's parameters); `exe` is the binary to
-    spawn. stdout is the exe's JSONL event stream (start → (game_done|
-    batch_stats)* → clean exit 0): game_done events are counted toward
-    games_done, every other type — including future ones — is ignored, and
-    non-JSON lines are skipped. crashed is True on a nonzero exit, when
-    fewer than `args.games` game_done events arrived, or when the exe stayed
-    silent for `timeout` seconds.
 
-    The watchdog is a deadline, not a per-line gap: a daemon reader thread
-    pumps stdout into a queue while stderr is drained concurrently into a
-    bounded tail — a stderr write bigger than the pipe buffer (a
-    RUST_BACKTRACE panic) would otherwise wedge the exe mid-round with
-    stdout stalled — and the main loop waits on the queue with the
-    remaining budget. The `timeout` budget is round-total, fixed once at
-    spawn (train() sizes it `max(MP_GAME_TIMEOUT, round_games*120)`) —
-    blowing it → proc.kill(), crashed=True, stderr tail reported.
+class _ProcWatch:
+    """One watched exe process inside a (possibly multi-process) round.
 
-    `popen` replaces subprocess.Popen (tests inject a fake); `on_event`, if
-    given, receives {"type": "selfplay_round", "games_done": n,
-    "crashed": bool} once at the end — game_done events are collected, not
-    forwarded raw.
-    """
-    cmd = [exe, *build_round_cmd(args)]
-    spawn = popen or subprocess.Popen
-    proc = spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    lines = queue.Queue()
-    stderr_tails = []  # one entry, appended when the drain thread finishes
+    Shared mechanics behind run_round's single- and K-process shapes: the
+    spawn + stdout pump + stderr drain from the historical run_round, plus
+    an `abort` event — when any sibling process times out or crashes, every
+    watcher kills its own process (kill-all on any failure)."""
 
-    def _pump_stdout():
+    def __init__(self, cmd, expected_games, deadline, abort, popen):
+        spawn = popen or subprocess.Popen
+        self.proc = spawn(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.expected_games = expected_games
+        self.deadline = deadline
+        self.abort = abort
+        self.lines = queue.Queue()
+        self.stderr_tails = []  # one entry, appended when the drain thread finishes
+
+    def _pump_stdout(self, proc):
         """Reader thread: stdout → queue, so the main loop can wait with a
         timeout (a blocking for-loop over a wedged pipe cannot time out)."""
         try:
             for line in proc.stdout:
-                lines.put(line)
+                self.lines.put(line)
         except (OSError, ValueError):
             pass  # pipe torn down by the watchdog kill; EOF below still lands
         finally:
-            lines.put(_STDOUT_EOF)
+            self.lines.put(_STDOUT_EOF)
 
-    def _drain_stderr():
+    def _drain_stderr(self, proc):
         """Drain thread: consume stderr as it arrives, keeping only a tail.
         Without this, a stderr write bigger than the pipe buffer blocks the
         exe while stdout stalls — a mutual deadlock no watchdog could see."""
@@ -243,47 +281,131 @@ def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None):
                 tail = (tail + chunk)[-_STDERR_KEEP:]
         except (OSError, ValueError):
             pass  # same teardown story as stdout
-        stderr_tails.append(tail)
+        self.stderr_tails.append(tail)
 
-    reader = threading.Thread(target=_pump_stdout, name="selfplay-stdout", daemon=True)
-    drainer = threading.Thread(target=_drain_stderr, name="selfplay-stderr", daemon=True)
-    reader.start()
-    drainer.start()
+    def watch(self):
+        """Count game_done events until EOF, deadline, or abort; kill on
+        timeout/abort. Returns (games_done, timed_out, rc, stderr_tail)."""
+        proc = self.proc
+        reader = threading.Thread(
+            target=self._pump_stdout, args=(proc,), name="selfplay-stdout", daemon=True
+        )
+        drainer = threading.Thread(
+            target=self._drain_stderr, args=(proc,), name="selfplay-stderr", daemon=True
+        )
+        reader.start()
+        drainer.start()
 
-    games_done = 0
+        games_done = 0
+        timed_out = False
+        while True:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True  # no line for `timeout` seconds: silent/wedged exe
+                break
+            if self.abort.is_set():
+                break  # a sibling failed: kill-all, this round is over
+            try:
+                item = self.lines.get(timeout=min(remaining, _ABORT_POLL))
+            except queue.Empty:
+                continue  # re-check deadline + abort
+            if item is _STDOUT_EOF:
+                break
+            line = item.strip()
+            if not line:
+                continue
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "game_done":
+                games_done += 1
+
+        if timed_out or self.abort.is_set():
+            # a sibling's abort can race this proc's clean exit — kill on an
+            # already-dead process raises OSError on Windows (TerminateProcess
+            # on a dead handle); the verdict below still holds
+            with contextlib.suppress(OSError):
+                proc.kill()
+        rc = proc.wait()
+        reader.join(_READER_JOIN)
+        drainer.join(_READER_JOIN)
+        stderr_tail = ""
+        if rc != 0 or timed_out:
+            stderr_tail = (self.stderr_tails[0] if self.stderr_tails else "")[-400:]
+        return games_done, timed_out, rc, stderr_tail
+
+
+def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, procs=1):
+    """Run one exe round; returns {games_done, crashed, stderr_tail}.
+
+    `args` is a RoundArgs (the round's parameters); `exe` is the binary to
+    spawn. stdout is the exe's JSONL event stream (start → (game_done|
+    batch_stats)* → clean exit 0): game_done events are counted toward
+    games_done, every other type — including future ones — is ignored, and
+    non-JSON lines are skipped. crashed is True on a nonzero exit, when
+    fewer than `args.games` game_done events arrived, or when an exe stayed
+    silent for `timeout` seconds.
+
+    `procs` (D59) splits the round across K concurrent exe processes
+    (see _partition_round) writing disjoint record names into the SAME
+    out dir; the merged round is ONE round — games_done sums across the
+    processes, one selfplay_round event fires, and the FIRST failure
+    (timeout or crash) kills every sibling so the retry contract stays
+    the historical one round = one re-dispatch.
+
+    The watchdog is a deadline, not a per-line gap: a daemon reader thread
+    pumps stdout into a queue while stderr is drained concurrently into a
+    bounded tail — a stderr write bigger than the pipe buffer (a
+    RUST_BACKTRACE panic) would otherwise wedge the exe mid-round with
+    stdout stalled — and the main loop waits on the queue with the
+    remaining budget. The `timeout` budget is round-total, fixed once at
+    spawn and SHARED by all K processes (train() sizes it
+    `max(MP_GAME_TIMEOUT, round_games*120)`) — blowing it → proc.kill(),
+    crashed=True, stderr tail reported.
+
+    `popen` replaces subprocess.Popen (tests inject a fake); `on_event`, if
+    given, receives {"type": "selfplay_round", "games_done": n,
+    "crashed": bool} once at the end — game_done events are collected, not
+    forwarded raw.
+    """
     deadline = time.monotonic() + timeout
-    timed_out = False
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            timed_out = True  # no line for `timeout` seconds: silent/wedged exe
-            break
-        try:
-            item = lines.get(timeout=remaining)
-        except queue.Empty:
-            timed_out = True
-            break
-        if item is _STDOUT_EOF:
-            break
-        line = item.strip()
-        if not line:
-            continue
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(ev, dict) and ev.get("type") == "game_done":
-            games_done += 1
+    abort = threading.Event()
+    specs = [args] if procs <= 1 else _partition_round(args, procs)
+    watchers = [
+        _ProcWatch([exe, *build_round_cmd(spec)], spec.games, deadline, abort, popen)
+        for spec in specs
+    ]
 
-    if timed_out:
-        proc.kill()
-    rc = proc.wait()
-    reader.join(_READER_JOIN)
-    drainer.join(_READER_JOIN)
-    stderr_tail = ""
-    if rc != 0 or timed_out:
-        stderr_tail = (stderr_tails[0] if stderr_tails else "")[-400:]
-    crashed = timed_out or rc != 0 or games_done < args.games
+    results = [None] * len(watchers)
+
+    def _watch(i, w):
+        try:
+            results[i] = w.watch()
+        except Exception as e:  # noqa: BLE001 - a broken watcher fails the
+            # ROUND (the retry contract re-dispatches), never the merge
+            results[i] = (0, False, -1, f"watcher {i} died: {e!r}")
+            abort.set()
+            return
+        games_done, timed_out, rc, _tail = results[i]
+        if timed_out or rc != 0 or games_done < w.expected_games:
+            abort.set()  # kill-all: this merged round has failed once already
+
+    threads = [
+        threading.Thread(target=_watch, args=(i, w), name=f"selfplay-watch-{i}", daemon=True)
+        for i, w in enumerate(watchers)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    games_done = sum(r[0] for r in results)
+    tails = [r[3] for r in results if r[3]]
+    stderr_tail = tails[0][-400:] if tails else ""
+    # crashed when any process failed (its own timeout/crash/short count set
+    # the abort flag) or the merged total fell short of the round's games
+    crashed = abort.is_set() or games_done < args.games
     if on_event:
         on_event({"type": "selfplay_round", "games_done": games_done, "crashed": crashed})
     return {"games_done": games_done, "crashed": crashed, "stderr_tail": stderr_tail}
