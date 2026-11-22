@@ -58,3 +58,7 @@ src/az/*.so
 # report build OUTPUTS (regenerable via docs/static-build) — local only
 docs/share/
 docs/static/
+
+# Skill-workflow artifacts (brainstorming/SDD) stay local — the canonical
+# engineering record is docs/decisions.md; forced adds land here on purpose.
+docs/superpowers/
