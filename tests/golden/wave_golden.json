@@ -1,0 +1,180 @@
+{
+  "batch_size": 256,
+  "battery": [
+    {
+      "depth": 0,
+      "kind": "open"
+    },
+    {
+      "depth": 1,
+      "kind": "open"
+    },
+    {
+      "depth": 2,
+      "kind": "open"
+    },
+    {
+      "depth": 3,
+      "kind": "open"
+    },
+    {
+      "depth": 4,
+      "kind": "open"
+    },
+    {
+      "depth": 5,
+      "kind": "open"
+    },
+    {
+      "depth": 6,
+      "kind": "open"
+    },
+    {
+      "depth": 7,
+      "kind": "open"
+    },
+    {
+      "depth": 8,
+      "kind": "open"
+    },
+    {
+      "depth": 0,
+      "kind": "open"
+    },
+    {
+      "depth": 1,
+      "kind": "open"
+    },
+    {
+      "depth": 2,
+      "kind": "open"
+    },
+    {
+      "depth": 3,
+      "kind": "open"
+    },
+    {
+      "depth": 4,
+      "kind": "open"
+    },
+    {
+      "depth": 5,
+      "kind": "open"
+    },
+    {
+      "depth": 6,
+      "kind": "open"
+    },
+    {
+      "depth": 7,
+      "kind": "open"
+    },
+    {
+      "depth": 8,
+      "kind": "open"
+    },
+    {
+      "depth": 0,
+      "kind": "open"
+    },
+    {
+      "depth": 1,
+      "kind": "open"
+    },
+    {
+      "depth": 4,
+      "kind": "mid"
+    },
+    {
+      "depth": 5,
+      "kind": "mid"
+    },
+    {
+      "depth": 6,
+      "kind": "mid"
+    },
+    {
+      "depth": 7,
+      "kind": "mid"
+    },
+    {
+      "depth": 8,
+      "kind": "mid"
+    },
+    {
+      "depth": 9,
+      "kind": "mid"
+    },
+    {
+      "depth": 10,
+      "kind": "mid"
+    },
+    {
+      "depth": 11,
+      "kind": "mid"
+    },
+    {
+      "depth": 12,
+      "kind": "mid"
+    },
+    {
+      "depth": 13,
+      "kind": "mid"
+    },
+    {
+      "depth": 14,
+      "kind": "mid"
+    },
+    {
+      "depth": 15,
+      "kind": "mid"
+    },
+    {
+      "depth": 16,
+      "kind": "mid"
+    },
+    {
+      "depth": 17,
+      "kind": "mid"
+    },
+    {
+      "depth": 18,
+      "kind": "mid"
+    },
+    {
+      "depth": 19,
+      "kind": "mid"
+    },
+    {
+      "depth": 20,
+      "kind": "mid"
+    },
+    {
+      "depth": 21,
+      "kind": "mid"
+    },
+    {
+      "depth": 22,
+      "kind": "mid"
+    },
+    {
+      "depth": 23,
+      "kind": "mid"
+    }
+  ],
+  "c_puct": 1.5,
+  "device": "cuda",
+  "dirichlet_alpha": null,
+  "format_version": 1,
+  "game": "ultimate",
+  "gen_sims": 64,
+  "generator": "parity_search._gen_positions conventions: first half seeded random openings (depth cycling 0..8, rng seed*1009+idx), second half self-play midgames (dirichlet auto/0.25, temp 1.0, gen_sims plies); npz rows: moves=m*9+i codes (-1 pad), counts=int visits by move code, values=visit-weighted root value",
+  "positions": 40,
+  "recipe": "pure-net",
+  "rollout_weight": 0.0,
+  "seed": 20261122,
+  "sims": 200,
+  "torch": "2.10.0a0+rocm7.10.0a20251120",
+  "weights": "models/az_ultimate.pt.archive",
+  "weights_sha": "d7519c9dee7d88dc9b1b44d3bfb1fc5cadc05cf73e151be4066636740db1b8b6"
+}
