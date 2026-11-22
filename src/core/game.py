@@ -60,18 +60,44 @@ def _assert_ultimate_routing(game, macro):
 
 
 class NormalGame:
+    """Plain 3x3 tic-tac-toe — the drift-free baseline ruleset.
+
+    State: `board` is a list of 9 cells (X / O / EMPTY, row-major from the
+    top-left) and `current` is the mark to move; X always opens the game.
+
+    This class and UltimateGame share the duck-typed contract every consumer
+    relies on: the session and the UIs drive a game purely through
+    legal_moves / make_move / is_over / result, and the search engines work
+    through clone() + make_move. Moves are plain cell indices (ints) — the
+    move SHAPE is what game.apply_move dispatches on, so alternative rules
+    implementations stay interchangeable (RustUltimateGame in
+    src/az/rustbridge.py implements the same contract over the Rust
+    bitboard state for the ultimate rules).
+    """
+
     def __init__(self):
         self.board = [EMPTY] * 9
         self.current = X
 
     def legal_moves(self):
-        # A won board has no legal moves even when empty cells remain; without
-        # this, searches keep expanding terminal nodes.
+        """Indices (0-8) of every EMPTY cell, in board order.
+
+        A won board returns [] even when empty cells remain — without this,
+        searches keep expanding terminal nodes.
+        """
         if self.winner() is not None:
             return []
         return [i for i, c in enumerate(self.board) if c == EMPTY]
 
     def make_move(self, index):
+        """Place `current`'s mark at `index` on this game (no copy).
+
+        Raises ValueError("game is over") when result() is already set and
+        ValueError("cell is occupied") when the cell is taken. `current`
+        flips to the other player only while the game is still undecided
+        afterwards — on the final (winning or drawing) move it STAYS on the
+        mover, so `current` is not meaningful once is_over().
+        """
         _assert_playable(self)
         if self.board[index] != EMPTY:
             raise ValueError("cell is occupied")
@@ -80,15 +106,20 @@ class NormalGame:
             self.current = O if self.current == X else X
 
     def winner(self):
+        """X or O when the board holds a completed LINES triple, else None."""
         return line_winner(self.board)
 
     def is_full(self):
+        """True when no cell is EMPTY — a drawn board included."""
         return EMPTY not in self.board
 
     def is_over(self):
+        """True once result() is not None (won or drawn)."""
         return self.result() is not None
 
     def result(self):
+        """Terminal state: the winner's mark (X / O), "D" on a full board
+        with no winner, None while the game is still undecided."""
         w = self.winner()
         if w:
             return w
@@ -97,6 +128,8 @@ class NormalGame:
         return None
 
     def clone(self):
+        """Independent copy for search branching: the board list is
+        duplicated, so mutating the clone never touches the original."""
         g = NormalGame()
         g.board = self.board[:]
         g.current = self.current
@@ -104,6 +137,25 @@ class NormalGame:
 
 
 class UltimateGame:
+    """Ultimate tic-tac-toe: nine 3x3 micro boards scored into a 3x3 macro
+    board — the reference implementation of the rules.
+
+    State: `micro` holds 9 rows of 9 cells (X / O / EMPTY), `macro` the 9
+    micro-board winners (X / O, "D" for a micro drawn full, EMPTY while
+    still open), `current` is the mark to move and `active_macro` the macro
+    the next player is routed into (None = free choice among open macros);
+    X always opens the game.
+
+    Duck-typed contract shared by every rules implementation: the session
+    and the UIs drive a game purely through legal_moves / make_move /
+    is_over / result (ultimate moves are (macro, micro) tuples — the move
+    SHAPE is what game.apply_move dispatches on), and the search engines
+    work through clone() + make_move. RustUltimateGame
+    (src/az/rustbridge.py) implements this same contract over the Rust
+    bitboard state (fuzz-checked against this class in
+    tests/test_rustgame.py); BitUltimateGame is the pure-Python bit twin.
+    """
+
     def __init__(self):
         self.micro = [[EMPTY] * 9 for _ in range(9)]
         self.macro = [EMPTY] * 9
@@ -111,9 +163,17 @@ class UltimateGame:
         self.active_macro = None
 
     def macro_open(self, m):
+        """True while macro board m is playable: no badge yet AND at least
+        one EMPTY cell left in its micro row."""
         return self.macro[m] == EMPTY and any(c == EMPTY for c in self.micro[m])
 
     def legal_moves(self):
+        """Every (macro, micro) tuple the player to move may play.
+
+        When routing points at an open macro (active_macro set), the moves
+        are that macro's empty cells only; otherwise the empty cells of
+        every open macro. A won game returns [] even with open macros left.
+        """
         if self.winner() is not None:
             return []
         if self.active_macro is not None and self.macro_open(self.active_macro):
@@ -130,9 +190,25 @@ class UltimateGame:
         return moves
 
     def micro_winner(self, m):
+        """X / O when micro board m holds a winning line, else None."""
         return line_winner(self.micro[m])
 
     def make_move(self, macro, micro):
+        """Place `current`'s mark in cell `micro` of micro board `macro` on
+        this game (no copy), resolve the micro board's badge, then hand
+        over.
+
+        Routing: when active_macro is set and still open, `macro` must be
+        exactly it; otherwise any open macro may be played. The played CELL
+        routes the opponent: active_macro becomes `micro` if that macro
+        board is still open after this move, None (free routing) when it is
+        won or full. `current` flips unconditionally on every accepted
+        move.
+
+        Raises ValueError in check order: "game is over" (result() already
+        set), "move must be in the routed macro", "macro is not open"
+        (free routing into a closed macro), "cell is occupied".
+        """
         _assert_playable(self)
         _assert_ultimate_routing(self, macro)
         if self.micro[macro][micro] != EMPTY:
@@ -147,18 +223,25 @@ class UltimateGame:
         self.current = O if self.current == X else X
 
     def winner(self):
+        """X / O when the macro badges form a winning LINES line, else
+        None — only decided micro boards score."""
         for a, b, c in LINES:
             if self.macro[a] in (X, O) and self.macro[a] == self.macro[b] == self.macro[c]:
                 return self.macro[a]
         return None
 
     def is_full(self):
+        """True when every macro is closed (won or drawn-full) — the board
+        can be full with no winner."""
         return all(not self.macro_open(m) for m in range(9))
 
     def is_over(self):
+        """True once result() is not None (macro line won or board full)."""
         return self.result() is not None
 
     def result(self):
+        """Terminal state: the winner's mark (X / O), "D" when every macro
+        is closed with no winning macro line, None while play continues."""
         w = self.winner()
         if w:
             return w
@@ -167,6 +250,9 @@ class UltimateGame:
         return None
 
     def clone(self):
+        """Independent deep copy for search branching: every micro row and
+        the macro list are duplicated, so mutating the clone never touches
+        the original."""
         g = UltimateGame()
         g.micro = [row[:] for row in self.micro]
         g.macro = self.macro[:]
