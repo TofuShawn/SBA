@@ -95,6 +95,13 @@ def test_mcts_search_batch_larger_than_budget():
     assert counts and all(v >= 1 for v in counts.values())
 
 
+def test_rollout_weight_is_pure_network():
+    """D58 recipe guard: shipped default is the pure-network leaf value the
+    exe trains on; a silent revert to the 0.5 blend would split the trainer
+    and the exe recipes again."""
+    assert alphazero.ROLLOUT_WEIGHT == 0
+
+
 def test_mcts_root_dirichlet_noise(monkeypatch):
     model = alphazero.AZNet(3).to(alphazero.DEVICE)
     g = NormalGame()

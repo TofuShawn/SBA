@@ -192,7 +192,7 @@ class AZNet(nn.Module):
 # Neural-guided MCTS
 # ---------------------------------------------------------------
 
-ROLLOUT_WEIGHT = 0.5  # leaf value = (1-w)*network + w*random playout; 0 = pure network
+ROLLOUT_WEIGHT = 0  # pure-network leaf value (standard AZ recipe, D58): the exe trains on this; the blend is reachable again by passing rollout_weight>0
 VIRTUAL_LOSS = 2.0  # applied during batched selection so parallel workers diverge
 BATCH_SIZE = 256  # default leaf-parallel batch size for network inference
 DIRICHLET_EPS = 0.25  # root-prior noise weight in self-play (standard AZ value)
