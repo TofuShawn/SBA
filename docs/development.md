@@ -22,6 +22,9 @@ command-line quoting from scratch.
   release workflow (written notes from `docs/releases/<tag>.md`).
 - **`dev`** — the integration branch. CI also runs on push, so work lands
   here CI-green before any merge to main. Feature branches PR into `dev`.
+- **`archive/*`** — frozen history, never merged: `python-reference` is the
+  Python implementation the Rust core replaced, `refactored` is the UI
+  rewrite line from late 2026. Kept for archaeology, not for work.
 
 ## Tasks / 常用命令
 
