@@ -140,6 +140,11 @@ TASKS = {
         lambda a: venv(["-m", "ruff", "format", "--check", "."]),
     ),
     "format-write": ("apply ruff formatting", lambda a: venv(["-m", "ruff", "format", "."])),
+    "fmt": (
+        "cargo fmt --all --check (the CI gate; format-write-safe, no crate to pick)",
+        lambda a: wsl_cargo(["fmt", "--all", "--", "--check", *a]),
+    ),
+    "fmt-write": ("apply rustfmt across the workspace", lambda a: wsl_cargo(["fmt", "--all", *a])),
     "clippy": (
         "cargo clippy -D warnings on sba-game",
         lambda a: crate_task(
@@ -155,6 +160,10 @@ TASKS = {
     "bench-selfplay": (
         "self-play A/B: mp.Pool path vs rust exe (pos/s, speedup)",
         lambda a: venv(["src/tools/bench_selfplay.py", *a]),
+    ),
+    "coverage": (
+        "pytest with coverage; the floor lives in pyproject [tool.coverage.report]",
+        lambda a: venv(["-m", "pytest", "tests", "-q", "--cov", *a]),
     ),
     "self-test": (
         "headless suite through the real entry point",

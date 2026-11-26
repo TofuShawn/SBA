@@ -68,3 +68,14 @@ check_untyped_defs = true
 # (findings print, nothing blocks). The GamePage split decides whether the
 # report graduates into a gate.
 max-complexity = 10
+
+[tool.coverage.run]
+# Measure the package only — tests and tooling are not the product.
+source = ["src"]
+
+[tool.coverage.report]
+# Baseline measured 2026-11-26: 68% (tui.py is the 0% hole; the Qt UI sits at
+# 63%). The floor is a regression guard, not a target: raise it when a module
+# gains tests, never lower it to make a red build green.
+fail_under = 65
+skip_covered = true

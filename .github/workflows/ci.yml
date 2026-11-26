@@ -170,6 +170,12 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
+      # rustfmt gate: the workspace committed 28 unformatted spots for months
+      # because nothing checked them. Runs before clippy so a formatting red
+      # is unambiguous.
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
       # the crate has compiled clean here since D49 — clippy is a gate now
       # (D60 workspace: cargo runs at the repo root, -p selects the crate)
       - name: Clippy
@@ -219,8 +225,17 @@ jobs:
       - name: Build native engine (sba_engine.dll)
         run: python src/tools/build.py
 
+      # coverage floor lives in pyproject [tool.coverage.report] — measured
+      # 68% on 2026-11-26, the gate sits at 65 so it only catches regressions.
+      # Linux only: the windows leg runs the same suite without coverage so a
+      # cov-plugin hiccup on one runner cannot mask a real test failure.
       - name: Run tests
+        if: runner.os != 'Linux'
         run: python -m pytest tests -q
+
+      - name: Run tests (coverage gate)
+        if: runner.os == 'Linux'
+        run: python -m pytest tests -q --cov
 
       # The test matrix calls the engine modules directly; these three
       # entry points have their own argv routing and used to be unverified.

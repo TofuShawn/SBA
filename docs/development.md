@@ -33,16 +33,19 @@ command-line quoting from scratch.
 | `python dev.py mypy` | mypy on the two ctypes FFI boundary modules (`engines/cengine.py` + `az/rustbridge.py`, `--check-untyped-defs`; scope config in pyproject `[tool.mypy]`) |
 | `python dev.py complexity` | C901 on `src/ui` + AST function-length report (>50 lines, `def` line to block end) on `src/` — warn-only, always exit 0 (graduates into a gate after the GamePage split) |
 | `python dev.py format` | ruff format --check (CI gate; `format-write` applies) |
+| `python dev.py fmt` | `cargo fmt --all -- --check` (CI gate; `fmt-write` applies across the workspace) |
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
 | `python dev.py clippy-core` | cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu) |
 | `python dev.py cgate` | C warnings gate: `-Wall -Wextra -Werror` over all five C files |
 | `python dev.py bench-rust` | the Rust state-layer A/B harness |
 | `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
 | `python dev.py test-rust` | cargo test: sba-game (default) + sba-core (cpu backend, no GPU) |
+| `python dev.py coverage` | the pytest suite with coverage; the floor (65%) lives in pyproject `[tool.coverage.report]` |
 
-A "ready to commit" state = `lint` + `format` + `mypy` + `clippy`
+A "ready to commit" state = `lint` + `format` + `fmt` + `mypy` + `clippy`
 + `clippy-core` + `cgate` + `test-rust` + `test` all green. CI runs the
-same gates (plus the CLI entry smoke) on both ubuntu and windows.
+same gates (plus the CLI entry smoke and, on Linux, the coverage floor) on
+both ubuntu and windows.
 
 ## Commit convention / 提交規範
 
