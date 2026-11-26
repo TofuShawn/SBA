@@ -113,12 +113,8 @@ def _tt_max():
     return cfg_engine("tt_max", 300000)
 
 
-# The transposition table and killer moves are per-thread because the Qt
-# build runs two workers that can both call Minimax Pro: AIWorker (via
-# get_ai_move) and AnalysisWorker (via analyze_position, started on every
-# position change). Without per-thread state they would clear each other's
-# caches; each thread still gets full search speed. (The web front end was
-# removed in D35.)
+# Per-thread because the Qt build runs two workers that both call Minimax Pro
+# (AIWorker and AnalysisWorker); shared state would make them clear each other.
 
 _tls = threading.local()
 

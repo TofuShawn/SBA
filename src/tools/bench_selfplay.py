@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""bench_selfplay — the sba-core Phase A acceptance A/B (D56, spec §6.2).
+"""bench_selfplay — the sba-core Phase A acceptance A/B (spec §6.2).
 
 Measures END-TO-END self-play throughput for both engines, same machine /
 weights / settings (games, sims, threads, temp):
@@ -13,7 +13,7 @@ weights / settings (games, sims, threads, temp):
            per-game apply would serialize onto one worker and flatter the
            rust side), the trainer's own worker init (console redirect).
   rust   — the sba_selfplay exe: root-parallel threads + batched burn
-           inference (D55 Phase A), driven through rustselfplay.run_round.
+           inference (Phase A), driven through rustselfplay.run_round.
 
 The rust/python pos/s ratio is the Phase A acceptance bar (>= 4x at the
 campaign settings — sims 800, threads 8). Both sides run at temp 1.0 fixed
@@ -42,7 +42,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the sba packages under src/ (D61)
+for _p in (SRC, ROOT):  # SRC for the sba packages under src/
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -103,7 +103,7 @@ def bench_python(state_dict, model_meta, games, sims, threads):
 def bench_rust(model, games, sims, threads, procs=1):
     """The sba_selfplay exe path, end to end (weights export excluded —
     export_safetensors runs before the timer starts). `procs` splits the
-    round across K concurrent exe processes (D59 stream-overlap attempt —
+    round across K concurrent exe processes (stream-overlap attempt —
     run_round partitions seeds/records/threads and merges the watchdog).
     Returns (positions, elapsed, sha, exe_path, weights_path).
     """
@@ -209,7 +209,7 @@ def main():
         "--procs",
         type=int,
         default=1,
-        help="exe processes for the rust round (D59: disjoint seed ranges, "
+        help="exe processes for the rust round (disjoint seed ranges, "
         "merged round; round game threads split across them)",
     )
     a = ap.parse_args()

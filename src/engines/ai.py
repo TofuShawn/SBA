@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""ai — the engine facade (D47 split).
+"""ai — the engine facade (split).
 
 Every computer opponent and the assistant surface start here:
 get_ai_move dispatches to the engines, which live in their own
@@ -112,7 +112,7 @@ log = logging.getLogger("sba.ai")
 def reset_engine_caches():
     """Drop module-level search caches (used by self-tests/bench).
 
-    The tree-reuse slots go out under _TREE_REUSE_LOCK (D63): a search
+    The tree-reuse slots go out under _TREE_REUSE_LOCK: a search
     running in another thread keeps its exclusively-owned tree alive via
     its own reference and writes back over the emptied slots harmlessly.
     """
@@ -139,7 +139,7 @@ def _tree_reaches(src, dst):
 def _purge_overlapping(ai_type, node):
     """Drop every shared slot of `ai_type` whose tree overlaps `node`.
 
-    Part of the D63 ownership rule: once this thread takes `node` for an
+    Part of the ownership rule: once this thread takes `node` for an
     exclusive search, no cached reference may reach the tree being mutated —
     in EITHER direction. Ancestor entries contain it (a stale key can point
     at the subtree's old root); descendant entries sit inside it (write-backs
@@ -213,7 +213,7 @@ def az_policy_priors(game):
     {(m, i): p} renormalised across legal moves (mover's view). None when
     the board is Normal, the game is over, no trained model exists, or the
     optional torch/numpy deps are absent — callers treat that as "no heat"
-    (D40: the assistant board overlay)."""
+    (the assistant board overlay)."""
     if isinstance(game, NormalGame) or game.is_over():
         return None
     az = _az_module()
@@ -231,11 +231,8 @@ def az_policy_priors(game):
 def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     """Run an MCTS-family search, reusing the previous tree when enabled."""
     if ai_type in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
-        # D27: the whole tree search runs in C (order-of-magnitude faster).
-        # D30: _c_mcts_move carries its own warm C arena in _C_PREV between
-        # moves, so the C path does reuse a tree (the Python path has the
-        # separate _REUSE cache). Normal 3x3 stays on the Python path.
-        # D51: RAVE/GRAVE gain their own C trees under the same switch.
+        # C tree search wins here; _c_mcts_move keeps a warm arena
+        # in _C_PREV across moves, while the Python path has its own _REUSE cache.
         if (
             cfg_engine("c_mcts", True)
             and isinstance(game, UltimateGame)
@@ -263,10 +260,8 @@ def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
     pool = _POOL if (ai_type == "MCTS" and cfg_engine("object_pool", True) and not reuse) else None
     key, prev = None, None
     if reuse:
-        # D63 ownership rule: the take below (pop or derive) runs under
-        # _TREE_REUSE_LOCK and REMOVES the tree from every shared slot, so
-        # this thread owns it exclusively while the search mutates it; a
-        # concurrent searcher misses both slots and starts fresh.
+        # the take removes the tree from every shared slot under the lock,
+        # so this thread owns it exclusively; concurrent searchers start fresh.
         with _TREE_REUSE_LOCK:
             key = (ai_type, _tt_key(game))
             prev = _REUSE.pop(key, None)
@@ -328,7 +323,7 @@ def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None
     tree-building overhead and is kept for A/B comparison. For true
     parallelism use processes instead (see alphazero.py's spawn pool).
 
-    Progress is coarse here: one report per finished thread (D24) — the
+    Progress is coarse here: one report per finished thread — the
     threads run concurrently, so the counter moves in jumps, not smoothly.
     """
     chunk = max(1, iterations // workers)
@@ -384,7 +379,7 @@ def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None
 def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=None, trace=None):
     """Pick a move for `ai_type`.
 
-    Optional hooks for showing the engine's thinking (D24):
+    Optional hooks for showing the engine's thinking:
     - `on_progress(info)` — called ~10x during an MCTS search with
       {'it', 'iterations', 'best_text', 'share', 'wr'}.
     - `trace` — a dict the caller owns; filled after the search with
@@ -436,10 +431,8 @@ def _get_ai_move_impl(
                 return mv
         return minimax_move_ultimate(game, depth=minimax_depth)
     if ai_type == "Minimax Pro":
-        # D51: the C backend (negamax + TT + killers + LMR + ID) under the
-        # same c_minimax switch; the Python Pro remains the fallback. The
-        # C export is ultimate-only — Normal delegates to the full solve
-        # (sba_minimax_normal) exactly like the Python Pro does.
+        # the C backend (negamax + TT + killers + LMR + ID) covers Ultimate
+        # only; Normal delegates to minimax_pro_move's full Python solve.
         if (
             cfg_engine("c_minimax", True)
             and isinstance(game, UltimateGame)
@@ -466,10 +459,7 @@ def _get_ai_move_impl(
         return flat_mcts_move(game, mcts_budget)
     if ai_type == "Solver":
         if isinstance(game, NormalGame):
-            # D39: Normal Solver is a pure table lookup — the persisted
-            # tablebase (data/tt_normal.bin, rebuilt by --build-tables)
-            # answers every query; the C on-the-fly solve stays with the
-            # Minimax engine (both are perfect play)
+            # pure table lookup from data/tt_normal.bin (--build-tables).
             return solver_move(game, mcts_budget)
         # Ultimate: Solver is a plain MCTS fallback -> the C tree wins
         if cfg_engine("c_mcts", True) and _ce.available(engine=True):

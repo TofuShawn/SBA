@@ -1,5 +1,5 @@
 /*
- * sba_ultt.h — shared board definitions for the SBA native engine (D27).
+ * sba_ultt.h — shared board definitions for the SBA native engine.
  *
  * State encoding (all engines agree on this):
  *   cells[81] : 0 empty, 1 = X, 2 = O          (macro m, cell i -> m*9+i)
@@ -24,7 +24,7 @@ typedef struct {
     int32_t active;
 } SbaState;
 
-/* Search switches that used to be Python-only (D37). Passing NULL to a
+/* Search switches that used to be Python-only. Passing NULL to a
  * backend selects the conservative defaults (mirrors ai.py _CFG_DEFAULTS). */
 typedef struct {
     double uct_c;              /* UCT exploration constant */
@@ -32,7 +32,7 @@ typedef struct {
     int32_t rollout_heuristic; /* 1: win/block biased playout, 0: uniform */
     int32_t micro_tablebase;   /* 1: exact 3x3 micro values in minimax eval */
     int32_t symmetry;          /* 1: D4 root dedup on canonical positions */
-    int32_t use_pattern;       /* 1: pattern rollout kernel (D26) */
+    int32_t use_pattern;       /* 1: pattern rollout kernel */
 } SbaSearchOpts;
 
 /* Opaque, C-owned search tree. The arena is malloc'd inside the DLL, so no
@@ -66,7 +66,7 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells, const int32_t *macro,
                                     int32_t *out_moves, int32_t *out_len,
                                     const SbaSearchOpts *opts);
 
-/* full MCTS (sba_mcts.c) — D37: C owns the arena and hands back an opaque
+/* full MCTS (sba_mcts.c) — C owns the arena and hands back an opaque
  * tree handle; sba_tree_free() releases it. prev_tree may be NULL. */
 int32_t __stdcall sba_tree_free(SbaTreeHandle tree);
 int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
@@ -80,7 +80,7 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
                                   SbaTreeHandle *out_tree,
                                   const SbaTreeHandle prev_tree);
 
-/* RAVE / GRAVE trees (sba_rave.c) — D51. Same arena/handle contract as the
+/* RAVE / GRAVE trees (sba_rave.c). Same arena/handle contract as the
  * UCT tree; k is cfg rave_k. prev_tree may be NULL. */
 int32_t __stdcall sba_rave_search(const int32_t *cells, const int32_t *macro,
                                   int32_t player, int32_t active,
@@ -103,7 +103,7 @@ int32_t __stdcall sba_grave_search(const int32_t *cells, const int32_t *macro,
                                    SbaTreeHandle *out_tree,
                                    const SbaTreeHandle prev_tree);
 
-/* Minimax Pro options (D51) — separate struct so the D37 SbaSearchOpts ABI
+/* Minimax Pro options — separate struct so the SbaSearchOpts ABI
  * stays untouched; used only by sba_minimax_pro. */
 typedef struct {
     int32_t use_lmr;           /* 1: late-move reductions at depth >= 4 */
@@ -123,7 +123,7 @@ int32_t __stdcall sba_minimax_pro(const int32_t *cells, const int32_t *macro,
 /* minimax family (sba_minimax.c) */
 int32_t __stdcall sba_minimax_normal(const int32_t *board9, int32_t player,
                                      int32_t *out_best, double *out_score);
-/* D63: build the exact 3x3 micro tablebase once at DLL load (cengine._load
+/* build the exact 3x3 micro tablebase once at DLL load (cengine._load
  * calls it right after binding) instead of lazily inside eval_ultt, whose
  * unlocked g_tb_ready flag raced between the two UI worker threads. Safe to
  * call any number of times; returns 1 once the table is in place. */

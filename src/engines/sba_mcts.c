@@ -1,7 +1,7 @@
 /*
- * sba_mcts.c — full plain MCTS in C (D27/D37).
+ * sba_mcts.c — full plain MCTS in C.
  *
- * D37 changes:
+ * changes:
  *   - the node arena is owned by the DLL (malloc/calloc), so the caller no
  *     longer passes a byte buffer that gets cast to MctsNode*; a tree is
  *     handed back as an opaque SbaTreeHandle and released with sba_tree_free.
@@ -9,7 +9,7 @@
  *     uct_c, dynamic_uct, rollout_heuristic, symmetry, use_pattern
  *     (micro_tablebase belongs to the minimax evaluator, see sba_minimax.c).
  *   - root symmetry dedup compares the CANONICAL RESULTING POSITION (cells +
- *     macro + active routing + side to move) under the 8 D4 transforms, not
+ * macro + active routing + side to move) under the 8 D4 transforms, not
  *     the move's cell orbit — the orbit key merged non-equivalent moves.
  *
  * Node semantics still mirror ai.py's MCTSNode (wins from the mover's view,
@@ -185,7 +185,7 @@ int32_t __stdcall sba_mcts_search(const int32_t *cells, const int32_t *macro,
     int32_t max_nodes = tree->cap;
     MctsNode *root = NULL;
 
-    /* --- tree reuse (D30) --- */
+    /* --- tree reuse --- */
     if (prev_tree != NULL) {
         const SbaTree *prev = (const SbaTree *)prev_tree;
         const MctsNode *par = prev->arena;

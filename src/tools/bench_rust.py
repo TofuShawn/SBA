@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""bench_rust — the Rust state-layer speedup harness (D48/D50).
+"""bench_rust — the Rust state-layer speedup harness.
 
 Measures the same self-play-shaped work against both game
 implementations: the pure-Python reference (UltimateGame) and the Rust
@@ -25,7 +25,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the sba packages under src/ (D61)
+for _p in (SRC, ROOT):  # SRC for the sba packages under src/
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

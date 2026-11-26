@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""mcts — the pure-Python search trees: UCT (D8), MCTS+RAVE, MCTS+GRAVE,
+"""mcts — the pure-Python search trees: UCT, MCTS+RAVE, MCTS+GRAVE,
 the node pool, tree-reuse bookkeeping and the flat playout baseline.
 The C-first dispatch lives in ai.py; this module is the fallback and
 the research reference."""
@@ -279,7 +279,7 @@ def _drive(
 
 def mcts_search(game, iterations, c=None, prev_root=None, pool=None, on_progress=None):
     """Plain MCTS. `on_progress(info)` fires ~10 times per search with the
-    current best child so UIs can show the engine's thinking (D24)."""
+    current best child so UIs can show the engine's thinking."""
     c = cfg_engine("uct_c", 1.4) if c is None else c
     if prev_root is not None:
         root = prev_root
@@ -576,7 +576,7 @@ class RAVENode:
 
 
 def mcts_rave_search(game, iterations, c=None, k=None, prev_root=None, on_progress=None):
-    """RAVE tree (plain-Python fallback for the C engine, D51).
+    """RAVE tree (plain-Python fallback for the C engine).
 
     Deliberately no ``pool=``: AMAF tables live on the nodes, and a pooled
     node would carry stale per-game statistics into a fresh search. Wiring
@@ -612,14 +612,8 @@ def mcts_rave_move(game, iterations):
     return _best_mcts_move(root, game, iterations)
 
 
-# ---------------------------------------------------------------
-# MCTS + GRAVE (Generalized RAVE, Cazenave 2015)
-# ---------------------------------------------------------------
-# GRAVE reuses RAVE statistics through "reference" nodes: a move's RAVE
-# values live on the node where that move was first tried, and descendants
-# look them up from their reference instead of maintaining their own AMAF
-# tables. Same bias term as RAVE, but far less memory and steadier
-# estimates on wide branching factors (e.g. Ultimate).
+# MCTS + GRAVE (Cazenave 2015): RAVE statistics live on the node where a move
+# was first tried and are looked up via reference nodes, saving the AMAF tables.
 
 
 class GraveNode:
@@ -670,7 +664,7 @@ class GraveNode:
 
 
 def mcts_grave_search(game, iterations, c=None, k=None, prev_root=None, on_progress=None):
-    """GRAVE tree (plain-Python fallback for the C engine, D51). No
+    """GRAVE tree (plain-Python fallback for the C engine). No
     ``pool=`` for the same reason as ``mcts_rave_search`` — plus GRAVE
     reference nodes point into the tree, so recycling would need a
     ref-repair pass on top of the AMAF reset."""

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""rustbridge — the ctypes boundary to the sba_game.dll cdylib (D48, Rust
+"""rustbridge — the ctypes boundary to the sba_game.dll cdylib (Rust
 Phase 1: the game LOGISTICS layer).
 
 RustUltimateGame duck-types the UltimateGame interface (legal_moves /
@@ -43,13 +43,10 @@ _ERR_TEXT = {
 
 _RES_CODES = {0: None, 1: X, 2: O, 3: "D"}
 
-# this file lives in src/az/ (D61), so three dirnames up to the repo root
+# this file lives in src/az/, so three dirnames up to the repo root
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# probe order (D61): build.py's copy in src/az/ first (the canonical landing
-# spot next to the az modules it serves), then the workspace target/ tree at
-# the repo root — a bare `cargo build` without the build.py copy still loads.
-# probe candidates differ per OS, so the tuple lengths differ — annotate the
-# union shape up front instead of letting mypy pin the first branch's length
+# Probe order: build.py's copy in src/az/ first, then the root target/ tree.
+# Per-OS candidates have different lengths, so annotate the union shape for mypy.
 _LIB_PATHS: tuple[str, ...]
 if os.name == "nt":
     _LIB_PATHS = (
@@ -64,7 +61,7 @@ _LIB_PATH = _LIB_PATHS[0]
 _LIB = None
 _TRIED = False
 
-# deferred handle frees (D52): the AZ search tree churns thousands of
+# deferred handle frees: the AZ search tree churns thousands of
 # wrapper states per game; freeing each in __del__ costs one ctypes call
 # per object, which profiled slower than the Python game's refcount
 # deallocation. Handles accumulate here and release in one batch.

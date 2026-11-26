@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""cbridge — the ctypes boundary to sba_engine.dll (D27/D37).
+"""cbridge — the ctypes boundary to sba_engine.dll.
 Owns the DLL handles, state serialization, the search-switch
 snapshot and the C tree reuse cache. Engines call into this; the
 deny-stub tests patch here."""
@@ -12,7 +12,7 @@ import threading
 from core.game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
 from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine
 
-from engines import cengine as _ce  # the ctypes layer under this package (D61)
+from engines import cengine as _ce  # the ctypes layer under this package
 
 
 def move_text(move):
@@ -64,7 +64,7 @@ def _c_rollout_state(state):
 
 
 def _py_rollout_state(state):
-    """Pure-Python heuristic rollout to terminal (the D25-era fallback)."""
+    """Pure-Python heuristic rollout to terminal (the early fallback)."""
     result = state.result()
     while result is None:
         moves = state.legal_moves()
@@ -77,7 +77,7 @@ def _py_rollout_state(state):
 
 
 def _c_search_opts():
-    """Snapshot of every switch the C backends consume (D37). Built once per
+    """Snapshot of every switch the C backends consume. Built once per
     search rather than per simulation, so it stays off the hot path. Keeping
     this the single source of truth is what stops a switch from being
     "promised" in config.toml but ignored by the C tree."""
@@ -154,39 +154,26 @@ def _rollout_move(state, moves=None):
     return random.choice(moves)  # multiple threats: cannot block them all
 
 
-# ---------------------------------------------------------------
-# Flat MCTS (research-only): root-level Monte Carlo, no tree
-# ---------------------------------------------------------------
-# Scores every legal move independently with random playouts from the
-# resulting position, using the same rollout policy as MCTS (so the bench
-# isolates the search structure). Hidden from the menus; kept for learning,
-# tests and --bench.
+# Flat MCTS (research-only, unlisted): scores each legal move with independent
+# playouts under the MCTS rollout policy, so the bench isolates search structure.
 
-_C_PREV = {}  # ai_type -> previous C search tree buffer (tree reuse, D30)
+_C_PREV = {}  # ai_type -> previous C search tree buffer (tree reuse)
 
-# D63 tree-reuse ownership rule (external review round 2): the qtui runs the
-# AI move worker and the assistant analysis worker as two concurrent QThreads,
-# and BOTH used to read/write the shared reuse caches with no lock. The rule
-# now is: whoever pops a tree out of a shared slot owns it EXCLUSIVELY until
-# write-back; the other side misses the reuse and starts fresh. Every shared
-# slot (_C_PREV here, _REUSE/_REUSE_LAST in mcts.py via ai.py) is only ever
-# touched while holding this lock, and the long searches themselves run
-# WITHOUT it — the per-call C arenas are reentrant, so independent searches
-# stay concurrent; only the cache bookkeeping is serialized. A borrower never
-# hands a tree back over a newer one (the AI's write-back always wins).
+# a popped tree is owned exclusively until write-back; the lock guards only
+# the cache bookkeeping, never the searches themselves (C arenas are reentrant).
 _TREE_REUSE_LOCK = threading.Lock()
 
 
 def _c_mcts_move(game, budget, on_progress=None, trace=None):
-    """Full-tree MCTS in C (D27), with root parallelization + tree reuse
-    (D30).
+    """Full-tree MCTS in C, with root parallelization + tree reuse
+    .
 
     - threads = min(workers, budget // 400): enough sims per thread for a
       meaningful tree; each thread has its own arena so they scale across
       cores (ctypes releases the GIL inside the C call).
     - thread 0 carries the reused subtree from the previous search; the
       other threads start fresh. Merging therefore never double-counts.
-    - the warm arena is POPPED under _TREE_REUSE_LOCK (D63): the search
+    - the warm arena is POPPED under _TREE_REUSE_LOCK: the search
       owns it exclusively, and a concurrent analysis misses the slot and
       builds its own arena instead of reading a tree mid-search.
     """
@@ -286,14 +273,14 @@ def _c_mcts_move(game, budget, on_progress=None, trace=None):
 
 
 def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
-    """Full RAVE/GRAVE tree in C (D51). Single-threaded — the Python trees
+    """Full RAVE/GRAVE tree in C. Single-threaded — the Python trees
     are too, and root parallelization over RAVE statistics is a separate
     project. Tree reuse rides the same _C_PREV slots ('RAVE'/'GRAVE')."""
     if not _ce.available(engine=True):
         return None
     key = "GRAVE" if grave else "RAVE"
     # tree_reuse gates both ends here too (same contract as _c_mcts_move);
-    # D63: the pop hands this thread exclusive ownership of the slot
+    # the pop hands this thread exclusive ownership of the slot
     reuse = cfg_engine("tree_reuse", True)
     prev = None
     if reuse:
@@ -335,7 +322,7 @@ def _c_rave_grave_move(game, budget, grave, on_progress=None, trace=None):
 
 
 def _c_minimax_pro(game, depth):
-    """Minimax Pro via the C backend (D51); None → Python fallback.
+    """Minimax Pro via the C backend; None → Python fallback.
 
     The four pruning switches are C-side capabilities too (sba_minimax_pro
     reads o->use_*), but cengine.minimax_pro defaults them all to True.

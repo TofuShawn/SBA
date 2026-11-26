@@ -75,13 +75,8 @@ ULTIMATE_BOOK = {
     (8, 4): [(4, 2), (4, 6)],
 }
 
-# The Ultimate opening book is configurable through config.toml
-# ([engine.opening_book_ultimate], keys like "4,4"); the dict above remains
-# the built-in default, passed to cfg_engine as the fallback below. The book
-# DATA deliberately never lands in config._CFG_DEFAULTS (D63): config.py's
-# leaf contract is that its defaults do not depend on whether books was
-# imported — a config.toml table, when present, reaches the reader through
-# CONFIG, not through the defaults tree.
+# The dict above is the built-in default; [engine.opening_book_ultimate] in
+# config.toml overrides it. Book data stays out of config._CFG_DEFAULTS.
 
 
 def _ultimate_book():

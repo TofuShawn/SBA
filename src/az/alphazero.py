@@ -34,14 +34,9 @@ import random
 import sys
 import time
 
-# Windows + TheRock ROCm wheels: MIOpen (PyTorch's conv backend) keeps its
-# find-db and kernel cache in the system TEMP by default. When TEMP points at a
-# network/slow drive, the first conv2d can hang or raise
-# miopenStatusUnknownError, so pin the caches to the local project disk
-# (user-set overrides are respected).
-# this file lives in src/az/ (D61), so three dirnames up to the repo root;
-# the same insert lets `python src/az/alphazero.py train` resolve the
-# packages directly (the sba.py shim does this for the session entry)
+# Pin MIOpen caches to the project disk: a slow TEMP drive makes the first
+# conv2d hang or raise miopenStatusUnknownError. Three dirnames up to the root
+# also let `python src/az/alphazero.py` resolve the packages.
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if os.path.join(HERE, "src") not in sys.path:
     sys.path.insert(0, os.path.join(HERE, "src"))
@@ -114,7 +109,7 @@ def encode(game):
                 planes[0 if mark == X else 1, r, c] = 1.0
     else:
         if isinstance(game, rustbridge.RustUltimateGame):
-            # D50: the whole tensor is filled in one FFI call — planes,
+            # the whole tensor is filled in one FFI call — planes,
             # turn marker and the active-macro block together
             return torch.as_tensor(game.sba_planes_tensor())
         for m in range(9):
@@ -197,7 +192,7 @@ class AZNet(nn.Module):
 # Neural-guided MCTS
 # ---------------------------------------------------------------
 
-ROLLOUT_WEIGHT = 0  # pure-network leaf value (standard AZ recipe, D58): the exe trains on this; the blend is reachable again by passing rollout_weight>0
+ROLLOUT_WEIGHT = 0  # pure-network leaf value (standard AZ recipe): the exe trains on this; the blend is reachable again by passing rollout_weight>0
 VIRTUAL_LOSS = 2.0  # applied during batched selection so parallel workers diverge
 BATCH_SIZE = 256  # default leaf-parallel batch size for network inference
 DIRICHLET_EPS = 0.25  # root-prior noise weight in self-play (standard AZ value)
@@ -273,7 +268,7 @@ class _CRootView:
 
 
 def _c_rollout_value(g):
-    """Native heuristic playout via the C rollout kernel (D32); value from
+    """Native heuristic playout via the C rollout kernel; value from
     g's current player's perspective. Returns None when the DLL is missing
     or the position is somehow unresolvable — caller falls back to Python.
     The kernel runs the same win/block-biased policy as ai._rollout_move.
@@ -301,7 +296,7 @@ def _c_rollout_value(g):
 def rollout_value(g):
     """Heuristic playout from g; value from the perspective of g's current player.
 
-    Uses the native C rollout kernel when available (D32) and falls back to
+    Uses the native C rollout kernel when available and falls back to
     the ai.py win/block-biased policy (lazy import: ai.py loads alphazero on
     demand, never at module level). Tactical playouts are far stronger than
     uniform random on Ultimate Tic Tac Toe.
@@ -387,23 +382,13 @@ def mcts_search(
             else:
                 leaves.append((path, node))
 
-        # Network: one batched forward for every selected leaf. The batch is
-        # padded to a fixed size so MIOpen sees one tensor shape per process
-        # (one kernel lookup instead of a find pass per round size). Padded
-        # rows are GPU-side tiles of the real batch — encode runs once per
-        # real leaf (the old code re-encoded a duplicate state 256x per
-        # round), and the padded outputs are discarded either way. Policies
-        # and values ride home in ONE .cpu() sync instead of two.
+        # One batched forward, padded to a fixed shape so MIOpen keeps one kernel.
         if leaves:
             n_real = len(leaves)
             pad = batch_size - n_real
             states = torch.stack([encode(node.state) for _, node in leaves]).to(DEVICE)
             if pad:
-                # tile whole copies up to EXACTLY batch_size rows: a clamp
-                # (states[:pad] with pad > n_real, or a floor-div rep count)
-                # would yield a per-round variable shape, and MIOpen picks a
-                # pathological kernel for odd shapes (252 rows ran 12x slower
-                # than 256 in isolation on this ROCm build)
+                # Tile to exactly batch_size rows: odd shapes hit a slow MIOpen kernel.
                 reps = -(-batch_size // n_real)  # ceil
                 states = states.repeat((reps,) + (1,) * (states.dim() - 1))
                 states = states[:batch_size]
@@ -435,7 +420,7 @@ def mcts_search(
                         node.priors = {m: float(probs[move_index(node.state, m)]) for m in moves}
                     for m in moves:
                         if isinstance(node.state, rustbridge.RustUltimateGame):
-                            # D50: clone + apply in one FFI round trip
+                            # clone + apply in one FFI round trip
                             child_state = node.state.clone_apply(*m)
                         else:
                             child_state = node.state.clone()
@@ -468,7 +453,7 @@ def mcts_visit_counts(
 
 
 # ---------------------------------------------------------------
-# Policy inspection (D40): the raw priors, no search
+# Policy inspection: the raw priors, no search
 # ---------------------------------------------------------------
 
 
@@ -546,7 +531,7 @@ def make_game(game_type):
         from core.game import NormalGame
 
         return NormalGame()
-    # D48: the Rust state layer carries self-play logistics when built
+    # the Rust state layer carries self-play logistics when built
     # (engine.rust_game); game.py stays the reference implementation and
     # the fallback whenever the cdylib is missing or the switch is off
     if cfg_engine("rust_game", True) and rustbridge.available():
@@ -584,7 +569,7 @@ def export_safetensors(model, path):
 
 
 def _ckpt_path(save_path, game):
-    """Numbered checkpoint next to the canonical model file (D46): the
+    """Numbered checkpoint next to the canonical model file: the
     scale curve needs EVERY ckpt_every point on disk — the old code
     overwrote one path and the 600/2000/6000 curve points were lost."""
     stem, ext = os.path.splitext(save_path)
@@ -592,7 +577,7 @@ def _ckpt_path(save_path, game):
 
 
 class _TrainingCsv:
-    """Per-iteration training-curve logger (D41): one CSV row per completed
+    """Per-iteration training-curve logger: one CSV row per completed
     game, flushed immediately so a killed run still leaves usable data.
 
     One file = one run lineage: a fresh run overwrites, a resumed run
@@ -615,7 +600,7 @@ class _TrainingCsv:
 
     def __init__(self, path, resume=False):
         self._append = bool(resume) and os.path.exists(path)
-        safe = writable_path(path)  # 规范化 + 禁止 .. + 限 repo/temp
+        safe = writable_path(path)
         # Kept open for the whole training run (flushed per row, closed by
         # _TrainingCsv.close) — a `with` block would close it immediately.
         self._f = open(  # noqa: SIM115 - long-lived handle, closed by close()
@@ -754,7 +739,7 @@ def self_play_game(
         else:
             # Stage 1: pure MCTS (heuristic rollouts, no network) so policy
             # and value targets come from classical search quality. The
-            # native C tree search (D30) runs it ~37x faster; root stats
+            # native C tree search runs it ~37x faster; root stats
             # carry (move, visits, wins, mover) exactly like MCTSNode.
             from engines import cengine as _ce
             from engines.ai import _c_search_opts
@@ -796,13 +781,8 @@ def self_play_game(
     return states, targets, zs
 
 
-# ---------------------------------------------------------------
-# Multi-process self-play (Windows spawn-safe)
-# ---------------------------------------------------------------
-# Worker processes each own a GIL and a model copy, so the CPU-bound
-# rollouts/tree code parallelizes for real (unlike threads). Every task
-# carries the latest weights, so workers stay stateless; results come back
-# through a shared queue and the main process alone runs the optimizer.
+# Multi-process self-play (spawn-safe): each worker owns a GIL and a model copy,
+# takes the latest weights per task and stays stateless; only the parent optimizes.
 
 _MP_RESULTS_Q = None
 
@@ -867,7 +847,7 @@ def _mp_play_game(
 def _save_ckpt(
     model, size, channels, blocks, save_path, at, games, on_event, quiet, progress, game_type
 ):
-    """Write the numbered checkpoint (D46) and announce it.
+    """Write the numbered checkpoint and announce it.
 
     Both trainers call this; the event used to report `save_path` while the
     file actually written was `ckpt_at`, so the UI listed the same path for
@@ -1055,7 +1035,7 @@ def train(cfg, ctx=None, hooks=None):
     start = time.time()
     save_path = save_path or model_path(game_type)
     use_network = stage == 2
-    # D41: the training curve defaults to next to the model; explicit
+    # the training curve defaults to next to the model; explicit
     # --csv wins, save=False without --csv means no file at all
     if csv_path is None and save:
         csv_path = os.path.splitext(save_path)[0] + ".csv"
@@ -1122,7 +1102,7 @@ def train(cfg, ctx=None, hooks=None):
         return wins, draws, losses
 
     replay = []
-    # Self-play engine arbitration (D55 Phase A): the rust exe when available
+    # Self-play engine arbitration (Phase A): the rust exe when available
     # (or forced), the python paths otherwise. Announced once so the UI can
     # label the run; `workers` is the TUI's field value for BOTH engines
     # (under rust it maps onto the exe's --threads, see Task 10's label).
@@ -1134,13 +1114,8 @@ def train(cfg, ctx=None, hooks=None):
         )
     if on_event:
         on_event({"type": "selfplay_engine", "engine": engine, "workers": workers})
-    # D57 guard, gating the rust branch below: the exe always plays network
-    # self-play with root-mean z — `stage 1` (heuristic-rollout games) and
-    # `value_target != "root_mean"` are python-path-only. An explicit
-    # `--selfplay-engine rust` combined with either is a caller error; a
-    # rust resolved by auto/downgrade silently falls back to the python
-    # paths (announced so the UI can relabel the run — the rust event above
-    # still fired).
+    # the exe only does stage-2 root-mean self-play; asking for rust with
+    # anything else is a caller error, auto/downgrade falls back and announces it.
     if engine == "rust" and (stage != 2 or value_target != "root_mean"):
         if selfplay_engine == "rust":
             raise ValueError(
@@ -1266,7 +1241,7 @@ def train(cfg, ctx=None, hooks=None):
 
     try:
         if engine == "rust":
-            # D55 Phase A: rounds of exe self-play. Weights are exported per
+            # Phase A: rounds of exe self-play. Weights are exported per
             # round, the exe writes one safetensors record per game, and the
             # records are absorbed IN ORDER — one optimize step + one `game`
             # event per game, the same semantics as the python path.
@@ -1308,7 +1283,7 @@ def train(cfg, ctx=None, hooks=None):
                     # round deadline, not a per-line gap: a legitimate large
                     # round (games x 2min floor) is never falsely killed
                     timeout=max(config.MP_GAME_TIMEOUT, round_games * 120),
-                    # D59: K exe processes share the round (disjoint seed
+                    # K exe processes share the round (disjoint seed
                     # ranges + record indices, merged watchdog) — the merged
                     # round stays ONE round for the retry below, which
                     # re-dispatches the missing games single-process
@@ -1331,11 +1306,8 @@ def train(cfg, ctx=None, hooks=None):
                         out_dir=out_dir + "-retry",
                         games=missing,
                         seed_base=(seed or 0) + (it - 1) + res["games_done"],
-                        # advanced index: the retry's first game is absolute
-                        # game it + games_done, whose schedule point is
-                        # (game - 1) / games — same convention as temp_end
-                        # (the seed base advances past this round's completed
-                        # games too, not round 1's)
+                        # Retry base is absolute: this round's completed games
+                        # already advanced, so the schedule point matches temp.
                         temp_start=max(TEMP_MIN, 1.0 - (it - 1 + res["games_done"]) / games),
                     )
                     res = rustselfplay.run_round(
@@ -1461,7 +1433,7 @@ class TrainCfg:
     selfplay_engine: str = "auto"
     selfplay_exe: str | None = None
     round_games: int = 32
-    selfplay_procs: int = 1  # D59: exe processes per rust round (stream overlap attempt)
+    selfplay_procs: int = 1  # exe processes per rust round (stream overlap attempt)
 
 
 @dataclass
@@ -1756,12 +1728,12 @@ def main(argv=None):
     global ROLLOUT_WEIGHT
     ap = argparse.ArgumentParser(description="AlphaZero for (Ultimate) Tic Tac Toe")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    tr = sub.add_parser("train", help="self-play + optimization (the two-stage D22 recipe)")
+    tr = sub.add_parser("train", help="self-play + optimization (the two-stage recipe)")
     tr.add_argument(
         "--games",
         type=int,
         default=300,
-        help="self-play games to train on (default: 300; the D22 scale curve used 600/2000/6000)",
+        help="self-play games to train on (default: 300; the scale curve used 600/2000/6000)",
     )
     tr.add_argument(
         "--sims",
@@ -1863,7 +1835,7 @@ def main(argv=None):
         type=int,
         default=1,
         help="exe processes per rust round, disjoint seed ranges merged into "
-        "one round (D59; default: 1). Round game threads split across them.",
+        "one round (default: 1). Round game threads split across them.",
     )
     tr.add_argument("--replay-cap", type=int, default=500, help="replay buffer cap (default: 500)")
     tr.add_argument(

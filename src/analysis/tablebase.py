@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """tablebase — the persisted perfect-play table for Normal mode
-(D38: data/tt_normal.bin + the DFS fallback) and the Solver engine."""
+(data/tt_normal.bin + the DFS fallback) and the Solver engine."""
 
 import math
 import os

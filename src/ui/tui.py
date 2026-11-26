@@ -811,8 +811,8 @@ class GameScreen(Screen):
         self._ai_worker = None
         self._ai_token = 0
         self._ai_busy = False
-        self._ai_progress = None  # D24: live search info from the AI worker
-        self._ai_trace = None  # D24: last move's thinking summary
+        self._ai_progress = None  # live search info from the AI worker
+        self._ai_trace = None  # last move's thinking summary
         self._analysis_token = 0
         self._analysis_items = []
         self._last_rates = None

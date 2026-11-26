@@ -3,7 +3,7 @@
 
 """Ultimate Tic Tac Toe — entry point, session state, and self-tests.
 
-Game rules live in core/game.py and the AI engines in engines/ai.py (D61).
+Game rules live in core/game.py and the AI engines in engines/ai.py.
 This module wires them together, keeps the per-session UI state, runs the
 headless self-tests, and provides the CLI entry point.
 
@@ -15,7 +15,7 @@ Run:
     python src/session/SBA.py --debug      # verbose backend logs
 
 Maintenance notes:
-- The desktop app is the default entry (decision D1).
+- The desktop app is the default entry.
 - Session state lives here; the module is aliased as 'session.SBA' so
   ui/qtui.py and ui/tui.py reuse it instead of importing a second copy.
 """
@@ -25,8 +25,8 @@ import os
 import random
 import sys
 
-# direct `python src/session/SBA.py` invocation: put src/ (the package root,
-# D61) on sys.path before the repo imports — the sba.py shim does the same
+# direct `python src/session/SBA.py` invocation: put src/ (the package root)
+# on sys.path before the repo imports - the sba.py shim does the same
 _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
@@ -136,11 +136,8 @@ AI_OPTIONS = {
     "Solver": "Solver — 完美解（Normal 讀持久化解表，Ultimate 為 MCTS）",
     "MCTS": "MCTS — 蒙地卡羅",
     "MCTS+GRAVE": "MCTS+GRAVE — 蒙地卡羅+GRAVE",
-    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
-    # successor (same bias term, lower memory). The engine stays available
-    # through get_ai_move for self-tests and the --bench comparison.
-    # Flat MCTS (root-level playouts, no tree) is likewise hidden — it is a
-    # research/learning baseline, not a menu-worthy opponent.
+    # MCTS+RAVE and Flat MCTS stay out of the menu: GRAVE supersedes RAVE, and
+    # Flat is a research baseline. Both remain reachable via get_ai_move.
 }
 
 
@@ -389,7 +386,7 @@ def main(argv=None):
         except ImportError:
             print("pytest is required for --self-test:  python -m pip install pytest")
             return 1
-        # this file lives in src/session/ (D61): three dirnames up to the
+        # this file lives in src/session/: three dirnames up to the
         # repo root, where tests/ lives
         tests = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

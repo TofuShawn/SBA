@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Bridge to the Rust self-play exe (sba-core, D55 Phase A).
+"""Bridge to the Rust self-play exe (sba-core, Phase A).
 
 The exe owns search + inference and writes one safetensors record per game;
 this module owns the Python side of that contract: locating the binary,
@@ -25,16 +25,13 @@ import numpy as np
 
 from config import MP_GAME_TIMEOUT, TEMP_MIN
 
-# repo root (this file lives in src/az/ (D61), so three dirnames up —
+# repo root (this file lives in src/az/, so three dirnames up —
 # config.py at src/ still uses two)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-# probe order: the WSL mingw cross-build first (the Windows dev-machine
-# artifact), then plain release, then debug. The extension-less spellings
-# are the Linux ELF names — CI builds the cpu backend there and runs the
-# exe without an .exe suffix. All under the workspace-shared target/ at the
-# repo root (D60).
+# Probe order: WSL mingw cross-build, then release, then debug; the extension-less
+# names are the Linux ELF spellings CI builds under the shared root target/.
 def _probe_paths(name):
     """The probe list for one sba-core binary name (see find_exe)."""
     return (
@@ -221,7 +218,7 @@ def build_round_cmd(args):
 
 
 def _partition_round(args, procs):
-    """Split one round across `procs` exe processes (D59): disjoint game
+    """Split one round across `procs` exe processes: disjoint game
     counts (games/procs rounded up for every process except the last, which
     takes the remainder — the total stays exactly args.games), disjoint
     seed bases (args.seed_base + k*games_per_proc — the per-process offsets
@@ -384,7 +381,7 @@ def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, 
     fewer than `args.games` game_done events arrived, or when an exe stayed
     silent for `timeout` seconds.
 
-    `procs` (D59) splits the round across K concurrent exe processes
+    `procs` splits the round across K concurrent exe processes
     (see _partition_round) writing disjoint record names into the SAME
     out dir; the merged round is ONE round — games_done sums across the
     processes, one selfplay_round event fires, and the FIRST failure
@@ -456,15 +453,11 @@ def run_round(args, *, exe, on_event=None, timeout=MP_GAME_TIMEOUT, popen=None, 
         temps.update(r[4])
     tails = [r[3] for r in results if r[3]]
     stderr_tail = tails[0][-400:] if tails else ""
-    # crashed when any process failed (its own timeout/crash/short count set
-    # the abort flag) or the merged total fell short of the round's games
+    # crashed when any process failed or the merged total fell short of the round
     crashed = abort.is_set() or games_done < args.games
     if crashed:
-        # kill-ALL is unconditional over every LIVE process (the watchdog
-        # contract): a watcher can reach its own EOF-break before the
-        # sibling's abort flag has propagated and exit without killing, so
-        # the merge sweeps every process one final time — a failed round
-        # never leaves a live exe behind
+        # Kill ALL live processes unconditionally: a watcher can hit its own EOF
+        # break before a sibling's abort propagates, so the merge sweeps again.
         for w in watchers:
             if w.proc.poll() is None:
                 with contextlib.suppress(OSError):

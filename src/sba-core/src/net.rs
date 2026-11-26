@@ -1,20 +1,11 @@
-//! sba-core — the Rust core (D55 Phase A). The AZNet policy/value network
-//! hand-written in burn: weights load from the PyTorch-saved safetensors
-//! file 1:1 (param names mirror `src/alphazero.py`'s state_dict exactly —
-//! `blocks.0.conv1.weight`, `bn_in.running_mean`, …) with one deliberate
-//! delta: burn's Linear weight is [in, out] vs torch's [out, in], so the
-//! three FC weights transpose on load. Conv layouts match as-is. The forward mirrors `AZNet.forward`:
-//! relu(bn(conv)) stacks, residual adds, policy logits [B, 81] and a
-//! tanh value [B, 1].
+//! sba-core — the AZNet policy/value network hand-written in burn. Weights load from
+//! the PyTorch safetensors file 1:1 (names mirror `src/alphazero.py`'s state_dict),
+//! with one delta: burn's Linear weight is [in, out] vs torch's [out, in], so the
+//! three FC weights transpose on load. The forward mirrors AZNet.forward.
 //!
-//! Backend notes (burn 0.16): on a plain (non-autodiff) backend BatchNorm
-//! always runs `forward_inference` — running statistics, the same contract
-//! as torch `.eval()` — so there is no train/valid toggle here. BN affine
-//! params are named gamma/beta; running stats are `RunningState` values
-//! built from Params via `from_record`.
-//!
-//! The wgpu backend keeps the inference path pure Rust — no C++ runtime —
-//! and the backend choice is one type alias away from Cuda/Tch/CPU.
+//! Backend notes (burn 0.16): a plain backend always runs BN forward_inference
+//! (torch .eval()), BN params are gamma/beta and stats come from RunningState.
+//! The wgpu backend keeps inference pure Rust; the backend is one type alias away.
 
 use burn::module::{Module, Param, RunningState};
 use burn::nn::conv::{Conv2d, Conv2dConfig};
@@ -103,12 +94,8 @@ impl<B: Backend> AzNet<B> {
         let p = self.pol_fc.forward(p.flatten(1, 3));
         let v = relu(self.val_bn.forward(self.val_conv.forward(x.clone())));
         let flat = v.flatten(1, 3);
-        // val_fc1 as two N=32 matmuls instead of Linear::forward's single
-        // N=64 one: the wgpu tensor-core (cmma) matmul silently loses
-        // ~1e-2 relative precision for N in {64, 128, 256} (measured against
-        // a naive f64 reference; N in {32, 48, 81, 96} is exact), which
-        // breaks the 1e-5 torch parity on the value head. Two half-width
-        // matmuls are the same sum, one exact kernel each.
+        // Two N=32 matmuls instead of one N=64: the wgpu cmma matmul loses ~1e-2 on
+        // N in {64, 128, 256}, breaking the 1e-5 parity; N=32 is exact.
         let w = self.val_fc1.weight.val();
         let ya = flat.clone().matmul(w.clone().slice([0..648, 0..32]));
         let yb = flat.matmul(w.slice([0..648, 32..64]));
@@ -196,12 +183,8 @@ pub fn read_f32s(bytes: &[u8]) -> Vec<f32> {
     bytemuck::cast_slice(bytes).to_vec()
 }
 
-/// The blob's architecture, read off the safetensors header:
-/// conv_in.weight is [channels, 4, 3, 3] and every block contributes one
-/// `blocks.{i}.conv1.weight`. AzNet::from_safetensors pins the torch
-/// checkpoint's 128/5; self-play blobs may be smaller (the CLI tests load
-/// a channels=8, blocks=1 net), so callers size the model to the file.
-/// (Single-sourced here for both exes — moved out of sba_selfplay.rs.)
+/// Architecture read off the safetensors header (conv_in.weight channels, one
+/// `blocks.{i}.conv1.weight` each); self-play blobs may be smaller than 128/5.
 pub fn infer_arch(bytes: &[u8]) -> Result<(usize, usize), String> {
     let st = SafeTensors::deserialize(bytes).map_err(|e| e.to_string())?;
     let channels = st

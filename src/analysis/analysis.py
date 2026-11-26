@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """analysis — the assistant surface: position evaluation, win-rate
-overlays, best-move analysis and the reason classifier (D3/D24)."""
+overlays, best-move analysis and the reason classifier."""
 
 from core.game import EMPTY, LINES, NormalGame, O, UltimateGame, X, apply_move, count_threats
 from config import cfg_engine
@@ -118,7 +118,7 @@ def _rates_from_root(root, game):
 
     Each child's wins carry draws at 0.5 from the mover's perspective, so the
     draw share needs the node's raw draw counter — 1 - x - o from the score
-    alone is identically zero and used to fake the triplet (D15 regression)."""
+    alone is identically zero and used to fake the triplet (regression)."""
     tot_x = tot_o = tot_d = tot = 0.0
     for child in root.children:
         if child.visits == 0:
@@ -174,7 +174,7 @@ def _c_ultt_analysis(game, mcts_budget):
     Reuses the AI move search's warm tree when available. Returns None when
     the full engine DLL is unavailable.
 
-    D63 ownership rule: the borrow is a POP under _TREE_REUSE_LOCK — analysis
+    ownership rule: the borrow is a POP under _TREE_REUSE_LOCK — analysis
     takes the idle tree out of the shared slot so the AI worker can never
     hand the same arena out mid-search, and gives it back only while the
     slot is still empty (the AI's write-back always wins). While the AI owns

@@ -51,16 +51,8 @@ impl GameRecord {
             ("sims".to_string(), self.meta.sims.to_string()),
             ("weights_sha".to_string(), self.meta.weights_sha.clone()),
         ]);
-        // Byte determinism: safetensors 0.4 serializes the __metadata__ map
-        // in HashMap iteration order, which is randomized per process —
-        // two runs writing identical records would differ at the byte
-        // level (the selfplay CLI contract compares same-seed records
-        // bitwise). Serialize the tensors WITHOUT metadata (the crate
-        // sorts tensor entries internally, so those bytes are stable),
-        // then splice the metadata back as a JSON object built from
-        // key-sorted entries: the header bytes come out identical on every
-        // run and the file stays a plain safetensors blob (read_metadata /
-        // SafeTensors::deserialize / the Python loader all read it back).
+        // Byte determinism: serialize without the __metadata__ map (HashMap order is
+        // randomized), then splice it back key-sorted so same-seed records match bitwise.
         let blob = safetensors::serialize(data, &None).map_err(|e| e.to_string())?;
         let (header_len, _) =
             safetensors::SafeTensors::read_metadata(&blob).map_err(|e| e.to_string())?;

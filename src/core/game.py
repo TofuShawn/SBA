@@ -8,7 +8,7 @@ the board geometry / win-badge helpers used by the AI engines, analysis,
 self-tests, and the UIs. Pure logic with no UI-framework dependency.
 
 Maintenance notes:
-- Keep this file free of UI/engine imports (decision D2) — everything else
+- Keep this file free of UI/engine imports — everything else
   depends on it.
 - win_badge_svg / win_segment / macro_center are shared by the web board.
 """
@@ -410,7 +410,7 @@ class BitUltimateGame:
 def apply_move(game, move):
     # duck-typed on the MOVE shape, not the game class: Ultimate moves are
     # always (macro, micro) tuples and Normal moves are always ints — this
-    # routes any implementation (UltimateGame / BitUltimateGame / the D48
+    # routes any implementation (UltimateGame / BitUltimateGame / the Rust
     # Rust wrapper) without game.py having to import its consumers
     if isinstance(move, tuple):
         game.make_move(*move)

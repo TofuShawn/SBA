@@ -1,4 +1,4 @@
-# sba_game — the Ultimate Tic-Tac-Toe state layer in Rust (D48, Phase 1).
+# sba_game — the Ultimate Tic-Tac-Toe state layer in Rust (Phase 1).
 #
 # Game LOGISTICS only: apply / legal moves / result / clone / state dump.
 # The search algorithms stay in Python (research reference) and in
@@ -13,5 +13,5 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-# [profile.release] moved to the workspace root Cargo.toml (D60) — cargo
+# [profile.release] moved to the workspace root Cargo.toml — cargo
 # ignores profile blocks in workspace members.

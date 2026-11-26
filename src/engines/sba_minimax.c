@@ -1,12 +1,12 @@
 /*
- * sba_minimax.c — Minimax family backends in C (D27/D37):
+ * sba_minimax.c — Minimax family backends in C:
  *   - sba_minimax_normal : full alpha-beta solve of 3x3 (negamax form)
  *   - sba_minimax_ultimate : depth-limited alpha-beta with the heuristic
  *     eval (fork / threat / occupancy / macro-pair terms) plus the exact
  *     micro tablebase, matching ai.py's eval_ultimate when the switch is on
  *   - sba_flat_mcts : root-level independent playouts per legal move
  *
- * D37: all three policy switches travel in SbaSearchOpts.
+ * all three policy switches travel in SbaSearchOpts.
  */
 
 #include "sba_ultt.h"
@@ -30,7 +30,7 @@ static double pro_elapsed_ms(clock_t t0) {
 /* ------------------------------------------------------------------ */
 #define TB_SIZE 19683   /* 3^9 */
 static int8_t g_tb[TB_SIZE];
-/* D63: was a plain int32_t — two threads running their first search at once
+/* was a plain int32_t — two threads running their first search at once
  * could both pass the ready check and wipe the table under each other
  * (C11 UB + a cache wipe). The atomic CAS below makes init single-shot even
  * without a mutex; the DLL-load-time sba_minimax_tb_init() call keeps the
@@ -84,7 +84,7 @@ static void tb_init(void) {
     tb_solve(c, 1);
 }
 
-/* D63 export: cengine._load() calls this once right after binding, so the
+/* export: cengine._load calls this once right after binding, so the
  * lazy eval_ultt() call below stays a no-op fallback on the hot path. */
 int32_t __stdcall sba_minimax_tb_init(void) {
     tb_init();
@@ -439,7 +439,7 @@ int32_t __stdcall sba_flat_mcts(const int32_t *cells, const int32_t *macro,
 }
 
 /* ------------------------------------------------------------------ */
-/* Minimax Pro (D51): negamax + TT + killers + LMR + ID + aspiration.   */
+/* Minimax Pro: negamax + TT + killers + LMR + ID + aspiration. */
 /* Ports ai.py minimax_pro_move / _negamax_tt / _order_moves.           */
 /* ------------------------------------------------------------------ */
 

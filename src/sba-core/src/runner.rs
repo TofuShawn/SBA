@@ -1,10 +1,7 @@
-//! The one-game self-play runner (Phase A): `play_game`, the
-//! `self_play_game` mirror. Until the state is over it runs
-//! [`crate::wave::search_position`] for `limits.sims` simulations, records
-//! (planes, target, z) with z = _root_value, samples the move from the
-//! target distribution (np.random.choice mirror) and applies it. The
-//! record's meta carries defaults: the exe fills seed/weights_sha/result
-//! per run.
+//! The one-game self-play runner: `play_game`, the `self_play_game` mirror. Until the
+//! game ends it runs [`crate::wave::search_position`] for `limits.sims` simulations,
+//! records (planes, target, z = _root_value), samples the move from the target
+//! distribution (np.random.choice mirror) and applies it.
 
 use rand::{Rng, RngCore};
 use sba_game::{O_WINS, SbaGame, X_WINS};
@@ -18,10 +15,8 @@ pub struct GameOutcome {
     pub record: records::GameRecord,
 }
 
-/// Scripted evaluators shared by the split modules' tests (tree / wave /
-/// runner all pin behavior through them): the scripted-evaluator pattern
-/// mirrors what worker.rs does for real inference, so the fixtures live in
-/// the topmost consuming module, `pub(crate)` for the siblings' test mods.
+/// Scripted evaluators shared by tree/wave/runner tests, `pub(crate)` for the
+/// sibling test mods.
 #[cfg(test)]
 pub(crate) mod fixtures {
     use std::cell::RefCell;
@@ -52,11 +47,8 @@ pub(crate) mod fixtures {
         p
     }
 
-    /// Scripted evaluator + mode counters: `waves` records the row count of
-    /// every evaluate_batch call (one entry per wave), `singles` counts
-    /// plain evaluate calls — together they pin WHICH mode a limits config
-    /// ran. Uniform priors + constant value make the wave dynamics fully
-    /// hand-traceable (vloss dominates, first-max ties, round-robin).
+    /// Scripted evaluator + mode counters: `waves` records each evaluate_batch row
+    /// count, `singles` counts plain evaluate calls — together they pin the mode.
     pub(crate) struct Probed {
         pub(crate) inner: Scripted,
         pub(crate) waves: RefCell<Vec<usize>>,
@@ -88,13 +80,9 @@ pub(crate) mod fixtures {
     }
 }
 
-/// One self-play game (self_play_game mirror): until the state is over,
-/// run `limits.sims` PUCT simulations from the current position, record
-/// (planes, target, z) with z = _root_value — the visit-weighted mean of
-/// the root children's Q, 0.0 with no visits — then sample the move from
-/// the target distribution (np.random.choice mirror: cumulative walk in
-/// legal order under a uniform r in [0, 1)) and apply it. The record's
-/// meta carries defaults: the exe fills seed/weights_sha/result per run.
+/// One self-play game: search `limits.sims` from the current position, record
+/// (planes, target, z = _root_value), then sample the move from the target distribution
+/// (np.random.choice mirror) and apply it.
 pub fn play_game(
     start: SbaGame,
     eval: &mut dyn Evaluator,
