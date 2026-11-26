@@ -1,6 +1,6 @@
 //! Search engine: the two modes behind `SearchLimits::batch_size`, dispatched by
 //! [`search_position`]. `batch_size` 0/1 runs the serial loop (`tree::search_once`);
-//! >1 runs the leaf-parallel WAVE loop (`search_wave`) that python's default
+//! any value above 1 runs the leaf-parallel WAVE loop (`search_wave`) that python's default
 //! BATCH_SIZE=256 uses, with virtual-loss best_child selection and one batched
 //! evaluate per round. Layer-3 diagnosis: serial is bit-faithful to python
 //! `batch_size=1` (KL 0.0000), and the two modes do not converge with budget.
