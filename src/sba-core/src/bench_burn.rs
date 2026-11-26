@@ -53,8 +53,8 @@ fn main() {
     // size the model to the blob (the spike used 128/5; the parity fuzz
     // loads the AZNet(9, 8, 1) test net) — the infer_arch pattern the
     // sibling exes share
-    let (channels, blocks) = infer_arch(&weights_bytes)
-        .unwrap_or_else(|e| panic!("weights load failed: {e}"));
+    let (channels, blocks) =
+        infer_arch(&weights_bytes).unwrap_or_else(|e| panic!("weights load failed: {e}"));
     let mut model = AzNet::<B>::new(&device, channels, blocks);
     model.load_safetensors(&weights_bytes, &device);
     println!("weights loaded in {:?}", t0.elapsed());
@@ -78,7 +78,11 @@ fn main() {
     if let Some(prefix) = &dump {
         let probs = burn::tensor::activation::softmax(p.clone(), 1);
         std::fs::write(format!("{prefix}_policy.bin"), probs.into_data().as_bytes()).unwrap();
-        std::fs::write(format!("{prefix}_value.bin"), v.clone().into_data().as_bytes()).unwrap();
+        std::fs::write(
+            format!("{prefix}_value.bin"),
+            v.clone().into_data().as_bytes(),
+        )
+        .unwrap();
     }
 
     // parity vs the torch reference bins (the spike invocation)

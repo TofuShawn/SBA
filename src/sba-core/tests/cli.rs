@@ -3,10 +3,10 @@
 //! (seeded LCG over the tensor names `net.rs::load_safetensors` reads), so the suite
 //! runs on the cpu backend with no GPU and no torch checkpoint.
 
-use std::collections::HashMap;
-use std::process::Command;
 use safetensors::tensor::TensorView;
 use safetensors::Dtype;
+use std::collections::HashMap;
+use std::process::Command;
 
 fn run(args: &[&str]) -> (i32, String, String) {
     let out = Command::new(env!("CARGO_BIN_EXE_sba_selfplay"))
@@ -178,7 +178,11 @@ fn weights_parse_failure_emits_error_event() {
         .lines()
         .map(|l| serde_json::from_str(l).expect("jsonl"))
         .collect();
-    assert_eq!(lines.len(), 1, "no start event may precede a weights failure");
+    assert_eq!(
+        lines.len(),
+        1,
+        "no start event may precede a weights failure"
+    );
     assert_eq!(lines[0]["type"], "error");
     assert!(!lines[0]["message"].as_str().unwrap_or("").is_empty());
 }
@@ -240,7 +244,10 @@ fn record_write_failure_emits_error_event() {
     assert_eq!(lines[0]["type"], "start");
     let last = lines.last().unwrap();
     assert_eq!(last["type"], "error");
-    assert!(last["message"].as_str().unwrap_or("").contains("record write failed"));
+    assert!(last["message"]
+        .as_str()
+        .unwrap_or("")
+        .contains("record write failed"));
 }
 
 /// Seeded LCG step -> f32 in [0, 1). Integer-only state, so the values are
@@ -290,46 +297,184 @@ fn write_weights(path: &std::path::Path, with_blocks: bool) {
     let mut tensors = HashMap::new();
     let mut state = 0x9E37_79B9_7F4A_7C15u64;
 
-    put_tensor(&mut tensors, &mut state, "conv_in.weight", vec![8, 4, 3, 3], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "conv_in.weight",
+        vec![8, 4, 3, 3],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "conv_in.bias", vec![8], false);
     put_tensor(&mut tensors, &mut state, "bn_in.weight", vec![8], false);
     put_tensor(&mut tensors, &mut state, "bn_in.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "bn_in.running_mean", vec![8], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "bn_in.running_mean",
+        vec![8],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "bn_in.running_var", vec![8], true);
 
     if with_blocks {
-        put_tensor(&mut tensors, &mut state, "blocks.0.conv1.weight", vec![8, 8, 3, 3], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.conv1.bias", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.weight", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.bias", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.running_mean", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn1.running_var", vec![8], true);
-        put_tensor(&mut tensors, &mut state, "blocks.0.conv2.weight", vec![8, 8, 3, 3], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.conv2.bias", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.weight", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.bias", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.running_mean", vec![8], false);
-        put_tensor(&mut tensors, &mut state, "blocks.0.bn2.running_var", vec![8], true);
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.conv1.weight",
+            vec![8, 8, 3, 3],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.conv1.bias",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn1.weight",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn1.bias",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn1.running_mean",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn1.running_var",
+            vec![8],
+            true,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.conv2.weight",
+            vec![8, 8, 3, 3],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.conv2.bias",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn2.weight",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn2.bias",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn2.running_mean",
+            vec![8],
+            false,
+        );
+        put_tensor(
+            &mut tensors,
+            &mut state,
+            "blocks.0.bn2.running_var",
+            vec![8],
+            true,
+        );
     }
 
-    put_tensor(&mut tensors, &mut state, "pol_conv.weight", vec![8, 8, 1, 1], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "pol_conv.weight",
+        vec![8, 8, 1, 1],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "pol_conv.bias", vec![8], false);
     put_tensor(&mut tensors, &mut state, "pol_bn.weight", vec![8], false);
     put_tensor(&mut tensors, &mut state, "pol_bn.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "pol_bn.running_mean", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "pol_bn.running_var", vec![8], true);
-    put_tensor(&mut tensors, &mut state, "pol_fc.weight", vec![81, 648], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "pol_bn.running_mean",
+        vec![8],
+        false,
+    );
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "pol_bn.running_var",
+        vec![8],
+        true,
+    );
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "pol_fc.weight",
+        vec![81, 648],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "pol_fc.bias", vec![81], false);
 
-    put_tensor(&mut tensors, &mut state, "val_conv.weight", vec![8, 8, 1, 1], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "val_conv.weight",
+        vec![8, 8, 1, 1],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "val_conv.bias", vec![8], false);
     put_tensor(&mut tensors, &mut state, "val_bn.weight", vec![8], false);
     put_tensor(&mut tensors, &mut state, "val_bn.bias", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "val_bn.running_mean", vec![8], false);
-    put_tensor(&mut tensors, &mut state, "val_bn.running_var", vec![8], true);
-    put_tensor(&mut tensors, &mut state, "val_fc1.weight", vec![64, 648], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "val_bn.running_mean",
+        vec![8],
+        false,
+    );
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "val_bn.running_var",
+        vec![8],
+        true,
+    );
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "val_fc1.weight",
+        vec![64, 648],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "val_fc1.bias", vec![64], false);
-    put_tensor(&mut tensors, &mut state, "val_fc2.weight", vec![1, 64], false);
+    put_tensor(
+        &mut tensors,
+        &mut state,
+        "val_fc2.weight",
+        vec![1, 64],
+        false,
+    );
     put_tensor(&mut tensors, &mut state, "val_fc2.bias", vec![1], false);
 
     // the views borrow the buffers, so the owned tensors must outlive the

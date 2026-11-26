@@ -3,6 +3,6 @@
 //! SearchLimits, virtual loss) and `runner` (play_game). These re-exports keep every
 //! former `search::` path valid.
 
-pub use crate::runner::{GameOutcome, play_game};
-pub use crate::tree::{Evaluator, distribution, terminal_value};
-pub use crate::wave::{DEFAULT_BATCH_SIZE, SearchLimits, VIRTUAL_LOSS, search_position};
+pub use crate::runner::{play_game, GameOutcome};
+pub use crate::tree::{distribution, terminal_value, Evaluator};
+pub use crate::wave::{search_position, SearchLimits, DEFAULT_BATCH_SIZE, VIRTUAL_LOSS};

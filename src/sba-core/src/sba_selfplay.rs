@@ -7,9 +7,9 @@
 
 use clap::Parser;
 use rand::SeedableRng;
-use sha2::{Digest, Sha256};
 use sba_core::net::{infer_arch, AzNet};
 use sba_core::{default_device, search, worker, DefaultBackend};
+use sha2::{Digest, Sha256};
 
 #[derive(Parser)]
 struct Args {
@@ -137,11 +137,17 @@ fn main() {
                 // temp_min (games == 1 -> frac 0 -> temp_start)
                 let denom = (args.games as f32 - 1.0).max(1.0);
                 let frac = idx as f32 / denom;
-                let temp = (args.temp_start + (args.temp_end - args.temp_start) * frac)
-                    .max(args.temp_min);
+                let temp =
+                    (args.temp_start + (args.temp_end - args.temp_start) * frac).max(args.temp_min);
                 let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-                let game = search::play_game(sba_game::SbaGame::fresh(), &mut handle, limits, temp, &mut rng)
-                    .unwrap_or_else(|e| fail(4, &format!("game {idx} failed: {e}")));
+                let game = search::play_game(
+                    sba_game::SbaGame::fresh(),
+                    &mut handle,
+                    limits,
+                    temp,
+                    &mut rng,
+                )
+                .unwrap_or_else(|e| fail(4, &format!("game {idx} failed: {e}")));
                 let mut rec = game.record;
                 rec.meta.seed = seed;
                 rec.meta.result = game.result.clone();

@@ -78,12 +78,12 @@ const LINES: [[usize; 3]; 8] = [
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SbaGame {
-    px: [u16; 9],  // X marks per micro board (bits 0..8)
-    po: [u16; 9],  // O marks per micro board
-    mx: u16,       // macro boards won by X (bits 0..8)
-    mo: u16,       // macro boards won by O
-    current: u8,   // 0 = X to move, 1 = O to move
-    active: i32,   // the macro the reply is routed into; -1 = free choice
+    px: [u16; 9], // X marks per micro board (bits 0..8)
+    po: [u16; 9], // O marks per micro board
+    mx: u16,      // macro boards won by X (bits 0..8)
+    mo: u16,      // macro boards won by O
+    current: u8,  // 0 = X to move, 1 = O to move
+    active: i32,  // the macro the reply is routed into; -1 = free choice
 }
 
 /// A full state dump for encode-from-bits and the Python parity fuzz.
@@ -343,13 +343,17 @@ pub extern "C" fn sba_game_free(g: *mut SbaGame) {
 /// (game over -> range -> routing -> occupied), then apply.
 #[no_mangle]
 pub extern "C" fn sba_game_apply(g: *mut SbaGame, m: i32, i: i32) -> i32 {
-    if !handle_live(g) { return ERR_CLOSED; }
+    if !handle_live(g) {
+        return ERR_CLOSED;
+    }
     unsafe { (*g).apply(m, i) }
 }
 
 #[no_mangle]
 pub extern "C" fn sba_game_result(g: *const SbaGame) -> i32 {
-    if !handle_live(g) { return ERR_CLOSED; }
+    if !handle_live(g) {
+        return ERR_CLOSED;
+    }
     unsafe { (*g).result() }
 }
 

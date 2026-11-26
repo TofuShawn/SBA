@@ -2,10 +2,10 @@
 //! Tensor names are part of the Python contract: states/policy/z, plus a
 //! __metadata__ map the Python loader and the resume logic read.
 
+use safetensors::tensor::TensorView;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use safetensors::tensor::TensorView;
 
 /// Wraps an f32 slice as a `TensorView` of the given shape (safetensors 0.4:
 /// `TensorView::new(dtype, shape, data)` — the name comes from the serialize
@@ -40,7 +40,10 @@ impl GameRecord {
         debug_assert_eq!(self.states.len(), t * 324);
         debug_assert_eq!(self.policy.len(), t * 81);
         let mut data = HashMap::new();
-        data.insert("states".to_string(), f32_view(&self.states, vec![t, 4, 9, 9])?);
+        data.insert(
+            "states".to_string(),
+            f32_view(&self.states, vec![t, 4, 9, 9])?,
+        );
         data.insert("policy".to_string(), f32_view(&self.policy, vec![t, 81])?);
         data.insert("z".to_string(), f32_view(&self.z, vec![t])?);
         let meta: HashMap<String, String> = HashMap::from([

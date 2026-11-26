@@ -4,11 +4,11 @@
 //! distribution (np.random.choice mirror) and applies it.
 
 use rand::{Rng, RngCore};
-use sba_game::{O_WINS, SbaGame, X_WINS};
+use sba_game::{SbaGame, O_WINS, X_WINS};
 
 use crate::records;
-use crate::tree::{Evaluator, distribution};
-use crate::wave::{SearchLimits, search_position};
+use crate::tree::{distribution, Evaluator};
+use crate::wave::{search_position, SearchLimits};
 
 pub struct GameOutcome {
     pub result: String,

@@ -58,17 +58,15 @@ impl<B: Backend> AzNet<B> {
                 .init(device),
             bn_in: BatchNormConfig::new(channels).init(device),
             blocks: (0..blocks)
-                .map(|_| {
-                    ResBlock {
-                        conv1: Conv2dConfig::new([channels, channels], [3, 3])
-                            .with_padding(PaddingConfig2d::Same)
-                            .init(device),
-                        bn1: BatchNormConfig::new(channels).init(device),
-                        conv2: Conv2dConfig::new([channels, channels], [3, 3])
-                            .with_padding(PaddingConfig2d::Same)
-                            .init(device),
-                        bn2: BatchNormConfig::new(channels).init(device),
-                    }
+                .map(|_| ResBlock {
+                    conv1: Conv2dConfig::new([channels, channels], [3, 3])
+                        .with_padding(PaddingConfig2d::Same)
+                        .init(device),
+                    bn1: BatchNormConfig::new(channels).init(device),
+                    conv2: Conv2dConfig::new([channels, channels], [3, 3])
+                        .with_padding(PaddingConfig2d::Same)
+                        .init(device),
+                    bn2: BatchNormConfig::new(channels).init(device),
                 })
                 .collect(),
             pol_conv: Conv2dConfig::new([channels, 8], [1, 1])
@@ -137,10 +135,14 @@ impl<B: Backend> AzNet<B> {
         let bn = |m: &mut BatchNorm<B, 2>, p: &str, device: &B::Device| {
             m.gamma = Param::from_tensor(t1(&format!("{p}.weight"), device));
             m.beta = Param::from_tensor(t1(&format!("{p}.bias"), device));
-            m.running_mean =
-                RunningState::from_record(Param::from_tensor(t1(&format!("{p}.running_mean"), device)));
-            m.running_var =
-                RunningState::from_record(Param::from_tensor(t1(&format!("{p}.running_var"), device)));
+            m.running_mean = RunningState::from_record(Param::from_tensor(t1(
+                &format!("{p}.running_mean"),
+                device,
+            )));
+            m.running_var = RunningState::from_record(Param::from_tensor(t1(
+                &format!("{p}.running_var"),
+                device,
+            )));
         };
 
         self.conv_in.weight = Param::from_tensor(t4("conv_in.weight", device));

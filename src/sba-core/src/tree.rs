@@ -6,7 +6,7 @@
 
 use rand::RngCore;
 use rand_distr::{Dirichlet, Distribution};
-use sba_game::{DRAW, SbaGame};
+use sba_game::{SbaGame, DRAW};
 
 use crate::wave::SearchLimits;
 
@@ -222,8 +222,8 @@ pub(crate) fn search_once(
 
 #[cfg(test)]
 mod tests {
-    use crate::runner::fixtures::{pol, Probed, Scripted};
     use super::*;
+    use crate::runner::fixtures::{pol, Probed, Scripted};
     use crate::wave::search_position;
     use rand::SeedableRng;
     use sba_game::{O_WINS, X_WINS};

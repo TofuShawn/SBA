@@ -10,7 +10,7 @@ use sba_game::SbaGame;
 use std::collections::HashSet;
 
 use crate::tree::{
-    Evaluator, Node, backprop, expand_with_priors, search_once, softmax81, terminal_value,
+    backprop, expand_with_priors, search_once, softmax81, terminal_value, Evaluator, Node,
 };
 
 /// python's BATCH_SIZE: the default leaf-parallel wave width — the value
