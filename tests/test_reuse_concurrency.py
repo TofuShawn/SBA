@@ -3,12 +3,16 @@
 
 """Tree-reuse concurrency under the Qt dual workers (D63, external review
 round 2). qtui.py runs AIWorker(QThread) -> get_ai_move and
-AnalysisWorker(QThread) -> analyze_position at the same time, and both used
-to read/write the shared reuse caches (_C_PREV, _REUSE, _REUSE_LAST) with no
-lock. The D63 ownership rule: whoever pops a tree out of a shared slot owns
-it EXCLUSIVELY until write-back; the other side misses the reuse and starts
-fresh on its own arena. The searches themselves stay concurrent — only the
-cache bookkeeping is serialized by cbridge._TREE_REUSE_LOCK.
+AnalysisWorker(QThread) -> analyze_position at the same time, both reading
+and writing the shared C reuse cache (_C_PREV). The D63 ownership rule:
+whoever pops a tree out of a shared slot owns it EXCLUSIVELY until
+write-back; the other side misses the reuse and starts fresh on its own
+arena. The searches themselves stay concurrent — only the cache
+bookkeeping is serialized by cbridge._TREE_REUSE_LOCK.
+
+(The pure-Python _REUSE/_REUSE_LAST half of the D63 rule retired with the
+python search stack; these pins now cover the C slots, which are the ones
+that survived.)
 
 The tests here pin the CONTRACT deterministically (event-orchestrated stubs,
 never sleeps) instead of trying to win a race, plus one real-engine stress
@@ -162,104 +166,6 @@ def test_ai_write_back_wins_over_analysis_borrow(monkeypatch):
     finally:
         release_ana.set()
         cbridge._C_PREV.clear()
-
-
-def test_python_reuse_take_is_exclusive(monkeypatch):
-    """Same ownership rule on the Python path: a taken _REUSE tree (pop or
-    derive) is unreachable to the concurrent searcher — it starts fresh.
-
-    The counterfactual is PLANTED, not hoped for: thread 2's position is
-    cached under its own exact key AND derive-reachable through the warm
-    tree (a grandchild at exactly that position), so an implementation
-    without the ownership rule would hand thread 2 that subtree via either
-    channel. The assertion is that thread 1's take purges both — a tree
-    whose warm subtree happens to have no grandchildren (the old seeding)
-    passed this test by luck, not by the rule."""
-    from engines.mcts import MCTSNode, _REUSE, _REUSE_LAST, mcts_search, _tt_key
-
-    set_engine_config({"engine": {"c_mcts": False, "opening_book": False}})
-    g = _midgame()
-    # seed a real, tiny search tree and take its first subtree as the warm tree
-    root = mcts_search(g, 40)
-    child = root.children[0]
-    # thread 2's position: the reply position, one opponent reply deeper
-    g2 = g.clone()
-    apply_move(g2, child.move)
-    reply = g2.legal_moves()[0]
-    apply_move(g2, reply)
-    # PLANT the would-be hits: a grandchild exactly at thread 2's position,
-    # cached under its own exact key and derivable through _REUSE_LAST
-    grand = MCTSNode(g2.clone(), reply, child, g2.current)
-    child.children.append(grand)
-    _REUSE[("MCTS", _tt_key(g))] = child
-    _REUSE[("MCTS", _tt_key(g2))] = grand
-    _REUSE_LAST["MCTS"] = child
-
-    seen = []
-    t1_entered = threading.Event()
-    release_t1 = threading.Event()
-
-    def stub(game, budget, prev_root=None, pool=None, on_progress=None, **kw):
-        seen.append(prev_root)
-        if len(seen) == 1:
-            t1_entered.set()
-            release_t1.wait(timeout=10)
-        return MCTSNode(game, None, None, game.current)  # childless: no write-back
-
-    monkeypatch.setattr(ai, "mcts_search", stub)
-    try:
-        res = []
-        t1 = threading.Thread(target=lambda: res.append(ai._mcts_move(g, "MCTS", 100)))
-        t1.start()
-        assert t1_entered.wait(timeout=10)
-        # thread 2 arrives at the reply position while thread 1 is searching
-        t2 = threading.Thread(target=lambda: res.append(ai._mcts_move(g2, "MCTS", 100)))
-        t2.start()
-        t2.join(timeout=10)
-        assert not t2.is_alive()
-        release_t1.set()
-        t1.join(timeout=10)
-        assert not t1.is_alive()
-        assert seen[0] is child  # thread 1 popped the warm subtree
-        assert seen[1] is None  # thread 2 missed BOTH planted channels: the take purged them
-    finally:
-        release_t1.set()
-        set_engine_config({})
-        ai.reset_engine_caches()
-
-
-def test_python_take_purges_trees_overlapping_the_taken_one(monkeypatch):
-    """A take must leave the taken tree reachable from NO shared slot, in
-    either direction: ancestor entries contain it, and paired write-backs
-    can still cache a subtree that sits INSIDE it under its own key."""
-    from engines.mcts import MCTSNode, _REUSE, _REUSE_LAST, _tt_key
-
-    set_engine_config({"engine": {"c_mcts": False, "opening_book": False}})
-    g = _midgame()
-    parent = MCTSNode(g, None, None, g.current)
-    g2 = g.clone()
-    apply_move(g2, (4, 4))
-    child_node = MCTSNode(g2, (4, 4), parent, g.current)
-    g3 = g2.clone()
-    apply_move(g3, (4, 0))
-    grand = MCTSNode(g3, (4, 0), child_node, "O")
-    _REUSE[("MCTS", _tt_key(g))] = child_node
-    _REUSE[("MCTS", _tt_key(g3))] = grand  # the paired write-back's own key
-    _REUSE_LAST["MCTS"] = child_node
-
-    def stub(game, budget, prev_root=None, pool=None, on_progress=None, **kw):
-        assert prev_root is child_node  # the take handed us the tree
-        return MCTSNode(game, None, None, game.current)  # childless: no write-back
-
-    monkeypatch.setattr(ai, "mcts_search", stub)
-    try:
-        assert ai._mcts_move(g, "MCTS", 100) is None
-        assert ("MCTS", _tt_key(g)) not in _REUSE  # popped by the take
-        assert ("MCTS", _tt_key(g3)) not in _REUSE  # descendant purged
-        assert _REUSE_LAST.get("MCTS") is None  # paired slot purged
-    finally:
-        set_engine_config({})
-        ai.reset_engine_caches()
 
 
 # ---------------------------------------------------------------------------

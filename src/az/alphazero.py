@@ -192,7 +192,6 @@ class AZNet(nn.Module):
 # Neural-guided MCTS
 # ---------------------------------------------------------------
 
-ROLLOUT_WEIGHT = 0  # pure-network leaf value (standard AZ recipe): the exe trains on this; the blend is reachable again by passing rollout_weight>0
 VIRTUAL_LOSS = 2.0  # applied during batched selection so parallel workers diverge
 BATCH_SIZE = 256  # default leaf-parallel batch size for network inference
 DIRICHLET_EPS = 0.25  # root-prior noise weight in self-play (standard AZ value)
@@ -252,9 +251,6 @@ class SearchNode:
         return best
 
 
-_C_ROLLOUT_TRIED = False
-
-
 class _CRootView:
     """Minimal root-like view over C MCTS stats so _root_value() consumes
     the native search output unchanged (child.visits / child.wins)."""
@@ -267,65 +263,12 @@ class _CRootView:
         self.children = [SimpleNamespace(visits=v, wins=w) for _m, v, w, _mo, _d in stats]
 
 
-def _c_rollout_value(g):
-    """Native heuristic playout via the C rollout kernel; value from
-    g's current player's perspective. Returns None when the DLL is missing
-    or the position is somehow unresolvable — caller falls back to Python.
-    The kernel runs the same win/block-biased policy as ai._rollout_move.
-    """
-    global _C_ROLLOUT_TRIED
-    if not _C_ROLLOUT_TRIED:
-        _C_ROLLOUT_TRIED = True
-        try:
-            from engines import cengine as _ce  # noqa: F401
-        except ImportError:
-            return None
-    try:
-        from engines import cengine as _ce
-
-        r = _ce.rollout_state(g)
-    except Exception:  # noqa: BLE001 - best-effort probe: the caller
-        return None  # falls back to the Python rollout regardless
-    if r is None:
-        return None
-    if r == "D":
-        return 0.0
-    return 1.0 if r == g.current else -1.0
-
-
-def rollout_value(g):
-    """Heuristic playout from g; value from the perspective of g's current player.
-
-    Uses the native C rollout kernel when available and falls back to
-    the ai.py win/block-biased policy (lazy import: ai.py loads alphazero on
-    demand, never at module level). Tactical playouts are far stronger than
-    uniform random on Ultimate Tic Tac Toe.
-    """
-    v = _c_rollout_value(g)
-    if v is not None:
-        return v
-    from engines.ai import _rollout_move
-
-    player = g.current
-    state = g.clone()
-    while not state.is_over():
-        legal = state.legal_moves()
-        if not legal:
-            break
-        apply_move(state, _rollout_move(state, legal))
-    r = state.result()
-    if r == "D":
-        return 0.0
-    return 1.0 if r == player else -1.0
-
-
 @torch.no_grad()
 def mcts_search(
     game,
     model,
     budget,
     c_puct=1.5,
-    rollout_weight=None,
     batch_size=BATCH_SIZE,
     dirichlet_alpha=None,
     dirichlet_eps=DIRICHLET_EPS,
@@ -343,9 +286,10 @@ def mcts_search(
     ``dirichlet_alpha`` adds exploration noise to the root's priors on its
     first expansion: pass ``'auto'`` for 10/len(moves) (standard AZ scaling)
     or a float for a fixed concentration; None (default) means no noise.
+
+    The leaf value is the pure network's (D58, the recipe the exe trains
+    on) — the heuristic-rollout blend retired with the Python MCTS stack.
     """
-    if rollout_weight is None:
-        rollout_weight = ROLLOUT_WEIGHT
     model.eval()  # inference: BatchNorm must use running stats, not batch stats
     root_state = game.clone()
     root = SearchNode(root_state, None)
@@ -397,12 +341,7 @@ def mcts_search(
             probs_batch = joined[:n_real, :-1]
             values_batch = joined[:n_real, -1]
             for (path, node), probs, value in zip(leaves, probs_batch, values_batch, strict=False):
-                value = float(value)
-                if rollout_weight > 0:
-                    value = (1.0 - rollout_weight) * value + rollout_weight * rollout_value(
-                        node.state
-                    )
-                backprop(path, value)
+                backprop(path, float(value))
                 if node.untried:
                     # expand in full (idempotent: duplicate leaves skip)
                     moves = node.untried
@@ -745,9 +684,12 @@ def self_play_game(
                 counts = {(m // 9, m % 9): int(v) for m, v, w, _mo, _d in stats}
                 root = _CRootView(stats)
             else:
-                from engines.ai import mcts_search as pure_mcts
-
-                root = pure_mcts(game.clone(), sims)
+                # the pure-Python MCTS retired with the removal project —
+                # stage 1 needs the native engine, full stop
+                raise RuntimeError(
+                    "stage-1 pure-MCTS self-play requires the native engine"
+                    " (build it with `python dev.py build`)"
+                )
                 counts = {c.move: c.visits for c in root.children}
         value = _root_value(root)
         n = np.array([counts.get(m, 0) for m in legal], dtype=np.float64)
@@ -815,12 +757,9 @@ def _mp_play_game(
     dirichlet_eps,
     games,
     game_type,
-    rollout_weight,
     value_target,
     use_network,
 ):
-    global ROLLOUT_WEIGHT
-    ROLLOUT_WEIGHT = rollout_weight
     model = AZNet(size, channels, blocks).to(DEVICE)
     model.load_state_dict(weights)
     model.eval()
@@ -937,8 +876,6 @@ def train(cfg, ctx=None, hooks=None):
     hooks = hooks or TrainHooks()
     ctx = ctx or TrainCtx()
     on_event = hooks.on_event
-    global ROLLOUT_WEIGHT
-    ROLLOUT_WEIGHT = cfg.rollout_weight
     (
         game_type,
         games,
@@ -1412,7 +1349,6 @@ class TrainCfg:
     dirichlet_eps: float = DIRICHLET_EPS
     workers: int = 1
     game_type: str = "ultimate"
-    rollout_weight: float = ROLLOUT_WEIGHT
     value_target: str = "root_mean"
     use_network: bool = True
     policy_loss: str = "kl"
@@ -1486,7 +1422,6 @@ def _train_multiprocess(cfg, ctx, hooks=None):
         dirichlet_eps,
         workers,
         game_type,
-        rollout_weight,
         value_target,
         use_network,
         policy_loss,
@@ -1508,7 +1443,6 @@ def _train_multiprocess(cfg, ctx, hooks=None):
         cfg.dirichlet_eps,
         cfg.workers,
         cfg.game_type,
-        cfg.rollout_weight,
         cfg.value_target,
         cfg.use_network,
         cfg.policy_loss,
@@ -1538,7 +1472,6 @@ def _train_multiprocess(cfg, ctx, hooks=None):
                 dirichlet_eps,
                 games,
                 game_type,
-                rollout_weight,
                 value_target,
                 use_network,
             ),
@@ -1721,7 +1654,6 @@ def load_model(game_type):
 
 
 def main(argv=None):
-    global ROLLOUT_WEIGHT
     ap = argparse.ArgumentParser(description="AlphaZero for (Ultimate) Tic Tac Toe")
     sub = ap.add_subparsers(dest="cmd", required=True)
     tr = sub.add_parser("train", help="self-play + optimization (the two-stage recipe)")
@@ -1780,12 +1712,6 @@ def main(argv=None):
     )
     tr.add_argument(
         "--seed", type=int, default=None, help="random seed for reproducible runs (default: None)"
-    )
-    tr.add_argument(
-        "--rollout-weight",
-        type=float,
-        default=ROLLOUT_WEIGHT,
-        help="random-playout mix in the leaf value (0 = pure network)",
     )
     tr.add_argument(
         "--channels",
@@ -1878,14 +1804,7 @@ def main(argv=None):
         help="games to play, doubled for both first players (default: 20)",
     )
     ev.add_argument("--sims", type=int, default=200, help="AZ MCTS budget per move (default: 200)")
-    ev.add_argument(
-        "--rollout-weight",
-        type=float,
-        default=ROLLOUT_WEIGHT,
-        help="random-playout mix in the leaf value (0 = pure network)",
-    )
     args = ap.parse_args(argv)
-    ROLLOUT_WEIGHT = args.rollout_weight
     if args.cmd == "train":
         # argparse → cfg fields 1:1 (flags and defaults unchanged); train()
         # consumes the one TrainCfg shape from here on
@@ -1918,7 +1837,6 @@ def main(argv=None):
                 selfplay_exe=args.selfplay_exe,
                 round_games=args.round_games,
                 selfplay_procs=args.selfplay_procs,
-                rollout_weight=args.rollout_weight,
             )
         )
     else:

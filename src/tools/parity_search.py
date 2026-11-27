@@ -201,7 +201,7 @@ def _layer3(exe, weights, model, positions, sims, seed):
         if g.is_over() or not legal:
             continue
         t0 = time.perf_counter()
-        root, counts = mcts_search(g, model, sims, rollout_weight=0.0, batch_size=256)
+        root, counts = mcts_search(g, model, sims, batch_size=256)
         t_py += time.perf_counter() - t0
         t0 = time.perf_counter()
         ru_counts, ru_value = _rust_search(exe, weights, history, sims, batch_size=256)

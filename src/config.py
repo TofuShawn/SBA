@@ -75,8 +75,6 @@ _CFG_DEFAULTS = {
         "opening_book": True,
         "micro_tablebase": True,
         "symmetry": True,
-        "object_pool": True,
-        "bitboard": False,
         "c_rollout_pattern": False,
         "c_mcts": True,
         "c_minimax": True,

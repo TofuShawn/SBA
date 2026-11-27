@@ -57,23 +57,8 @@ def _serialize_ultimate(state):
 
 def _c_rollout_state(state):
     """One native rollout to terminal; returns X / O / 'D'. Uses the pattern
-    kernel when c_rollout_pattern is on; falls back to Python when the DLL
-    is missing."""
-    r = _ce.rollout_state(state, opts=_c_search_opts())
-    return r if r is not None else _py_rollout_state(state)
-
-
-def _py_rollout_state(state):
-    """Pure-Python heuristic rollout to terminal (the early fallback)."""
-    result = state.result()
-    while result is None:
-        moves = state.legal_moves()
-        if not moves:
-            break
-        m = _rollout_move(state, moves)
-        apply_move(state, m)
-        result = state.result()
-    return result
+    kernel when c_rollout_pattern is on; None when the DLL is missing."""
+    return _ce.rollout_state(state, opts=_c_search_opts())
 
 
 def _c_search_opts():
@@ -130,28 +115,6 @@ def _threat_cells(state, player):
             if vals.count(player) == 2 and EMPTY in vals:
                 res.append((m, (a, b, c)[vals.index(EMPTY)]))
     return res
-
-
-def _rollout_move(state, moves=None):
-    """Win/block-biased rollout policy (falls back to random when disabled)."""
-    if moves is None:
-        moves = state.legal_moves()
-    if not moves:
-        return None
-    if not cfg_engine("rollout_heuristic", True):
-        return random.choice(moves)
-    legal = set(moves)
-    current = state.current
-    opp = O if current == X else X
-    wins = [w for w in _threat_cells(state, current) if w in legal]
-    if wins:
-        return random.choice(wins)
-    threats = set(t for t in _threat_cells(state, opp) if t in legal)
-    if not threats:
-        return random.choice(moves)
-    if len(threats) == 1:
-        return next(iter(threats))
-    return random.choice(moves)  # multiple threats: cannot block them all
 
 
 # Flat MCTS (research-only, unlisted): scores each legal move with independent

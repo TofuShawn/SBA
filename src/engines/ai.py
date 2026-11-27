@@ -4,81 +4,38 @@
 """ai — the engine facade (split).
 
 Every computer opponent and the assistant surface start here:
-get_ai_move dispatches to the engines, which live in their own
-modules (config / cbridge / books / mcts / minimax / tablebase /
-analysis). This module keeps the cross-engine dispatch, the
-AlphaZero bridge and the cache reset; it also re-exports the whole
-engine surface so the historical `from ai import ...` imports keep
-working.
+get_ai_move dispatches to the engines. The pure-Python search stack
+(mcts.py / minimax.py) retired with the removal project — the native C
+engine IS the search backend and the sba_engine cdylib is a hard
+prerequisite for every engine type beyond Random/Basic and the Normal
+tablebase solver; without it those types raise instead of silently
+degrading. This module keeps the cross-engine dispatch, the AlphaZero
+bridge and the cache reset; it also re-exports the config surface so
+the historical `from ai import ...` imports keep working.
 """
 
 import logging
 import random
-import threading
 
-from core.game import (
-    BitUltimateGame,
-    EMPTY,
-    NormalGame,
-    O,
-    UltimateGame,
-    X,
-    apply_move,
-    apply_clone_result,
-)
 from config import (
     _CFG_DEFAULTS,
-    MIN_VISIT_DIVISOR,
-    MIN_VISIT_FLOOR,
     cfg_engine,
     cfg_session,
     save_engine_config,
     set_engine_config,
 )
+from core.game import NormalGame
 from engines.cbridge import (
     _C_PREV,
     _TREE_REUSE_LOCK,
     _c_mcts_move,
     _c_minimax_pro,
     _c_rave_grave_move,
-    _c_rollout_state,
     _c_search_opts,
     _ce,
-    _get_c_rollout,
-    _get_c_rollout_pattern,
-    _py_rollout_state,
-    _rollout_move,
-    _serialize_ultimate,
-    _threat_cells,
-    _tt_key,
     move_text,
 )
 from analysis.books import _BOOK_ENGINES, ULTIMATE_BOOK, get_basic_move, opening_book_move
-from engines.mcts import (
-    _REUSE,
-    _REUSE_LAST,
-    GraveNode,
-    MCTSNode,
-    _diff_move,
-    _D4,
-    _POOL,
-    _best_mcts_move,
-    flat_mcts_move,
-    mcts_grave_move,
-    mcts_grave_search,
-    mcts_move,
-    mcts_rave_move,
-    mcts_rave_search,
-    mcts_search,
-)
-from engines.minimax import (
-    _get_killers,
-    _get_tt,
-    _minimax_ultimate,
-    minimax_move_normal,
-    minimax_move_ultimate,
-    minimax_pro_move,
-)
 from analysis.tablebase import (
     _TABLEBASE,
     _TABLEBASE_PATH,
@@ -112,52 +69,12 @@ log = logging.getLogger("sba.ai")
 def reset_engine_caches():
     """Drop module-level search caches (used by self-tests/bench).
 
-    The tree-reuse slots go out under _TREE_REUSE_LOCK: a search
-    running in another thread keeps its exclusively-owned tree alive via
-    its own reference and writes back over the emptied slots harmlessly.
+    Only the C tree-reuse slot remains: the python _REUSE machinery
+    retired with the pure-Python search stack, and the C minimax keeps
+    its transposition/killer state inside the native call.
     """
-    with _TREE_REUSE_LOCK:
-        _REUSE.clear()
-        _REUSE_LAST.clear()
-    _get_tt().clear()
-    _get_killers().clear()
     with _TREE_REUSE_LOCK:
         _C_PREV.clear()
-
-
-def _tree_reaches(src, dst):
-    """True when `dst` is `src` or one of its ancestors (src's parent chain
-    reaches dst)."""
-    n = src
-    while n is not None:
-        if n is dst:
-            return True
-        n = getattr(n, "parent", None)
-    return False
-
-
-def _purge_overlapping(ai_type, node):
-    """Drop every shared slot of `ai_type` whose tree overlaps `node`.
-
-    Part of the ownership rule: once this thread takes `node` for an
-    exclusive search, no cached reference may reach the tree being mutated —
-    in EITHER direction. Ancestor entries contain it (a stale key can point
-    at the subtree's old root); descendant entries sit inside it (write-backs
-    pair every new subtree into BOTH _REUSE and _REUSE_LAST, so a child of
-    `node` can still be cached under its own key). Call sites hold
-    _TREE_REUSE_LOCK. The parent walks are bounded by the game length and
-    the cache by reuse_cache (32), so this stays off the search's hot path.
-    """
-    stale = [
-        key
-        for key, val in _REUSE.items()
-        if key[0] == ai_type and (_tree_reaches(val, node) or _tree_reaches(node, val))
-    ]
-    for key in stale:
-        del _REUSE[key]
-    last = _REUSE_LAST.get(ai_type)
-    if last is not None and (_tree_reaches(last, node) or _tree_reaches(node, last)):
-        del _REUSE_LAST[ai_type]
 
 
 # ---------------------------------------------------------------
@@ -195,16 +112,15 @@ def load_az_model(game):
 
 
 def alphazero_move(game, budget=800):
+    """The AlphaZero engine — torch and a trained model are hard
+    requirements now that the python MCTS fallback is gone."""
     az = _az_module()
     if az is None:
-        return mcts_move(game, budget)
+        raise RuntimeError("AlphaZero needs the optional torch stack installed")
     model = load_az_model(game)
     if model is None:
-        log.info(
-            "AlphaZero: no trained model (models/az_%s.pt), falling back to MCTS",
-            "normal" if isinstance(game, NormalGame) else "ultimate",
-        )
-        return mcts_move(game, budget)
+        key = "normal" if isinstance(game, NormalGame) else "ultimate"
+        raise RuntimeError(f"AlphaZero needs a trained model (models/az_{key}.pt)")
     return az.alphazero_move(game, model, budget)
 
 
@@ -229,151 +145,26 @@ def az_policy_priors(game):
 
 
 def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
-    """Run an MCTS-family search, reusing the previous tree when enabled."""
-    if ai_type in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
-        # C tree search wins here; _c_mcts_move keeps a warm arena
-        # in _C_PREV across moves, while the Python path has its own _REUSE cache.
-        if (
-            cfg_engine("c_mcts", True)
-            and isinstance(game, UltimateGame)
-            and _ce.available(engine=True)
-        ):
-            if ai_type == "MCTS":
-                mv = _c_mcts_move(game, budget, on_progress, trace)
-            else:
-                mv = _c_rave_grave_move(
-                    game,
-                    budget,
-                    grave=(ai_type == "MCTS+GRAVE"),
-                    on_progress=on_progress,
-                    trace=trace,
-                )
-            if mv is not None:
-                return mv
-        if cfg_engine("multithreaded", False):
-            return mcts_move_parallel(game, budget, cfg_engine("workers", 8), on_progress, trace)
-    reuse = cfg_engine("tree_reuse", True)
-    if cfg_engine("bitboard", True) and isinstance(game, UltimateGame):
-        search_game = BitUltimateGame.from_game(game)
-    else:
-        search_game = game
-    pool = _POOL if (ai_type == "MCTS" and cfg_engine("object_pool", True) and not reuse) else None
-    key, prev = None, None
-    if reuse:
-        # the take removes the tree from every shared slot under the lock,
-        # so this thread owns it exclusively; concurrent searchers start fresh.
-        with _TREE_REUSE_LOCK:
-            key = (ai_type, _tt_key(game))
-            prev = _REUSE.pop(key, None)
-            if prev is not None:
-                # the taken tree (and every cached subtree inside it) must
-                # not stay reachable through any shared slot
-                _purge_overlapping(ai_type, prev)
-            else:
-                last = _REUSE_LAST.pop(ai_type, None)
-                if last is not None:
-                    reply = _diff_move(last.state, game)
-                    if reply is not None:
-                        prev = next((c for c in last.children if c.move == reply), None)
-                        if prev is not None:
-                            _purge_overlapping(ai_type, prev)
-    if ai_type == "MCTS":
-        root = mcts_search(search_game, budget, prev_root=prev, pool=pool, on_progress=on_progress)
-    elif ai_type == "MCTS+RAVE":
-        root = mcts_rave_search(search_game, budget, prev_root=prev, on_progress=on_progress)
-    else:
-        root = mcts_grave_search(search_game, budget, prev_root=prev, on_progress=on_progress)
-    move = _best_mcts_move(root, game, budget)
-    if move is None:
-        # the root never expanded (zero budget): hand back None so the
-        # caller can fall back, instead of crashing on apply_move(None)
-        if pool is not None:
-            pool.release(root)
-        return None
-    # Thinking trace: top candidates by visit share (read BEFORE any pool
-    # release / tree-reuse bookkeeping — nodes may be recycled afterwards).
-    if trace is not None:
-        root_visits = root.visits or 1
-        min_visits = max(MIN_VISIT_FLOOR, budget // MIN_VISIT_DIVISOR)
-        cands = [c for c in root.children if c.visits >= min_visits]
-        cands.sort(key=lambda c: -c.visits)
-        trace["top"] = [
-            (move_text(c.move), c.visits / root_visits, c.wins / c.visits) for c in cands[:3]
-        ]
-    if reuse:
-        g = game.clone()
-        apply_move(g, move)
-        child = next((c for c in root.children if c.move == move), None)
-        if child is not None:
-            with _TREE_REUSE_LOCK:
-                _REUSE[(ai_type, _tt_key(g))] = child
-                _REUSE_LAST[ai_type] = child
-                if len(_REUSE) > cfg_engine("reuse_cache", 32):
-                    _REUSE.pop(next(iter(_REUSE)))
-    if pool is not None:
-        pool.release(root)
-    return move
+    """The MCTS-family dispatch — the native C tree search IS the engine.
 
-
-def mcts_move_parallel(game, iterations, workers=8, on_progress=None, trace=None):
-    """Run several independent MCTS searches and merge their root stats.
-
-    Experimental (C4): pure-Python tree search holds the GIL, so threads do
-    NOT give real parallelism on CPU-bound work — this mostly overlaps the
-    tree-building overhead and is kept for A/B comparison. For true
-    parallelism use processes instead (see alphazero.py's spawn pool).
-
-    Progress is coarse here: one report per finished thread — the
-    threads run concurrently, so the counter moves in jumps, not smoothly.
+    The pure-Python MCTS stack retired with the removal project: without
+    the engine DLL there is no MCTS backend, so this raises instead of
+    degrading to a search that no longer exists. Normal boards have no C
+    tree either (the kernels serialize Ultimate layouts only).
     """
-    chunk = max(1, iterations // workers)
-    results = []
-    if cfg_engine("bitboard", True) and isinstance(game, UltimateGame):
-        base = BitUltimateGame.from_game(game)
+    if isinstance(game, NormalGame):
+        raise RuntimeError("the MCTS family applies to Ultimate boards only")
+    if not (_ce.available(engine=True) and cfg_engine("c_mcts", True)):
+        raise RuntimeError("the MCTS family requires the native engine (python dev.py build)")
+    if ai_type == "MCTS":
+        mv = _c_mcts_move(game, budget, on_progress, trace)
     else:
-        base = game
-
-    def work():
-        results.append(mcts_search(base.clone(), chunk))
-
-    threads = [threading.Thread(target=work) for _ in range(workers)]
-    for t in threads:
-        t.start()
-    for i, t in enumerate(threads):
-        t.join()
-        if on_progress is not None:
-            on_progress(
-                {
-                    "it": (i + 1) * chunk,
-                    "iterations": iterations,
-                    "best_text": "",
-                    "share": 0.0,
-                    "wr": 0.0,
-                }
-            )
-    stats = {}
-    for root in results:
-        for c in root.children:
-            s = stats.setdefault(c.move, [0, 0.0])
-            s[0] += c.visits
-            s[1] += c.wins
-    if trace is not None:
-        total_v = sum(s[0] for s in stats.values()) or 1
-        top = sorted(stats.items(), key=lambda kv: -kv[1][0])[:3]
-        trace["top"] = [(move_text(m), s[0] / total_v, s[1] / max(1, s[0])) for m, s in top]
-    if not stats:
-        moves = game.legal_moves()
-        return random.choice(moves) if moves else None
-    best_move = max(stats, key=lambda m: stats[m][1] / max(1, stats[m][0]))
-    best_ratio = stats[best_move][1] / max(1, stats[best_move][0])
-    for m, (v, w) in stats.items():
-        if w / max(1, v) == best_ratio:
-            g = game.clone()
-            apply_move(g, m)
-            if g.result() == game.current:
-                best_move = m
-                break
-    return best_move
+        mv = _c_rave_grave_move(
+            game, budget, grave=(ai_type == "MCTS+GRAVE"), on_progress=on_progress, trace=trace
+        )
+    if mv is None:
+        raise RuntimeError(f"{ai_type}: the native engine returned no move")
+    return mv
 
 
 def get_ai_move(game, ai_type, mcts_budget=800, minimax_depth=3, on_progress=None, trace=None):
@@ -419,54 +210,47 @@ def _get_ai_move_impl(
     if ai_type == "Basic":
         return get_basic_move(game)
     if ai_type == "Minimax":
+        if not (_ce.available(engine=True) and cfg_engine("c_minimax", True)):
+            raise RuntimeError("Minimax requires the native engine (python dev.py build)")
         if isinstance(game, NormalGame):
-            if cfg_engine("c_minimax", True) and _ce.available(engine=True):
-                r = _ce.minimax_normal(game.board, game.current)
-                if r and r[0] is not None:
-                    return r[0]
-            return minimax_move_normal(game)[0]
-        if cfg_engine("c_minimax", True) and _ce.available(engine=True):
-            mv = _ce.minimax_ultimate(game, minimax_depth, opts=_c_search_opts())
-            if mv is not None:
-                return mv
-        return minimax_move_ultimate(game, depth=minimax_depth)
+            r = _ce.minimax_normal(game.board, game.current)
+            if r and r[0] is not None:
+                return r[0]
+            return None
+        return _ce.minimax_ultimate(game, minimax_depth, opts=_c_search_opts())
     if ai_type == "Minimax Pro":
-        # the C backend (negamax + TT + killers + LMR + ID) covers Ultimate
-        # only; Normal delegates to minimax_pro_move's full Python solve.
-        if (
-            cfg_engine("c_minimax", True)
-            and isinstance(game, UltimateGame)
-            and _ce.available(engine=True)
-        ):
-            mv = _c_minimax_pro(game, minimax_depth)
-            if mv is not None:
-                return mv
-        return minimax_pro_move(game, depth=minimax_depth)
+        # the C backend (negamax + TT + killers + LMR + ID) serves both
+        # board sizes: on Normal minimax_normal IS the full solve, so the
+        # python full-solve fallback retired with minimax.py
+        if not (_ce.available(engine=True) and cfg_engine("c_minimax", True)):
+            raise RuntimeError("Minimax Pro requires the native engine (python dev.py build)")
+        if isinstance(game, NormalGame):
+            r = _ce.minimax_normal(game.board, game.current)
+            if r and r[0] is not None:
+                return r[0]
+            return None
+        return _c_minimax_pro(game, minimax_depth)
     if ai_type in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
         return _mcts_move(game, ai_type, mcts_budget, on_progress, trace)
     if ai_type == "Flat MCTS":
         # the C flat kernel serializes Ultimate boards only
-        if (
-            not isinstance(game, NormalGame)
-            and cfg_engine("c_mcts", True)
-            and _ce.available(engine=True)
-        ):
-            moves = game.legal_moves()
-            if moves:
-                mv = _ce.flat_mcts(game, max(1, mcts_budget // len(moves)), opts=_c_search_opts())
-                if mv is not None:
-                    return mv
-        return flat_mcts_move(game, mcts_budget)
+        if isinstance(game, NormalGame):
+            raise RuntimeError("Flat MCTS applies to Ultimate boards only")
+        if not (_ce.available(engine=True) and cfg_engine("c_mcts", True)):
+            raise RuntimeError("Flat MCTS requires the native engine (python dev.py build)")
+        moves = game.legal_moves()
+        if not moves:
+            return None
+        return _ce.flat_mcts(game, max(1, mcts_budget // len(moves)), opts=_c_search_opts())
     if ai_type == "Solver":
         if isinstance(game, NormalGame):
             # pure table lookup from data/tt_normal.bin (--build-tables).
             return solver_move(game, mcts_budget)
-        # Ultimate: Solver is a plain MCTS fallback -> the C tree wins
-        if cfg_engine("c_mcts", True) and _ce.available(engine=True):
-            mv = _c_mcts_move(game, mcts_budget, on_progress, trace)
-            if mv is not None:
-                return mv
-        return solver_move(game, mcts_budget)
+        # Ultimate: the native tree search IS the solver (the python MCTS
+        # fallback retired with the removal project)
+        if not (_ce.available(engine=True) and cfg_engine("c_mcts", True)):
+            raise RuntimeError("Solver requires the native engine (python dev.py build)")
+        return _c_mcts_move(game, mcts_budget, on_progress, trace)
     if ai_type == "AlphaZero":
         return alphazero_move(game, mcts_budget)
     raise ValueError(f"Unknown AI type: {ai_type}")

@@ -76,10 +76,11 @@ Python modules group into one-level function packages; `config.py` stays
 the root leaf anchor.
 
 - `src/core/` — the game state layer: `game.py` (rules + bitboards)
-- `src/engines/` — the AI search stack: `ai.py` (the facade), `mcts.py`,
-  `minimax.py`, `cbridge.py`, `cengine.py` (the ctypes boundary), plus
+- `src/engines/` — the AI search stack: `ai.py` (the facade),
+  `cbridge.py`, `cengine.py` (the ctypes boundary), plus
   the five C engines (`sba_*.c` + `sba_ultt.h`) and the `sba_engine.dll`
-  build.py compiles from them
+  build.py compiles from them — the native engine IS the search backend
+  (the pure-Python mcts/minimax stack retired with the removal project)
 - `src/az/` — the AlphaZero stack: `alphazero.py` (training +
   self-play), `rustselfplay.py`, `rustbridge.py`, plus the `sba_game.dll`
   state-layer cdylib build.py copies there

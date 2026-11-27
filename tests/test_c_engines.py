@@ -97,31 +97,15 @@ def test_dispatch_raves_use_the_c_backend(monkeypatch):
     assert calls == [False, True]
 
 
-def test_dispatch_raves_fall_back_to_python(monkeypatch):
-    """c_mcts off -> the pure-Python RAVE/GRAVE trees answer (the DLL-less
-    contract). The spy wraps the OWNING module's functions."""
-    from engines import mcts
-
-    calls = []
-    orig_rave = mcts.mcts_rave_search
-    orig_grave = mcts.mcts_grave_search
-
-    def spy_rave(*a, **kw):
-        calls.append("rave")
-        return orig_rave(*a, **kw)
-
-    def spy_grave(*a, **kw):
-        calls.append("grave")
-        return orig_grave(*a, **kw)
-
-    monkeypatch.setattr(ai, "mcts_rave_search", spy_rave)
-    monkeypatch.setattr(ai, "mcts_grave_search", spy_grave)
+def test_dispatch_raves_require_the_c_backend():
+    """c_mcts off -> a clear RuntimeError (the pure-Python RAVE/GRAVE trees
+    retired with the removal project; there is no DLL-less MCTS contract)."""
     set_engine_config({"engine": {"c_mcts": False}})
     try:
         g = _out_of_book()
-        assert get_ai_move(g, "MCTS+RAVE", 100) in g.legal_moves()
-        assert get_ai_move(g, "MCTS+GRAVE", 100) in g.legal_moves()
-        assert calls == ["rave", "grave"]
+        for engine in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
+            with pytest.raises(RuntimeError):
+                get_ai_move(g, engine, 100)
     finally:
         set_engine_config()
 

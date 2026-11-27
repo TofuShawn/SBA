@@ -135,20 +135,10 @@ def _rebuild(history, game_cls):
     return g
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--out",
-        default=os.path.join("tests", "golden"),
-        help="output directory (relative paths resolve against the repo root)",
-    )
-    ap.add_argument("--positions", type=int, default=DEFAULT_POSITIONS)
-    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    a = ap.parse_args()
-
-    print("freeze_encode_golden — pure-Python UltimateGame reference, net-independent")
-    rows = build_battery(a.seed, a.positions)
-
+def _freeze_rows(rows):
+    """Encode every battery row with the pure-Python reference and
+    cross-check the Rust state layer when the cdylib is up. Returns
+    (histories, metas, plane_rows, rust_ok)."""
     histories, metas, plane_rows = [], [], []
     rust_ok = rustbridge.available()
     if not rust_ok:
@@ -179,8 +169,11 @@ def main():
             f" result={metas[-1]['result'] or '-'}",
             flush=True,
         )
+    return histories, metas, plane_rows, rust_ok
 
-    out_dir = a.out if os.path.isabs(a.out) else os.path.join(ROOT, a.out)
+
+def _write_golden(out_dir, seed, histories, metas, plane_rows, rust_ok):
+    """The npz + sidecar: moves = m*9+i codes (-1 pad), planes [4,9,9] f32."""
     os.makedirs(out_dir, exist_ok=True)
     npz_path = os.path.join(out_dir, "encode_golden.npz")
     json_path = os.path.join(out_dir, "encode_golden.json")
@@ -196,7 +189,7 @@ def main():
     metadata = {
         "format_version": FORMAT_VERSION,
         "game": "ultimate",
-        "seed": a.seed,
+        "seed": seed,
         "positions": len(histories),
         "stride": SNAPSHOT_STRIDE,
         "generator": (
@@ -221,6 +214,24 @@ def main():
 
     print(f"wrote {npz_path} ({os.path.getsize(npz_path)} bytes)")
     print(f"wrote {json_path} (rust_crosscheck={bool(rust_ok)})")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--out",
+        default=os.path.join("tests", "golden"),
+        help="output directory (relative paths resolve against the repo root)",
+    )
+    ap.add_argument("--positions", type=int, default=DEFAULT_POSITIONS)
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    a = ap.parse_args()
+
+    print("freeze_encode_golden — pure-Python UltimateGame reference, net-independent")
+    rows = build_battery(a.seed, a.positions)
+    histories, metas, plane_rows, rust_ok = _freeze_rows(rows)
+    out_dir = a.out if os.path.isabs(a.out) else os.path.join(ROOT, a.out)
+    _write_golden(out_dir, a.seed, histories, metas, plane_rows, rust_ok)
     return 0
 
 

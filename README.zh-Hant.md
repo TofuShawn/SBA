@@ -154,8 +154,6 @@ python sba.py --eval-az --games 30 --sims 200
 訓練選項：`--ckpt-every 25`（每 N 局存一次 checkpoint）、
 `--dirichlet-eps 0.25`（根節點探索噪聲，0 停用）、`--lr 1e-3`（線性退火到 1/5）、
 `--workers 8`（多進程自對弈，每個 worker 一份 GPU 模型副本）、
-`--rollout-weight 0`（純網路葉值——標準 AlphaZero 配方（D58），也是 exe 的配方；
->0 重新啟用舊版 win/block 啟發式隨機對弈混合）、
 `--selfplay-engine auto|rust|python`（自對弈來源：Rust exe／Python mp.Pool；
 auto 探測 exe，缺席自動降級）、`--selfplay-procs N`（K 個 exe 進程分攤對局）、
 `--csv`（訓練曲線 CSV——每局一行：loss / LR / temp / eval 勝敗和 / checkpoint，
@@ -196,12 +194,10 @@ auto 探測 exe，缺席自動降級）、`--selfplay-procs N`（K 個 exe 進�
   +------------------------------------------------------+
   | src/engines/ai.py  [2]  門面（D47）：get_ai_move      |
   |   派發、AlphaZero 橋、快取重置                        |
-  |   引擎模組：                                          |
+  |   引擎模組（C 原生引擎即搜尋後端——python 樹已退役）： |
   |   src/config.py            ROOT、config.toml、路徑防護|
   |   src/engines/cbridge.py   ctypes 邊界（即 DLL）      |
   |   src/analysis/books.py    Basic 啟發式 + 開局書      |
-  |   src/engines/mcts.py      UCT / RAVE / GRAVE 樹     |
-  |   src/engines/minimax.py   alpha-beta + Minimax Pro   |
   |   src/analysis/tablebase.py  Normal 求解 + Solver     |
   |   src/analysis/analysis.py  助手 + 勝率               |
   +---------+--------------------------------------------+
@@ -244,10 +240,10 @@ auto 探測 exe，缺席自動降級）、`--selfplay-procs N`（K 個 exe 進�
 
 - **[1] `src/core/game.py`**：先讀 `UltimateGame` 的「落子位置決定對手下一步
   macro」強制路由——整個專案的規則核心。
-- **[2] `src/engines/ai.py`（門面）**：引擎分居 `engines/mcts.py` /
-  `engines/minimax.py` / `analysis/tablebase.py` / `analysis/analysis.py` /
-  `analysis/books.py`；按 `get_basic_move` → `minimax_*` → `mcts_search`
-  （UCT 心臟）→ `analyze_position` 的順序跳讀；RAVE/GRAVE/Flat 是 A/B 對照組，非必修。
+- **[2] `src/engines/ai.py`（門面）**：引擎分居 `engines/cbridge.py`
+  （C 邊界）/ `analysis/tablebase.py` / `analysis/analysis.py` /
+  `analysis/books.py`；按 `get_basic_move` → `minimax_*`（C 後端）→
+  `analyze_position` 的順序跳讀；MCTS 家族的 python 樹已隨移除專案退役。
 - **[3] `src/az/alphazero.py`**：只讀一個函式就讀 `self_play_game()`；
   「為什麼同預算打不贏純 MCTS」的誠實結論在
   `docs/AlphaZero_UTTT_Technical_Report.html`。

@@ -175,9 +175,7 @@ python sba.py --eval-az --games 30 --sims 200
 Training extras: `--ckpt-every 25` (checkpoint every N games),
 `--dirichlet-eps 0.25` (root exploration noise, 0 disables), `--lr 1e-3`
 (linear annealing to 1/5), `--workers 8` (multiprocess self-play, one GPU
-model copy per worker), `--rollout-weight 0` (pure-network leaf values — the
-standard AlphaZero recipe (D58) and the exe's recipe; >0 re-enables the
-legacy win/block heuristic blend), `--selfplay-engine auto|rust|python`
+model copy per worker), `--selfplay-engine auto|rust|python`
 (self-play source: Rust exe / Python mp.Pool; auto probes the exe and
 downgrades when absent), `--selfplay-procs N` (K exe processes splitting the
 games), `--csv` (training-curve CSV — one row per game: loss / LR / temp /
@@ -220,12 +218,11 @@ temp directory** (the same path guard covers config saves).
   +------------------------------------------------------+
   | src/engines/ai.py  [2]  facade (D47): get_ai_move    |
   |   dispatch, the AlphaZero bridge, cache reset        |
-  |   engine modules:                                    |
+  |   engine modules (the native C engine IS the search  |
+  |   backend — the python trees retired):               |
   |   src/config.py            ROOT, config.toml, guard  |
   |   src/engines/cbridge.py   ctypes boundary (the DLL) |
   |   src/analysis/books.py    Basic heuristic + books   |
-  |   src/engines/mcts.py      UCT / RAVE / GRAVE trees  |
-  |   src/engines/minimax.py   alpha-beta + Minimax Pro  |
   |   src/analysis/tablebase.py  Normal solve + Solver   |
   |   src/analysis/analysis.py  assistant + win rates    |
   +---------+--------------------------------------------+
@@ -270,10 +267,10 @@ Reading-route highlights:
 - **[1] `src/core/game.py`** — start with `UltimateGame`'s "the played cell
   routes the opponent into that macro" rule; the rules core of the project.
 - **[2] `src/engines/ai.py` (facade)** — the engines live across
-  `engines/mcts.py` / `engines/minimax.py` / `analysis/tablebase.py` /
+  `engines/cbridge.py` (the C boundary) / `analysis/tablebase.py` /
   `analysis/analysis.py` / `analysis/books.py`; skim in the order
-  `get_basic_move` → `minimax_*` → `mcts_search` (the UCT heart) →
-  `analyze_position`. RAVE/GRAVE/Flat are A/B comparison groups, not required reading.
+  `get_basic_move` → `minimax_*` (the C backends) → `analyze_position`.
+  The MCTS-family python trees retired with the removal project.
 - **[3] `src/az/alphazero.py`** — if you read one function, read
   `self_play_game()`; the honest "why it loses to plain MCTS at equal
   budget" conclusion lives in `docs/AlphaZero_UTTT_Technical_Report.html`.

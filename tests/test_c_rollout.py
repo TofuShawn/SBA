@@ -12,17 +12,15 @@ import pytest
 
 from engines import ai
 
-from engines.ai import (
+from engines.cbridge import (
     _c_rollout_state,
     _get_c_rollout,
-    _rollout_move,
+    _get_c_rollout_pattern,
     _serialize_ultimate,
-    get_ai_move,
-    set_engine_config,
 )
+from engines.ai import get_ai_move, set_engine_config
 from engines import cengine as _ce
 from core.game import (
-    BitUltimateGame,
     NormalGame,
     O,
     UltimateGame,
@@ -69,36 +67,6 @@ def test_rollout_results_are_legal():
     assert seen != {"D"}  # a heuristic rollout should sometimes produce wins
 
 
-def test_serialize_matches_between_state_types():
-    g = UltimateGame()
-    apply_move(g, (4, 4))  # routes into macro 4
-    apply_move(g, (4, 2))  # routes into macro 2
-    apply_move(g, (2, 6))
-    b = BitUltimateGame.from_game(g)
-    assert _serialize_ultimate(g) == _serialize_ultimate(b)
-
-
-def test_kernel_agrees_with_python_distribution():
-    """Same policy, different RNG: the outcome distribution should be close."""
-    g = _empty_board()
-
-    def py_rollout(state):
-        state = state.clone()
-        result = state.result()
-        while result is None:
-            moves = state.legal_moves()
-            if not moves:
-                break
-            apply_move(state, _rollout_move(state, moves))
-            result = state.result()
-        return result
-
-    n = 400
-    c_x = sum(1 for _ in range(n) if _c_rollout_state(g) == X)
-    p_x = sum(1 for _ in range(n) if py_rollout(g) == X)
-    assert abs(c_x - p_x) / n < 0.15  # generous: random-seed divergence only
-
-
 def test_mcts_reaches_a_valid_endgame():
     """A CvC game driven by the kernel-backed search plays to a legal end."""
     set_engine_config({"engine": {"opening_book": False, "multithreaded": False}})
@@ -115,57 +83,11 @@ def test_mcts_reaches_a_valid_endgame():
         set_engine_config()
 
 
-def test_kernel_search_faster_than_python(monkeypatch=None):
-    """The C tree must at least beat the pure-Python MCTS at equal budget
-    (soft 1.5x — timing in CI is noisy, so the hard floor is generous)."""
-    g = UltimateGame()
-    apply_move(g, (4, 4))
-    set_engine_config({"engine": {"c_mcts": True, "opening_book": False, "multithreaded": False}})
-    try:
-        t0 = time.perf_counter()
-        _ce.mcts_search(g.clone(), 400)
-        t_c = time.perf_counter() - t0
-        set_engine_config(
-            {"engine": {"c_mcts": False, "opening_book": False, "multithreaded": False}}
-        )
-        t0 = time.perf_counter()
-        from engines.ai import mcts_search as pure_mcts
-
-        pure_mcts(g.clone(), 400)
-        t_p = time.perf_counter() - t0
-        assert t_c < t_p * 1.5
-    finally:
-        set_engine_config()
-
-
-def test_normal_board_uses_python_path(monkeypatch):
-    """Normal 3x3 stays on the Python rollout (too shallow to bother): no C
-    backend symbol may be consulted for the whole move. The DLL is present
-    (asserted first) so the proof is real — the gates must skip it."""
-    set_engine_config()
-    assert _get_c_rollout() is not None
-    touched = []
-
-    class _NoC:
-        def __getattr__(self, name):
-            def _deny(*args, **kwargs):
-                touched.append(name)
-                raise AssertionError(f"Normal path touched the C backend: {name}")
-
-            return _deny
-
-    monkeypatch.setattr(ai, "_ce", _NoC())
-    g = NormalGame()
-    mv = get_ai_move(g, "MCTS", 200, 3)
-    assert mv in g.legal_moves()
-    assert touched == []
-
-
 def test_pattern_kernel_smoke():
     """Pattern variant (D26, off by default): legal results, sane spread."""
     set_engine_config({"engine": {"c_rollout_pattern": True}})
     try:
-        assert ai._get_c_rollout_pattern() is not None
+        assert _get_c_rollout_pattern() is not None
         g = UltimateGame()
         seen = set()
         for _ in range(200):
@@ -280,20 +202,17 @@ def test_flat_mcts_c_backend_abi_and_dispatch():
         set_engine_config()
 
 
-def test_flat_mcts_c_and_python_share_scoring_and_tiebreak():
+def test_flat_mcts_c_prefers_immediate_win_on_ties():
     """C must score win 1.0 / draw 0.5 and prefer an immediate game win on
-    ties, exactly like ai.flat_mcts_move. The old (wins+draws)/(2N) formula
-    biased the C kernel toward draws and picked the first legal move."""
+    ties. The old (wins+draws)/(2N) formula biased the C kernel toward
+    draws and picked the first legal move."""
     assert _ce.available(engine=True)
     g = _forced_win_position()
     forced = [m for m in g.legal_moves() if apply_clone_result(g, m) == g.current]
     assert len(forced) == 1 and forced[0] != g.legal_moves()[0]
     for seed in (1, 2, 3, 17, 99):
         c_move = _ce.flat_mcts(g, 30, rng_seed=seed)
-        random.seed(seed)
-        py_move = ai.flat_mcts_move(g.clone(), 30 * len(g.legal_moves()))
         assert c_move == forced[0], (seed, c_move, forced)
-        assert py_move == forced[0], (seed, py_move, forced)
 
 
 def test_c_and_python_rules_agree_over_random_games():
@@ -387,7 +306,7 @@ def test_search_opts_reach_every_c_backend(monkeypatch):
         get_ai_move(g, "MCTS", 200, 3)
         get_ai_move(g, "Minimax", 200, 3)
         get_ai_move(g, "Flat MCTS", 200, 3)
-        ai._c_rollout_state(g)
+        _c_rollout_state(g)
     finally:
         set_engine_config()
 
