@@ -1,0 +1,254 @@
+{
+  "battery": [
+    {
+      "depth": 0,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 1,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 2,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 3,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 4,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 5,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 6,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 7,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 8,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 0,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 1,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 2,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 3,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 4,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 5,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 6,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 7,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 8,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 0,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 1,
+      "kind": "open",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 4,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 9,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 14,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 19,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 24,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 29,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 34,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 39,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 44,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 49,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 54,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 59,
+      "kind": "terminal",
+      "result": "X",
+      "terminal": true
+    },
+    {
+      "depth": 4,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 9,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 14,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 19,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 24,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 29,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 34,
+      "kind": "play",
+      "result": null,
+      "terminal": false
+    },
+    {
+      "depth": 64,
+      "kind": "terminal",
+      "result": "O",
+      "terminal": true
+    }
+  ],
+  "format_version": 1,
+  "game": "ultimate",
+  "generator": "parity_search._gen_positions opening conventions verbatim: first half seeded random openings (depth cycling 0..8, rng seed*1009+idx, uniform legal choice, terminal rejected); second half snapshots from seeded full random playouts (rng seed*7919+game) \u2014 plies 4,9,14,\u2026 stride 5 apart plus ALWAYS the terminal position. All moves uniform-random: MODEL-FREE, no weights sha applies. npz rows: moves=m*9+i codes (-1 pad), planes=[4,9,9] float32 \u2014 the pure-Python alphazero.encode() answer for the position the moves rebuild.",
+  "numpy": "2.2.6",
+  "positions": 40,
+  "python": "3.13.1",
+  "rust_crosscheck": true,
+  "seed": 20261128,
+  "stride": 5,
+  "torch": "2.7.1+cpu"
+}
