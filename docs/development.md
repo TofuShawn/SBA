@@ -40,7 +40,6 @@ command-line quoting from scratch.
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
 | `python dev.py clippy-core` | cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu) |
 | `python dev.py cgate` | C warnings gate: `-Wall -Wextra -Werror` over all five C files |
-| `python dev.py bench-rust` | the Rust state-layer A/B harness |
 | `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
 | `python dev.py test-rust` | cargo test: sba-game (default) + sba-core (cpu backend, no GPU) |
 | `python dev.py coverage` | the pytest suite with coverage; the floor (65%) lives in pyproject `[tool.coverage.report]` |
@@ -95,7 +94,7 @@ the root leaf anchor.
   `Cargo.toml` is a minimal workspace (members + profiles), one
   `Cargo.lock`, cargo output in the root `target/`
 - `src/tools/` — the dev harnesses: `build.py` (C DLL + cdylib copy),
-  `bench_rust.py`, `bench_selfplay.py`, `parity_search.py`
+  `bench_selfplay.py`, `parity_search.py`
 - `tests/` — the pytest suite; DLL-gated files skip themselves cleanly
   (count via `pytest tests --collect-only -q`)
 - `docs/decisions.md` — every design decision, append-only (D1…)

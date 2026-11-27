@@ -6,10 +6,9 @@ Owns the DLL handles, state serialization, the search-switch
 snapshot and the C tree reuse cache. Engines call into this; the
 deny-stub tests patch here."""
 
-import random
 import threading
 
-from core.game import BitUltimateGame, EMPTY, LINES, NormalGame, O, X, apply_move
+from core.game import NormalGame, apply_move
 from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, cfg_engine
 
 from engines import cengine as _ce  # the ctypes layer under this package
@@ -74,47 +73,6 @@ def _c_search_opts():
         "symmetry": bool(cfg_engine("symmetry")),
         "use_pattern": bool(cfg_engine("c_rollout_pattern")),
     }
-
-
-_LINE_BITS = [(1 << a) | (1 << b) | (1 << c) for a, b, c in LINES]
-
-
-def _threat_cells(state, player):
-    """Cells where `player` would win immediately by playing there."""
-    if isinstance(state, NormalGame):
-        cells = state.board
-        res = []
-        for a, b, c in LINES:
-            vals = (cells[a], cells[b], cells[c])
-            if vals.count(player) == 2 and EMPTY in vals:
-                res.append((a, b, c)[vals.index(EMPTY)])
-        return res
-    if isinstance(state, BitUltimateGame):
-        res = []
-        pbits = state.x if player == X else state.o
-        obits = state.o if player == X else state.x
-        closed = state.mx | state.mo
-        for m in range(9):
-            if closed & (1 << m):
-                continue
-            base = m * 9
-            mb = (pbits >> base) & 0x1FF
-            ob = (obits >> base) & 0x1FF
-            for line in _LINE_BITS:
-                if (mb & line).bit_count() == 2 and ((mb | ob) & line) != line:
-                    empty = line & ~(mb | ob)
-                    res.append((m, empty.bit_length() - 1))
-        return res
-    res = []
-    for m in range(9):
-        if not state.macro_open(m):
-            continue
-        cells = state.micro[m]
-        for a, b, c in LINES:
-            vals = (cells[a], cells[b], cells[c])
-            if vals.count(player) == 2 and EMPTY in vals:
-                res.append((m, (a, b, c)[vals.index(EMPTY)]))
-    return res
 
 
 # Flat MCTS (research-only, unlisted): scores each legal move with independent

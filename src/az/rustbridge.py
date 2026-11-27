@@ -218,32 +218,19 @@ class RustUltimateGame:
             _flush_handles()
 
     @classmethod
-    def from_game(cls, game):
-        """Adopt an UltimateGame / BitUltimateGame position."""
+    def from_sba_state(cls, st):
+        """Adopt an SbaState bit position (test seeding / state transfer —
+        px/po are per-micro 9-bit X/O masks, mx/mo the macro badges,
+        current 0=X/1=O, active -1=free routing)."""
         lib = _load()
         if lib is None:
             raise RuntimeError("sba_game native library not available")
-        st = SbaState()
-        for m in range(9):
-            for i in range(9):
-                c = game.micro[m][i]
-                if c == X:
-                    st.px[m] |= 1 << i
-                elif c == O:
-                    st.po[m] |= 1 << i
-            w = game.macro[m]
-            if w == X:
-                st.mx |= 1 << m
-            elif w == O:
-                st.mo |= 1 << m
-        st.current = 0 if game.current == X else 1
-        st.active = -1 if game.active_macro is None else game.active_macro
         g = cls.__new__(cls)
         g._h = lib.sba_game_load(ctypes.byref(st))
         if not g._h:
             raise RuntimeError("sba_game_load failed")
-        g.current = game.current
-        g.active_macro = game.active_macro
+        g.current = X if st.current == 0 else O
+        g.active_macro = None if st.active < 0 else st.active
         return g
 
     # ------------------------------------------------- hot-path interface

@@ -99,28 +99,19 @@ def move_index(game, move):
 def encode(game):
     """Return tensor [4, size, size]:
     plane 0 = X marks, plane 1 = O marks, plane 2 = turn (1.0 if X to move),
-    plane 3 = active macro cell block (ultimate only, 0 everywhere if free)."""
+    plane 3 = active macro cell block (ultimate only, 0 everywhere if free).
+
+    Ultimate games fill the whole tensor in ONE FFI call (the Rust state
+    layer IS the implementation — the pure-Python numpy walk retired with
+    the removal project); Normal keeps the numpy path."""
+    if not is_normal(game):
+        return torch.as_tensor(game.sba_planes_tensor())
     size = size_of(game)
     planes = np.zeros((4, size, size), dtype=np.float32)
-    if is_normal(game):
-        for i, mark in enumerate(game.board):
-            if mark:
-                r, c = divmod(i, 3)
-                planes[0 if mark == X else 1, r, c] = 1.0
-    else:
-        if isinstance(game, rustbridge.RustUltimateGame):
-            # the whole tensor is filled in one FFI call — planes,
-            # turn marker and the active-macro block together
-            return torch.as_tensor(game.sba_planes_tensor())
-        for m in range(9):
-            mr, mc = divmod(m, 3)
-            for i, mark in enumerate(game.micro[m]):
-                if mark:
-                    r, c = divmod(i, 3)
-                    planes[0 if mark == X else 1, mr * 3 + r, mc * 3 + c] = 1.0
-        if game.active_macro is not None:
-            mr, mc = divmod(game.active_macro, 3)
-            planes[3, mr * 3 : (mr + 1) * 3, mc * 3 : (mc + 1) * 3] = 1.0
+    for i, mark in enumerate(game.board):
+        if mark:
+            r, c = divmod(i, 3)
+            planes[0 if mark == X else 1, r, c] = 1.0
     if game.current == X:
         planes[2, :, :] = 1.0
     return torch.as_tensor(planes)  # zero-copy: planes is float32 & contiguous

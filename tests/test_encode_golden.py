@@ -13,17 +13,14 @@ terminal positions; documented seeds in the JSON sidecar). At freeze time
 the Rust state layer already agreed with every row BITWISE, terminal rows
 included.
 
-Two tests, two lifetimes:
-
-* ``test_rust_planes_match_golden_battery`` — THE anchor. Rebuilds every
-  position on the Rust state layer (``rustbridge`` cdylib — no torch, no
-  alphazero) and requires BITWISE equality with the goldens: discrete
-  data, integer-equality semantics, not a tolerance. This survives the
-  Python retirement; it is skipped only where the cdylib is missing.
-* ``test_python_encode_matches_golden_battery`` — the reference-side
-  check while the Python stack lives: rebuilds on the pure-Python
-  ``UltimateGame`` (never ``make_game``, which honors config.toml) and
-  re-encodes. Retires with ③.
+One anchor: ``test_rust_planes_match_golden_battery`` rebuilds every
+position on the Rust state layer (``rustbridge`` cdylib — no torch, no
+alphazero) and requires BITWISE equality with the goldens: discrete data,
+integer-equality semantics, not a tolerance. It survives the Python
+retirement and is skipped only where the cdylib is missing. (The
+torch-gated python reference half retired with ③; the goldens were frozen
+FROM the pure-Python encode — regenerating them needs
+archive/python-reference.)
 
 Regenerating the goldens is a deliberate encoder change, never a test fix:
   python src/tools/freeze_encode_golden.py
@@ -84,24 +81,5 @@ def test_rust_planes_match_golden_battery():
             bad.append((idx, f"result mismatch: rust {g.result()} vs golden {row['result']}"))
         elif not np.array_equal(g.sba_planes_tensor(), planes[idx]):
             diff = np.argwhere(g.sba_planes_tensor() != planes[idx])[:5]
-            bad.append((idx, f"planes differ at {diff.tolist()}"))
-    assert not bad, f"{len(bad)}/{meta['positions']} battery rows mismatch (first: {bad[:3]})"
-
-
-def test_python_encode_matches_golden_battery():
-    """The reference-side half: the pure-Python encode still reproduces
-    the frozen answers (retires with ③, unlike the rust half above)."""
-    pytest.importorskip("torch")
-    from az.alphazero import encode  # deferred: the torch-gated reference
-
-    from core.game import UltimateGame  # the pure-Python reference, not the Rust one
-
-    meta, moves, planes = _load_golden()
-    bad = []
-    for idx in range(meta["positions"]):
-        hist = [int(c) for c in moves[idx] if c >= 0]
-        g = _rebuild(UltimateGame, [(c // 9, c % 9) for c in hist])
-        if not np.array_equal(encode(g).numpy(), planes[idx]):
-            diff = np.argwhere(encode(g).numpy() != planes[idx])[:5]
             bad.append((idx, f"planes differ at {diff.tolist()}"))
     assert not bad, f"{len(bad)}/{meta['positions']} battery rows mismatch (first: {bad[:3]})"

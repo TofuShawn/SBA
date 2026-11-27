@@ -53,7 +53,6 @@ import numpy as np  # noqa: E402
 
 from az import rustbridge  # noqa: E402
 from az.alphazero import apply_move, encode  # noqa: E402
-from core.game import UltimateGame  # noqa: E402  the pure-Python reference — never the Rust one here
 
 FORMAT_VERSION = 1
 DEFAULT_SEED = 20261128
@@ -63,13 +62,28 @@ OPEN_SEED_BASE = 1009  # parity_search._gen_positions convention
 PLAYOUT_SEED_BASE = 7919
 
 
-def _random_opening(seed, idx):
+def _python_reference():
+    """The pure-Python UltimateGame the goldens are frozen FROM. It retired
+    with the removal project — regenerating the goldens requires the
+    archived python source (archive/python-reference) on the path."""
+    try:
+        from core.game import UltimateGame
+    except ImportError as exc:
+        raise SystemExit(
+            "the pure-Python UltimateGame is no longer on this tree (removal"
+            " project) — check out archive/python-reference to regenerate"
+            " the goldens"
+        ) from exc
+    return UltimateGame
+
+
+def _random_opening(seed, idx, game_cls):
     """One seeded random opening under the parity_search convention — the
     move history of a NON-terminal position (None when the random playout
     happened to end before the target depth)."""
     depth = idx % 9
     rng = random.Random(seed * OPEN_SEED_BASE + idx)
-    g = UltimateGame()
+    g = game_cls()
     history = []
     for _ in range(depth):
         if g.is_over():
@@ -81,14 +95,14 @@ def _random_opening(seed, idx):
     return None if g.is_over() else history
 
 
-def _playout_rows(seed, idx, need):
+def _playout_rows(seed, idx, need, game_cls):
     """Rows from ONE seeded full random playout: spaced midgame plies
     (SNAPSHOT_STRIDE apart, from ply 4) plus ALWAYS the terminal position
     (emitted last, when the quota has room for it). Returns at most
     ``need`` rows; the caller keeps drawing games until the quota fills,
     so the battery always contains terminal rows."""
     rng = random.Random(seed * PLAYOUT_SEED_BASE + idx)
-    g = UltimateGame()
+    g = game_cls()
     history = []
     mid = []
     while not g.is_over():
@@ -105,11 +119,12 @@ def _playout_rows(seed, idx, need):
 def build_battery(seed, n):
     """The seeded battery: ``n`` rows as (history, kind) — non-terminal by
     construction for "open", "terminal" rows only from the playout half."""
+    game_cls = _python_reference()
     rows = []
     n_open = n // 2
     idx = 0
     while len(rows) < n_open:
-        hist = _random_opening(seed, idx)
+        hist = _random_opening(seed, idx, game_cls)
         if hist is not None:
             rows.append((hist, "open"))
         idx += 1
@@ -117,7 +132,7 @@ def build_battery(seed, n):
             raise SystemExit("opening generator stalled")
     idx = 0
     while len(rows) < n:
-        rows.extend(_playout_rows(seed, idx, n - len(rows)))
+        rows.extend(_playout_rows(seed, idx, n - len(rows), game_cls))
         idx += 1
         if idx > 200:
             raise SystemExit("playout generator stalled")
@@ -144,7 +159,7 @@ def _freeze_rows(rows):
     if not rust_ok:
         print("WARNING: sba_game cdylib not found — freeze-time rust cross-check SKIPPED")
     for k, (history, kind) in enumerate(rows):
-        g = _rebuild(history, UltimateGame)  # pure-Python: encode takes the numpy path
+        g = _rebuild(history, _python_reference())  # pure-Python: encode takes the numpy path
         planes = encode(g).numpy().astype(np.float32)
         assert planes.shape == (4, 9, 9)
         if rust_ok:
@@ -227,7 +242,7 @@ def main():
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
     a = ap.parse_args()
 
-    print("freeze_encode_golden — pure-Python UltimateGame reference, net-independent")
+    print("freeze_encode_golden — pure-Python reference, net-independent")
     rows = build_battery(a.seed, a.positions)
     histories, metas, plane_rows, rust_ok = _freeze_rows(rows)
     out_dir = a.out if os.path.isabs(a.out) else os.path.join(ROOT, a.out)

@@ -19,11 +19,9 @@ from engines.ai import (
     get_ai_move,
     opening_book_move,
     build_micro_tablebase,
-    reset_engine_caches,
     _fork_count,
     position_win_rate,
     position_win_rates,
-    analyze_position,
     set_engine_config,
 )
 from az.rustbridge import RustUltimateGame
@@ -188,17 +186,11 @@ def test_win_rates():
 
 
 def test_ultimate_game_winning_moves():
-    """Forced-win position (seeded on the python rules, adopted by the rust
-    layer via from_game): the C engines (pro / rave / grave) must all find
-    the immediate game win."""
-    from core.game import UltimateGame
+    """Forced-win position (bit-seeded on the rust layer): the C engines
+    (pro / rave / grave) must all find the immediate game win."""
+    from conftest import rust_game_from_bits
 
-    py = UltimateGame()
-    py.macro = [X, X, EMPTY] + [EMPTY] * 6
-    py.micro[2] = [X, X, EMPTY] + [EMPTY] * 6
-    py.active_macro = 2
-    py.current = X
-    gu = RustUltimateGame.from_game(py)
+    gu = rust_game_from_bits(px={2: 3}, mx=0b000000011, current=0, active=2)
     assert get_ai_move(gu, "Minimax Pro", 300, 4) == (2, 2)
     assert get_ai_move(gu, "MCTS+RAVE", 2000) == (2, 2)
     assert get_ai_move(gu, "MCTS+GRAVE", 2000) == (2, 2)

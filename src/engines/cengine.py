@@ -7,10 +7,10 @@ src/tools/build.py)
 .
 
 Owns: DLL discovery/loading, the ABI signatures, state serialization
-(UltimateGame / BitUltimateGame -> the flat C encoding) and thin wrappers:
-rollout, full MCTS (with root stats), minimax (normal/ultimate), flat MCTS.
-Every wrapper returns None when the DLL is unavailable so ai.py can fall
-back to the pure-Python engines.
+(the Rust state layer -> the flat C encoding, via sba_ffi) and thin
+wrappers: rollout, full MCTS (with root stats), minimax (normal/ultimate),
+flat MCTS. The C engine IS the search backend (the pure-Python engines
+retired with the removal project).
 
 SbaSearchOpts carries the search switches into C, and the MCTS arena
 is owned by the DLL. _CTree wraps the opaque handle and releases it on GC,
@@ -278,41 +278,30 @@ def available(engine=False):
 
 
 def serialize_ultimate(state):
-    """Flatten an UltimateGame / BitUltimateGame into the C ABI:
-    (cells[81], macro[9], player 1/2, active -1..8)."""
+    """Flatten an ultimate game state into the C ABI:
+    (cells[81], macro[9], player 1/2, active -1..8).
+
+    The Rust state layer takes the sba_ffi fast path (see
+    _serialized_arrays); this list-contract walk remains the generic
+    fallback for any duck-typed implementation."""
     cells = [0] * 81
     macro = [0] * 9
-    if type(state).__name__ == "BitUltimateGame":
-        for idx in range(81):
-            b = 1 << idx
-            if state.x & b:
-                cells[idx] = 1
-            elif state.o & b:
-                cells[idx] = 2
-        for m in range(9):
-            if (state.mx >> m) & 1:
-                macro[m] = 1
-            elif (state.mo >> m) & 1:
-                macro[m] = 2
-            elif ((state.x | state.o) >> (m * 9)) & 0x1FF == 0x1FF:
-                macro[m] = 3
-    else:
-        for m in range(9):
-            row = state.micro[m]
-            base = m * 9
-            for i in range(9):
-                c = row[i]
-                if c == "X":
-                    cells[base + i] = 1
-                elif c == "O":
-                    cells[base + i] = 2
-            w = state.macro[m]
-            if w == "X":
-                macro[m] = 1
-            elif w == "O":
-                macro[m] = 2
-            elif w == "D":
-                macro[m] = 3
+    for m in range(9):
+        row = state.micro[m]
+        base = m * 9
+        for i in range(9):
+            c = row[i]
+            if c == "X":
+                cells[base + i] = 1
+            elif c == "O":
+                cells[base + i] = 2
+        w = state.macro[m]
+        if w == "X":
+            macro[m] = 1
+        elif w == "O":
+            macro[m] = 2
+        elif w == "D":
+            macro[m] = 3
     active = -1 if state.active_macro is None else state.active_macro
     player = 1 if state.current == "X" else 2
     return cells, macro, player, active

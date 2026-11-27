@@ -6,12 +6,13 @@
 import pytest
 
 from engines.ai import get_ai_move
-from core.game import UltimateGame, apply_move
+from az.rustbridge import RustUltimateGame
+from core.game import apply_move
 
 
 def _out_of_book_position():
     """A position past the opening book so an MCTS search actually runs."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     return g
@@ -62,7 +63,7 @@ def test_trace_has_top_candidates_and_pick():
 
 
 def test_trace_on_book_and_basic():
-    g = UltimateGame()
+    g = RustUltimateGame()
     # empty board: MCTS hits the opening book — trace notes it, no top list
     trace = {}
     get_ai_move(g, "MCTS", 200, 3, trace=trace)

@@ -9,7 +9,8 @@ import numpy as np
 import random
 
 from az import alphazero
-from core.game import X, O, EMPTY, NormalGame, UltimateGame
+from az.rustbridge import RustUltimateGame
+from core.game import X, O, EMPTY, NormalGame
 from engines.ai import get_ai_move
 
 
@@ -40,7 +41,7 @@ def test_az_smoke_train_ultimate():
     ]
     # one `game` event per completed game, in order
     assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
-    g = UltimateGame()
+    g = RustUltimateGame()
     assert alphazero.select_move(g, model, 20) in g.legal_moves()
 
 
@@ -48,17 +49,14 @@ def test_az_dispatch_and_terminal_values():
     g = NormalGame()
     assert get_ai_move(g, "AlphaZero", 20) in g.legal_moves()
     az9 = alphazero.AZNet(9)
-    gu = UltimateGame()
-    gu.macro = [X, X, EMPTY] + [EMPTY] * 6
-    gu.micro[2] = [X, X, EMPTY] + [EMPTY] * 6
-    gu.active_macro = 2
-    gu.current = X
+    from conftest import rust_game_from_bits
+
+    gu = rust_game_from_bits(px={2: 3}, mx=0b000000011, current=0, active=2)
     assert alphazero.select_move(gu, az9, 60) == (2, 2)
     gw = NormalGame()
     gw.board = [X, X, X, O, O] + [EMPTY] * 4
     assert alphazero.terminal_value(gw) == -1.0
-    gwu = UltimateGame()
-    gwu.macro = [X, X, X] + [EMPTY] * 6
+    gwu = rust_game_from_bits(mx=0b000000111)
     assert alphazero.terminal_value(gwu) == -1.0
 
 
@@ -175,7 +173,7 @@ def test_train_parallel_workers(monkeypatch):
         {"type": "selfplay_engine", "engine": "python", "workers": 2}
     ]
     assert [e["game"] for e in events if e["type"] == "game"] == [1, 2]
-    g = UltimateGame()
+    g = RustUltimateGame()
     assert alphazero.select_move(g, model, 10) in g.legal_moves()
 
 
@@ -185,7 +183,7 @@ def test_policy_vector_masks_and_renormalises():
     model = alphazero.AZNet(9, 8, 1).to(alphazero.DEVICE)
     from core.game import apply_move
 
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     vec = alphazero.policy_vector(g, model)
@@ -203,13 +201,13 @@ def test_az_policy_priors_guards(monkeypatch):
     from engines import ai
 
     assert ai.az_policy_priors(NormalGame()) is None
-    gu = UltimateGame()
-    gu.macro = [X, X, X] + [EMPTY] * 6
-    gu.current = X
+    from conftest import rust_game_from_bits
+
+    gu = rust_game_from_bits(mx=0b000000111)
     assert gu.is_over() and ai.az_policy_priors(gu) is None
     # no trained model in the repo (cached as None) -> "no heat"
     monkeypatch.setitem(ai._AZ_MODELS, "ultimate", None)
-    assert ai.az_policy_priors(UltimateGame()) is None
+    assert ai.az_policy_priors(RustUltimateGame()) is None
 
 
 def test_training_csv_curve(tmp_path):

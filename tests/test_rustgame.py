@@ -1,124 +1,62 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Rust state-layer parity (D48): RustUltimateGame must be indistinguishable
-from UltimateGame — legal moves, results, routing mirrors, micro/macro
-grids and error texts — across random games; the wrapper also carries AZ
-self-play end-to-end (stage-1 C tree + encode). Skips when the cdylib is
-not built."""
+"""Rust state-layer contract tests (D48, re-anchored by the removal
+project): RustUltimateGame IS the ultimate implementation, so these pins
+are rust-only now — error texts, the shared apply_move routing, the FFI
+fast paths (sba_ffi / planes / clone_apply), handle hygiene and the
+make_game contract. (The old rust-vs-python parity fuzz retired with the
+pure-Python UltimateGame; the frozen encode goldens carry that contract.)
+
+torch/numpy are optional (requirements.txt deliberately omits them so
+Dependabot cannot drag the CUDA wheel into CI) — without the guards the
+top-level `import alphazero` makes --self-test fail at COLLECTION on a
+bare install.
+"""
 
 import random
 
 import pytest
 
-# torch/numpy are optional (requirements.txt deliberately omits them so
-# Dependabot cannot drag the CUDA wheel into CI). Without these guards the
-# top-level `import alphazero` makes --self-test fail at COLLECTION on a
-# bare install, even though every other test file skips cleanly.
 pytest.importorskip("numpy")
 pytest.importorskip("torch")
 
 from az import alphazero
 from az import rustbridge
-from core.game import O, X, UltimateGame
 from az.rustbridge import RustUltimateGame
+from core.game import O, X
 
 pytestmark = pytest.mark.skipif(not rustbridge.available(), reason="sba_game cdylib not built")
 
 SEED = 20261115
 
 
-def _fresh_pair():
-    py = UltimateGame()
-    return py, RustUltimateGame.from_game(py)
+def _dump(ru):
+    """The full observable position: (cells, macro, player, active)."""
+    cells, macro, player, active = ru.sba_ffi()
+    return (tuple(cells), tuple(macro), player, active)
 
 
-def _assert_parity(py, ru):
-    """One position, both implementations: everything a search or the UI
-    can observe must agree."""
-    assert set(ru.legal_moves()) == set(py.legal_moves())
-    assert ru.legal_moves() == py.legal_moves()  # order too
-    assert ru.current == py.current
-    assert ru.active_macro == py.active_macro
-    assert ru.result() == py.result()
-    assert ru.winner() == py.winner()
-    assert ru.is_over() == py.is_over()
-    assert ru.is_full() == py.is_full()
-    assert ru.micro == py.micro
-    assert ru.macro == py.macro
-    for m in range(9):
-        assert ru.macro_open(m) == py.macro_open(m)
-        assert ru.micro_winner(m) == py.micro_winner(m)
+def _rust_positions(rng, n, max_plies=25):
+    """n random legal-play rust positions (a fresh game each)."""
+    for _ in range(n):
+        g = RustUltimateGame()
+        for _ in range(rng.randint(0, max_plies)):
+            lm = g.legal_moves()
+            if not lm or g.is_over():
+                break
+            g.make_move(*rng.choice(lm))
+        yield g
 
 
-def _play(rng, py=None, ru=None):
-    """A random playout applied to BOTH implementations in lockstep."""
-    if py is None:
-        py, ru = _fresh_pair()
-    for _ in range(90):
-        _assert_parity(py, ru)
-        lm = py.legal_moves()
-        if not lm:
-            break
-        mv = rng.choice(lm)
-        py.make_move(*mv)
-        ru.make_move(*mv)
-    _assert_parity(py, ru)
-    return py, ru
-
-
-def test_parity_over_random_games():
-    """150 seeded random games, full parity assertion after every ply."""
-    rng = random.Random(SEED)
-    for _ in range(150):
-        py, ru = _play(rng)
-        assert ru.is_over() == py.is_over()
-
-
-def test_from_game_adopts_positions():
-    rng = random.Random(SEED + 1)
-    for _ in range(20):
-        py, _ = _play(rng)
-        ru = RustUltimateGame.from_game(py)
-        _assert_parity(py, ru)
-
-
-def test_illegal_moves_raise_the_same_texts():
-    py, ru = _fresh_pair()
-    py.make_move(4, 4)
+def test_illegal_moves_raise_the_documented_texts():
+    ru = RustUltimateGame()
     ru.make_move(4, 4)
     with pytest.raises(ValueError, match="cell is occupied"):
         ru.make_move(4, 4)
-    with pytest.raises(ValueError, match="cell is occupied"):
-        py.make_move(4, 4)
     # after (4,4) the reply is forced into macro 4
     with pytest.raises(ValueError, match="move must be in the routed macro"):
         ru.make_move(0, 0)
-    with pytest.raises(ValueError, match="move must be in the routed macro"):
-        py.make_move(0, 0)
-    # a closed macro target with no open route would raise the same text
-    # on both sides — covered end-to-end by the parity fuzz instead
-
-
-def test_game_over_and_clone_parity():
-    py = UltimateGame()
-    py.macro = [X] * 9  # already won macro row
-    ru = RustUltimateGame.from_game(py)
-    assert ru.result() == py.result() == "X"
-    with pytest.raises(ValueError, match="game is over"):
-        ru.make_move(0, 0)
-    with pytest.raises(ValueError, match="game is over"):
-        py.make_move(0, 0)
-
-    base = UltimateGame()
-    rb = RustUltimateGame.from_game(base)
-    rc = rb.clone()
-    rc.make_move(4, 4)
-    assert rb.legal_moves() == base.legal_moves()  # the original untouched
-    assert rb.current == base.current == X
-    assert rb.active_macro == base.active_macro == 4 or (
-        base.active_macro is None and rb.active_macro is None
-    )
 
 
 def test_shared_apply_move_helpers_route_the_wrapper():
@@ -143,12 +81,29 @@ def test_shared_apply_move_helpers_route_the_wrapper():
 
 def test_clone_is_independent_of_handle():
     rng = random.Random(SEED + 2)
-    py, ru = _play(rng)
-    c = ru.clone()
-    lm = c.legal_moves()
-    if lm:
-        c.make_move(*lm[0])
-        _assert_parity(py, ru)  # the source state is unchanged
+    for g in _rust_positions(rng, 5):
+        before = _dump(g)
+        c = g.clone()
+        lm = c.legal_moves()
+        if lm:
+            c.make_move(*lm[0])
+            assert _dump(g) == before  # the source state is unchanged
+
+
+def test_from_sba_state_roundtrip():
+    """Bit-mask seeding must reproduce the exact position: seed, dump,
+    compare — the test-seeding constructor that replaced from_game."""
+    from conftest import rust_game_from_bits
+
+    rng = random.Random(SEED + 6)
+    for g in _rust_positions(rng, 10):
+        st = rustbridge.SbaState()
+        rustbridge._load().sba_game_state(g._h, rustbridge.ctypes.byref(st))
+        rebuilt = rust_game_from_bits(
+            px=list(st.px), po=list(st.po), mx=st.mx, mo=st.mo,
+            current=st.current, active=st.active,
+        )
+        assert _dump(rebuilt) == _dump(g)
 
 
 def test_make_game_returns_the_rust_layer():
@@ -169,20 +124,14 @@ def test_self_play_smoke_runs_on_the_rust_layer():
     assert all(abs(float(t.sum()) - 1.0) < 1e-3 for t in targets)
 
 
-def _random_positions(rng, n):
-    for _ in range(n):
-        py, ru = _play(rng)
-        yield py, ru
-
-
 def test_serialize_ffi_matches_cengine_packing():
     """D50 fast path: sba_ffi() must equal cengine.serialize_ultimate's
     list contract, cell for cell, across random positions."""
     from engines import cengine
 
     rng = random.Random(SEED + 3)
-    for py, ru in _random_positions(rng, 30):
-        cells, macro, player, active = cengine.serialize_ultimate(py)
+    for ru in _rust_positions(rng, 30):
+        cells, macro, player, active = cengine.serialize_ultimate(ru)
         ca, ma, ru_player, ru_active = ru.sba_ffi()
         assert list(ca) == cells
         assert list(ma) == macro
@@ -190,28 +139,29 @@ def test_serialize_ffi_matches_cengine_packing():
 
 
 def test_planes_tensor_matches_encode():
-    """D50 fast path: one FFI call fills the whole 4x9x9 tensor — must be
-    identical to alphazero.encode on the reference implementation."""
+    """D50 fast path: one FFI call fills the whole 4x9x9 tensor — encode()
+    on the rust layer delegates to it wholesale (the numpy walk retired)."""
     rng = random.Random(SEED + 4)
-    for py, ru in _random_positions(rng, 30):
-        expected = alphazero.encode(py).numpy()
-        assert (ru.sba_planes_tensor() == expected).all()
+    for ru in _rust_positions(rng, 30):
+        assert (alphazero.encode(ru).numpy() == ru.sba_planes_tensor()).all()
 
 
 def test_clone_apply_matches_clone_plus_make_move():
     """D50 fast path: the PUCT expansion's one-call clone+apply must land
     in exactly the same state as clone() + make_move(), mirrors included."""
     rng = random.Random(SEED + 5)
-    for py, ru in _random_positions(rng, 30):
-        lm = py.legal_moves()
+    for ru in _rust_positions(rng, 30):
+        lm = ru.legal_moves()
         if not lm:
             continue
         mv = rng.choice(lm)
-        py_child = py.clone()
-        py_child.make_move(*mv)
-        ru_child = ru.clone_apply(*mv)
-        _assert_parity(py_child, ru_child)
-    ru = _fresh_pair()[1]
+        manual = ru.clone()
+        manual.make_move(*mv)
+        child = ru.clone_apply(*mv)
+        assert _dump(child) == _dump(manual)
+        assert child.current == manual.current
+        assert child.active_macro == manual.active_macro
+    ru = RustUltimateGame()
     ru.make_move(4, 4)
     with pytest.raises(ValueError, match="illegal move"):
         ru.clone_apply(4, 4)  # occupied → null handle

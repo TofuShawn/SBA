@@ -24,10 +24,11 @@ import threading
 
 import pytest
 
-from engines import ai, cbridge
+from engines import cbridge
 from engines.ai import get_ai_move, set_engine_config
 from engines.cengine import _CTree
-from core.game import UltimateGame, apply_move
+from az.rustbridge import RustUltimateGame
+from core.game import apply_move
 from analysis import analysis as analysis_mod
 from analysis.analysis import analyze_position
 
@@ -38,7 +39,7 @@ DLL = os.path.join(
 
 def _midgame():
     """An out-of-book Ultimate position (two plies played)."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     return g
@@ -179,7 +180,7 @@ def test_dual_worker_stress_ai_move_and_analysis():
     set_engine_config({})
     positions = []
     for x, o in (((0, 0), (0, 4)), ((4, 4), (4, 0)), ((2, 2), (2, 4)), ((6, 6), (6, 4))):
-        g = UltimateGame()
+        g = RustUltimateGame()
         apply_move(g, x)
         apply_move(g, o)
         positions.append(g)
@@ -240,7 +241,7 @@ def test_books_import_leaves_config_defaults_alone():
     assert config._CFG_DEFAULTS["engine"]["opening_book"] is True
     # the built-in book still answers via the cfg fallback (one-ply position:
     # X opened (0,0), O to move, the book routes O to (0,4))
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     assert books.opening_book_move(g) == (0, 4)
     # ... and a config.toml table (delivered through CONFIG) overrides it

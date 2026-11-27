@@ -17,7 +17,7 @@ the root value within 1e-6.
 
 If ``mcts_search`` (or most of the Python tree) is ever retired, THIS test
 is the parity anchor that survives it: it imports neither — it rebuilds each
-position on the pure-Python ``UltimateGame`` reference, re-exports the
+position on the Rust state layer (``RustUltimateGame``), re-exports the
 archived checkpoint to safetensors and compares the sha256 against the
 golden metadata (so a silently changed checkpoint cannot false-pass), then
 drives the Rust exe. The goldens are only valid for the weights blob named
@@ -95,13 +95,13 @@ def test_rust_search_matches_golden_battery(tmp_path):
         "metadata — the goldens are only valid for the frozen weights blob"
     )
 
-    from core.game import UltimateGame  # the pure-Python reference, not the Rust one
+    from az.rustbridge import RustUltimateGame
 
     sims_args = ["--sims", str(meta["sims"]), "--batch-size", str(meta["batch_size"])]
     bad = []
     for idx in range(n):
         hist = [int(c) for c in moves[idx] if c >= 0]
-        g = UltimateGame()
+        g = RustUltimateGame()
         for code in hist:
             m, i = divmod(code, 9)
             assert (m, i) in g.legal_moves(), f"pos {idx}: recorded move {code} illegal"

@@ -156,7 +156,6 @@ TASKS = {
         lambda a: crate_task("sba-core", ["clippy", "--release", "--", "-D", "warnings"]),
     ),
     "cgate": ("C warnings gate (-Wall -Wextra -Werror, mirrors CI)", lambda a: wsl_gcc_check()),
-    "bench-rust": ("Rust state-layer A/B harness", lambda a: venv(["src/tools/bench_rust.py"])),
     "bench-selfplay": (
         "self-play A/B: mp.Pool path vs rust exe (pos/s, speedup)",
         lambda a: venv(["src/tools/bench_selfplay.py", *a]),

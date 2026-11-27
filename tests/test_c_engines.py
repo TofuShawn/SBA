@@ -12,7 +12,8 @@ import pytest
 
 from engines import ai
 from engines.ai import get_ai_move, set_engine_config
-from core.game import X, UltimateGame, apply_move
+from az.rustbridge import RustUltimateGame
+from core.game import apply_move
 
 DLL = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "engines", "sba_engine.dll"
@@ -23,16 +24,13 @@ pytestmark = pytest.mark.skipif(not os.path.isfile(DLL), reason="native engine D
 def _forced_win():
     """Exactly one immediate game win, deliberately NOT the first legal
     move so a missing tie-break is visible."""
-    g = UltimateGame()
-    g.macro = [X, X, ""] + [""] * 6
-    g.micro[2] = ["", "", "", "", X, "", X, "", ""]
-    g.active_macro = 2
-    g.current = X
-    return g
+    from conftest import rust_game_from_bits
+
+    return rust_game_from_bits(px={2: (1 << 4) | (1 << 6)}, mx=0b000000011, current=0, active=2)
 
 
 def _out_of_book():
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     return g
@@ -73,7 +71,7 @@ def test_c_rave_tree_reuse():
 
 
 def test_c_rave_symmetry_dedups_the_root():
-    g = UltimateGame()  # empty board: 81 root children before dedup
+    g = RustUltimateGame()  # empty board: 81 root children before dedup
     off = _ce().rave_search(g, 300, opts={"symmetry": 0})[1]
     on = _ce().rave_search(g, 300, opts={"symmetry": 1})[1]
     assert len(off) == 81
@@ -197,11 +195,9 @@ def test_c_minimax_pro_dispatch_and_normal_delegation(monkeypatch):
 def test_c_minimax_pro_prefers_the_faster_win():
     """(2,2) completes the macro line immediately — ID negamax must pick
     the forced win over any slower plan."""
-    g = UltimateGame()
-    g.macro = [X, X, ""] + [""] * 6
-    g.micro[2] = [X, X, ""] + [""] * 6
-    g.active_macro = 2
-    g.current = X
+    from conftest import rust_game_from_bits
+
+    g = rust_game_from_bits(px={2: 3}, mx=0b000000011, current=0, active=2)
     assert _ce().minimax_pro(g, 5) == (2, 2)
 
 
@@ -271,7 +267,7 @@ def test_c_minimax_pro_switches_change_the_search():
     lib = ce._load()
     if lib is None or not ce._has_engine:
         pytest.skip("full engine DLL not built")
-    g = UltimateGame()
+    g = RustUltimateGame()
     for mv in (
         (7, 1),
         (1, 3),
