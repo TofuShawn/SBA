@@ -100,8 +100,12 @@ def test_from_sba_state_roundtrip():
         st = rustbridge.SbaState()
         rustbridge._load().sba_game_state(g._h, rustbridge.ctypes.byref(st))
         rebuilt = rust_game_from_bits(
-            px=list(st.px), po=list(st.po), mx=st.mx, mo=st.mo,
-            current=st.current, active=st.active,
+            px=list(st.px),
+            po=list(st.po),
+            mx=st.mx,
+            mo=st.mo,
+            current=st.current,
+            active=st.active,
         )
         assert _dump(rebuilt) == _dump(g)
 

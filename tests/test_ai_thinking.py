@@ -87,3 +87,19 @@ def test_backward_compatible_call():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_trace_on_rave():
+    """The C RAVE tree fills the same trace shape (engine/top/pick)."""
+    from engines.ai import set_engine_config
+
+    set_engine_config({"engine": {"opening_book": False}})
+    try:
+        g = _out_of_book_position()
+        trace = {}
+        move = get_ai_move(g, "MCTS+RAVE", 200, 3, trace=trace)
+        assert move in g.legal_moves()
+        assert trace["engine"] == "MCTS+RAVE"
+        assert trace["top"]  # root stats fill the candidates
+    finally:
+        set_engine_config()

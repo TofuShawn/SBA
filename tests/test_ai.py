@@ -19,7 +19,6 @@ from engines.ai import (
     get_ai_move,
     opening_book_move,
     build_micro_tablebase,
-    _fork_count,
     position_win_rate,
     position_win_rates,
     set_engine_config,
@@ -160,9 +159,30 @@ def test_micro_tablebase():
     assert tb[_board_key([X, X, EMPTY, O, EMPTY, O, EMPTY, EMPTY, EMPTY])] == 1
 
 
-def test_fork_count():
-    assert _fork_count([EMPTY] * 9, X) == 0
-    assert _fork_count([X, X, EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, X, X], X) == 1
+def test_engine_raise_paths_without_the_dll(monkeypatch):
+    """The removal contract: every search-type raises a CLEAR RuntimeError
+    when the native engine is unavailable — no silent degradation, no
+    python fallback. The DLL is present here, so the gate is forced off
+    (and the opening book is disabled so it cannot answer first)."""
+    from engines import cengine as ce
+
+    monkeypatch.setattr(ce, "available", lambda engine=False: False)
+    set_engine_config({"engine": {"opening_book": False}})
+    try:
+        g = RustUltimateGame()
+        for engine, depth in (
+            ("Minimax", 3),
+            ("Minimax Pro", 3),
+            ("MCTS", 100),
+            ("MCTS+RAVE", 100),
+            ("MCTS+GRAVE", 100),
+            ("Flat MCTS", 100),
+            ("Solver", 100),
+        ):
+            with pytest.raises(RuntimeError):
+                get_ai_move(g, engine, 100, depth)
+    finally:
+        set_engine_config()
 
 
 def test_minimax_pro_legal_with_refinements():

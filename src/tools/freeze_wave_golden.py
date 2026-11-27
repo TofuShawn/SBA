@@ -78,9 +78,7 @@ def build_battery(seed, n, model, gen_sims, sims, batch_size):
         legal = g.legal_moves()
         if g.is_over() or not legal:
             raise SystemExit(f"battery position {idx} is terminal — generator drifted")
-        _root, counts = mcts_search(
-            g, model, sims, batch_size=batch_size, dirichlet_alpha=None
-        )
+        _root, counts = mcts_search(g, model, sims, batch_size=batch_size, dirichlet_alpha=None)
         row = np.zeros(81, dtype=np.int64)
         for m, i in legal:
             row[m * 9 + i] = counts.get((m, i), 0)

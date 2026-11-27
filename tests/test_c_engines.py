@@ -13,7 +13,7 @@ import pytest
 from engines import ai
 from engines.ai import get_ai_move, set_engine_config
 from az.rustbridge import RustUltimateGame
-from core.game import apply_move
+from core.game import NormalGame, apply_move
 
 DLL = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "engines", "sba_engine.dll"
@@ -329,3 +329,23 @@ def test_tb_init_export_runs_at_load_and_is_idempotent():
     assert fn() == 1
     # a tablebase-driven eval still answers (minimax_ultimate is tb-aware)
     assert ce.minimax_ultimate(_forced_win(), 4) == (2, 2)
+
+
+def test_move_text_and_tt_key_shapes():
+    """The UI-facing move labels and the position hash: int = Normal,
+    tuple = ultimate (macro-badge prefix); the hash covers 81 micro cells
+    + 9 macro badges with dots for empties."""
+    from engines.cbridge import _tt_key, move_text
+
+    assert move_text(4) == "(2,2)"
+    assert move_text((4, 4)) == "B5 (2,2)"
+    n = NormalGame()
+    n.make_move(4)
+    assert _tt_key(n).count(".") == 8  # the taken cell is no longer a dot
+    ru = RustUltimateGame()
+    ru.make_move(4, 4)
+    key = _tt_key(ru)
+    # ultimate layout: 81 micro cells + "|" + routing macro + side to move
+    # (X played, so it is O's turn — the flip is unconditional on ultimate)
+    assert len(key) == 84 and key.count(".") == 80
+    assert key.endswith("|4O")

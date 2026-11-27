@@ -11,62 +11,7 @@ from core.game import EMPTY, LINES, NormalGame, O, X, apply_move, count_threats
 from config import cfg_engine
 
 from engines.cbridge import _C_PREV, _TREE_REUSE_LOCK, _c_search_opts, _ce
-from analysis.tablebase import _board_key, build_micro_tablebase, build_tablebase
-
-
-def eval_ultimate(game, player):
-    opp = O if player == X else X
-    score = 0
-    tb = build_micro_tablebase() if cfg_engine("micro_tablebase", True) else None
-    for m in range(9):
-        state = game.macro[m]
-        if state == player:
-            score += 1000
-        elif state == opp:
-            score -= 1000
-        elif state == EMPTY:
-            cells = game.micro[m]
-            empty = sum(1 for c in cells if c == EMPTY)
-            if tb is not None and empty <= 2:
-                v = tb.get(_board_key(cells))
-                if v is not None:
-                    # The side to move inside an idle micro is ambiguous, so
-                    # credit the player most likely to be moving there.
-                    theirs = 9 - empty - sum(1 for c in cells if c == player)
-                    sign = 1 if sum(1 for c in cells if c == player) >= theirs else -1
-                    score += 80 * v * sign
-                    continue
-            score += 40 * _fork_count(cells, player)
-            score -= 40 * _fork_count(cells, opp)
-            score += 3 * count_threats(cells, player)
-            score -= 3 * count_threats(cells, opp)
-            score += 0.5 * sum(1 for c in cells if c == player)
-            score -= 0.5 * sum(1 for c in cells if c == opp)
-    for a, b, c in LINES:
-        vals = [game.macro[a], game.macro[b], game.macro[c]]
-        if vals.count(player) == 2 and EMPTY in vals:
-            score += 20
-        if vals.count(opp) == 2 and EMPTY in vals:
-            score -= 20
-    return score
-
-
-def _fork_count(cells, player):
-    """Number of empty cells whose play creates >=2 winning lines for `player`."""
-    n = 0
-    for i, c in enumerate(cells):
-        if c != EMPTY:
-            continue
-        lines = 0
-        for a, b, d in LINES:
-            if i not in (a, b, d):
-                continue
-            others = [cells[j] for j in (a, b, d) if j != i]
-            if others.count(player) == 2:
-                lines += 1
-        if lines >= 2:
-            n += 1
-    return n
+from analysis.tablebase import _board_key, build_tablebase
 
 
 def blocks_immediate_win(game, move):
@@ -113,35 +58,6 @@ def reason_for_move(game, move):
     if move in (0, 2, 6, 8):
         return "Corner"
     return "Positional"
-
-
-def _rates_from_root(root, game):
-    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root.
-
-    Each child's wins carry draws at 0.5 from the mover's perspective, so the
-    draw share needs the node's raw draw counter — 1 - x - o from the score
-    alone is identically zero and used to fake the triplet (regression)."""
-    tot_x = tot_o = tot_d = tot = 0.0
-    for child in root.children:
-        if child.visits == 0:
-            continue
-        v = child.wins / child.visits  # mover score = win + draw/2
-        d = getattr(child, "draws", 0) / child.visits
-        tot += child.visits
-        win_m = v - 0.5 * d  # mover's pure win share
-        lose_m = 1.0 - v - 0.5 * d  # opponent's pure win share
-        if child.mover == X:
-            tot_x += child.visits * win_m
-            tot_o += child.visits * lose_m
-        else:
-            tot_o += child.visits * win_m
-            tot_x += child.visits * lose_m
-        tot_d += child.visits * d
-    if tot == 0:
-        return (0.5, 0.0, 0.5)
-    x, o, d = tot_x / tot, tot_o / tot, tot_d / tot
-    s = x + o + d
-    return (x / s, d / s, o / s) if s > 0 else (0.5, 0.0, 0.5)
 
 
 def _rates_from_stats(stats):

@@ -13,8 +13,11 @@ from conftest import rust_game_from_bits
 from core.game import (
     X,
     O,
+    EMPTY,
     NormalGame,
     apply_move,
+    count_threats,
+    micro_win_line,
     line_coords,
     win_segment,
     macro_center,
@@ -115,3 +118,22 @@ def test_make_move_rejects_terminal_and_misrouted_moves():
     assert draw.result() == "D"
     with pytest.raises(ValueError, match="game is over"):
         draw.make_move(0, 0)
+
+
+def test_normal_occupied_cell_raises():
+    g = NormalGame()
+    g.make_move(4)
+    with pytest.raises(ValueError, match="cell is occupied"):
+        g.make_move(4)
+
+
+def test_count_threats_and_micro_win_line():
+    assert count_threats([X, X, EMPTY] + [EMPTY] * 6, X) == 1
+    assert count_threats([EMPTY] * 9, X) == 0
+    assert micro_win_line([X, X, X] + [EMPTY] * 6) == (0, 1, 2)
+    assert micro_win_line([EMPTY] * 9) is None
+
+
+def test_win_segment_vertical_line():
+    # a vertical triple takes the fixed-margin branch (x1 == x2)
+    assert win_segment((0, 3, 6), line_coords) == ((20, 4), (20, 96))

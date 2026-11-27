@@ -11,7 +11,6 @@ import random
 from az import alphazero
 from az.rustbridge import RustUltimateGame
 from core.game import X, O, EMPTY, NormalGame
-from engines.ai import get_ai_move
 
 
 def test_az_smoke_train_ultimate():
@@ -46,8 +45,9 @@ def test_az_smoke_train_ultimate():
 
 
 def test_az_dispatch_and_terminal_values():
-    g = NormalGame()
-    assert get_ai_move(g, "AlphaZero", 20) in g.legal_moves()
+    # AZ-via-get_ai_move without a model is pinned to raise in
+    # test_alphazero.py::test_alphazero_requires_a_trained_model; here we
+    # pin the direct dispatch + terminal values
     az9 = alphazero.AZNet(9)
     from conftest import rust_game_from_bits
 

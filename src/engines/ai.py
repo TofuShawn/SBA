@@ -52,12 +52,9 @@ from analysis.tablebase import (
 )
 from analysis.analysis import (
     _c_ultt_analysis,
-    _fork_count,
-    _rates_from_root,
     _rates_from_stats,
     analyze_position,
     blocks_immediate_win,
-    eval_ultimate,
     position_win_rate,
     position_win_rates,
     reason_for_move,
