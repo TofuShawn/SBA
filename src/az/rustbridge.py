@@ -4,13 +4,15 @@
 """rustbridge — the ctypes boundary to the sba_game.dll cdylib (Rust
 Phase 1: the game LOGISTICS layer).
 
-RustUltimateGame duck-types the UltimateGame interface (legal_moves /
-make_move / result / clone / current / active_macro / micro / macro) on
-top of the Rust bitboard state, so self-play, encode() and the engines
-need no changes; game.py stays the reference implementation and the
-fallback (`available()` gates the switch, `engine.rust_game` in
-config.toml). The parity fuzz in tests/test_rustgame.py keeps the two
-implementations identical — error texts included.
+RustUltimateGame IS the ultimate game implementation (removal project:
+the pure-Python UltimateGame retired) — it duck-types the interface
+(legal_moves / make_move / result / clone / current / active_macro /
+micro / macro) on top of the Rust bitboard state, so self-play, encode()
+and the engines need no changes. The cdylib is a hard prerequisite:
+`available()` gates nothing anymore, __init__ raises without it. The
+parity fuzz in tests/test_rustgame.py pinned the two implementations
+identical while both lived; the frozen encode goldens now carry that
+contract.
 """
 
 import atexit

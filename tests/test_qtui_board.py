@@ -18,7 +18,8 @@ try:
 except ImportError as exc:  # pragma: no cover - GL-less environments
     pytest.skip(f"PySide6/OpenGL stack unavailable: {exc}", allow_module_level=True)
 
-from core.game import UltimateGame, apply_move  # noqa: E402
+from az.rustbridge import RustUltimateGame  # noqa: E402
+from core.game import apply_move  # noqa: E402
 
 # NOTE: the cache must NOT share its name with the accessor — a global
 # `_app = None` next to `def _app()` gets shadowed by the def, so
@@ -36,7 +37,7 @@ def _qapp():
 
 
 def _midgame_board(widget):
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))  # routes the next move into macro 4
     widget.set_game(g)
@@ -61,7 +62,7 @@ def test_policy_heat_paints_and_clears():
 
     # the same position change always invalidates stale priors
     w.set_policy_heat(heat)
-    w.set_game(UltimateGame())
+    w.set_game(RustUltimateGame())
     assert w._heat == {}
     _midgame_board(w)
     assert w.grab().toImage() == plain  # and the midgame looks un-heated

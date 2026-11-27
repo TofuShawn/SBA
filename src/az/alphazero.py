@@ -60,7 +60,7 @@ from az import rustselfplay
 from dataclasses import dataclass, replace
 
 import config
-from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, TEMP_MIN, cfg_engine, writable_path
+from config import MIN_VISIT_DIVISOR, MIN_VISIT_FLOOR, TEMP_MIN, writable_path
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -531,14 +531,10 @@ def make_game(game_type):
         from core.game import NormalGame
 
         return NormalGame()
-    # the Rust state layer carries self-play logistics when built
-    # (engine.rust_game); game.py stays the reference implementation and
-    # the fallback whenever the cdylib is missing or the switch is off
-    if cfg_engine("rust_game", True) and rustbridge.available():
-        return rustbridge.RustUltimateGame()
-    from core.game import UltimateGame
-
-    return UltimateGame()
+    # the Rust state layer IS the ultimate game implementation (D-removal:
+    # the pure-Python UltimateGame retired); the cdylib is a hard
+    # prerequisite and RustUltimateGame.__init__ raises without it
+    return rustbridge.RustUltimateGame()
 
 
 def _save_model(model, size, channels, blocks, path):

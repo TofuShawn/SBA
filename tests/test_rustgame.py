@@ -151,15 +151,9 @@ def test_clone_is_independent_of_handle():
         _assert_parity(py, ru)  # the source state is unchanged
 
 
-def test_switch_off_falls_back_to_python_game(monkeypatch):
-    from config import set_engine_config
-    from core.game import UltimateGame
-
-    set_engine_config({"engine": {"rust_game": False}})
-    try:
-        assert type(alphazero.make_game("ultimate")) is UltimateGame
-    finally:
-        set_engine_config()
+def test_make_game_returns_the_rust_layer():
+    """make_game("ultimate") IS the rust state layer — no switch, no
+    fallback (removal project: the python UltimateGame retired)."""
     assert isinstance(alphazero.make_game("ultimate"), RustUltimateGame)
 
 

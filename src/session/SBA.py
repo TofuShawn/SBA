@@ -35,9 +35,9 @@ from core.game import (  # noqa: E402
     X,
     O,
     NormalGame,
-    UltimateGame,
     apply_move,
 )
+from az.rustbridge import RustUltimateGame  # noqa: E402
 from engines.ai import (  # noqa: E402
     get_ai_move,
     cfg_session,
@@ -98,7 +98,7 @@ def replay_to(session, k):
     """
     moves = session["moves"]
     k = max(0, min(k, len(moves)))
-    game = NormalGame() if session["game_type"] == "normal" else UltimateGame()
+    game = NormalGame() if session["game_type"] == "normal" else RustUltimateGame()
     for mv in moves[:k]:
         apply_move(game, mv)
     return game, k
@@ -212,7 +212,7 @@ BENCH_AI_NAMES = (
 
 
 def _play_match(x_ai, o_ai, game_type, iterations, depth):
-    game = NormalGame() if game_type == "normal" else UltimateGame()
+    game = NormalGame() if game_type == "normal" else RustUltimateGame()
     guard = 0
     while not game.is_over() and guard < 1000:
         ai = x_ai if game.current == X else o_ai

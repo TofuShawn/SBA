@@ -80,7 +80,6 @@ _CFG_DEFAULTS = {
         "c_rollout_pattern": False,
         "c_mcts": True,
         "c_minimax": True,
-        "rust_game": True,  # Rust state layer for AZ self-play
         "multithreaded": False,
         "use_lmr": True,
         "use_killers": True,

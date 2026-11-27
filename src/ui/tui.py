@@ -31,10 +31,10 @@ from core.game import (
     X,
     O,
     NormalGame,
-    UltimateGame,
     apply_move,
     micro_win_line,
 )
+from az.rustbridge import RustUltimateGame
 from engines.ai import (
     get_ai_move,
     analyze_position,
@@ -301,7 +301,7 @@ class Board(Static):
             if move in win_moves:
                 styled(line, col, col + 3, f"on #1E3D2F bold {GREEN}")
 
-        if isinstance(game, UltimateGame):
+        if isinstance(game, RustUltimateGame):
             boxes = [self._box_lines() for _ in range(9)]
             active = game.active_macro
             whole = micro_win_line(game.macro)
@@ -898,7 +898,7 @@ class GameScreen(Screen):
     def new_game(self):
         s = self.session
         s["game_id"] += 1
-        s["game"] = NormalGame() if s["game_type"] == "normal" else UltimateGame()
+        s["game"] = NormalGame() if s["game_type"] == "normal" else RustUltimateGame()
         s["moves"] = []
         s["history"] = [history_point(s["game"])]
         s["step"] = 0
@@ -1139,7 +1139,7 @@ class GameScreen(Screen):
         self._analysis_token += 1
         tok = self._analysis_token
         snapshot = game.clone()
-        budget = s["mcts"] if isinstance(snapshot, UltimateGame) else 0
+        budget = s["mcts"] if isinstance(snapshot, RustUltimateGame) else 0
         gen = s["analysis_gen"]
         step = s["step"]
         gid = s["game_id"]
@@ -1290,7 +1290,7 @@ class GameScreen(Screen):
                     txt.append(" · " + done, style="dim")
             txt.append(f" · {t('step', '步')} {s['step']}/{len(s['moves'])}")
             if (
-                isinstance(game, UltimateGame)
+                isinstance(game, RustUltimateGame)
                 and game.active_macro is not None
                 and game.macro_open(game.active_macro)
             ):
@@ -1299,7 +1299,7 @@ class GameScreen(Screen):
                 txt.append(" · " + t("PAUSED", "已暫停"), style="bold")
         self.query_one("#status", Static).update(txt)
         self.query_one("#info-line", Static).update(
-            f"{('Ultimate' if isinstance(game, UltimateGame) else 'Normal')}"
+            f"{('Ultimate' if isinstance(game, RustUltimateGame) else 'Normal')}"
             f" · {s['mode'].upper()}"
             f" · {t('MCTS', 'MCTS')} {s['mcts']} · "
             f"{t('depth', '深度')} {s.get('minimax_depth', 4)}"

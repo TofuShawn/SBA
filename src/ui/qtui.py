@@ -83,10 +83,10 @@ from core.game import (
     O,
     EMPTY,
     NormalGame,
-    UltimateGame,
     apply_move,
     micro_win_line,
 )
+from az.rustbridge import RustUltimateGame
 from engines.ai import (
     get_ai_move,
     analyze_position,
@@ -615,7 +615,7 @@ class BoardWidget(QWidget):
         self.flash_cell = None
         self._stamp_cell = None  # a new position invalidates a running stamp
         self._heat = {}  # stale priors never outlive their position
-        if isinstance(game, UltimateGame):
+        if isinstance(game, RustUltimateGame):
             won = {m for m in range(9) if game.macro[m] in (X, O)}
             fresh = won - prev_won
             if len(fresh) == 1:
@@ -687,7 +687,7 @@ class BoardWidget(QWidget):
         self._reveal_anim.start()
 
     def _macro_at(self, px, py):
-        if not isinstance(self.game, UltimateGame):
+        if not isinstance(self.game, RustUltimateGame):
             return None
         n, cell, ox, oy = self._grid()
         col = int((px - ox) // (cell + self.GAP))
@@ -706,7 +706,7 @@ class BoardWidget(QWidget):
         self.update()
 
     def _grid(self):
-        n = 9 if isinstance(self.game, UltimateGame) else 3
+        n = 9 if isinstance(self.game, RustUltimateGame) else 3
         cell = (min(self.width(), self.height()) - 2 * self.MARGIN - (n - 1) * self.GAP) / n
         grid = n * cell + (n - 1) * self.GAP
         return n, cell, (self.width() - grid) / 2, (self.height() - grid) / 2
@@ -739,7 +739,7 @@ class BoardWidget(QWidget):
     def mousePressEvent(self, event):
         if self.game is None:
             return
-        if isinstance(self.game, UltimateGame):
+        if isinstance(self.game, RustUltimateGame):
             m = self._macro_at(event.position().x(), event.position().y())
             if m is not None and self.game.macro[m] in (X, O):
                 self._toggle_reveal(m)
@@ -765,7 +765,7 @@ class BoardWidget(QWidget):
         painter.setPen(QPen(QColor("#35373C"), 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(plate_rect.adjusted(0, 0, -1, -1))
-        if isinstance(self.game, UltimateGame):
+        if isinstance(self.game, RustUltimateGame):
             self._paint_ultimate(painter)
         else:
             self._paint_normal(painter)
@@ -1772,7 +1772,7 @@ class GamePage(EndfieldPage):
     def new_game(self):
         s = self.session
         self.game_id += 1
-        self.game = NormalGame() if s["game_type"] == "normal" else UltimateGame()
+        self.game = NormalGame() if s["game_type"] == "normal" else RustUltimateGame()
         s["game"] = self.game
         self.play_again_btn.setVisible(False)
         self.new_btn.setVisible(True)
