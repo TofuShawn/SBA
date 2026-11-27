@@ -20,7 +20,6 @@ from engines import cengine as _ce
 from az.rustbridge import RustUltimateGame
 from core.game import (
     O,
-    
     X,
     apply_move,
     apply_clone_result,
