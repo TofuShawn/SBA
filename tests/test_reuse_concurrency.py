@@ -166,15 +166,33 @@ def test_ai_write_back_wins_over_analysis_borrow(monkeypatch):
 
 def test_python_reuse_take_is_exclusive(monkeypatch):
     """Same ownership rule on the Python path: a taken _REUSE tree (pop or
-    derive) is unreachable to the concurrent searcher — it starts fresh."""
+    derive) is unreachable to the concurrent searcher — it starts fresh.
+
+    The counterfactual is PLANTED, not hoped for: thread 2's position is
+    cached under its own exact key AND derive-reachable through the warm
+    tree (a grandchild at exactly that position), so an implementation
+    without the ownership rule would hand thread 2 that subtree via either
+    channel. The assertion is that thread 1's take purges both — a tree
+    whose warm subtree happens to have no grandchildren (the old seeding)
+    passed this test by luck, not by the rule."""
     from engines.mcts import MCTSNode, _REUSE, _REUSE_LAST, mcts_search, _tt_key
 
     set_engine_config({"engine": {"c_mcts": False, "opening_book": False}})
     g = _midgame()
-    # seed both slots with a real, tiny search tree
+    # seed a real, tiny search tree and take its first subtree as the warm tree
     root = mcts_search(g, 40)
     child = root.children[0]
+    # thread 2's position: the reply position, one opponent reply deeper
+    g2 = g.clone()
+    apply_move(g2, child.move)
+    reply = g2.legal_moves()[0]
+    apply_move(g2, reply)
+    # PLANT the would-be hits: a grandchild exactly at thread 2's position,
+    # cached under its own exact key and derivable through _REUSE_LAST
+    grand = MCTSNode(g2.clone(), reply, child, g2.current)
+    child.children.append(grand)
     _REUSE[("MCTS", _tt_key(g))] = child
+    _REUSE[("MCTS", _tt_key(g2))] = grand
     _REUSE_LAST["MCTS"] = child
 
     seen = []
@@ -195,10 +213,6 @@ def test_python_reuse_take_is_exclusive(monkeypatch):
         t1.start()
         assert t1_entered.wait(timeout=10)
         # thread 2 arrives at the reply position while thread 1 is searching
-        g2 = g.clone()
-        apply_move(g2, child.move)
-        replies = [m for m in g2.legal_moves() if m not in {c.move for c in child.children}]
-        apply_move(g2, replies[0])
         t2 = threading.Thread(target=lambda: res.append(ai._mcts_move(g2, "MCTS", 100)))
         t2.start()
         t2.join(timeout=10)
@@ -207,7 +221,7 @@ def test_python_reuse_take_is_exclusive(monkeypatch):
         t1.join(timeout=10)
         assert not t1.is_alive()
         assert seen[0] is child  # thread 1 popped the warm subtree
-        assert seen[1] is None  # thread 2 missed: thread 1 owns it
+        assert seen[1] is None  # thread 2 missed BOTH planted channels: the take purged them
     finally:
         release_t1.set()
         set_engine_config({})
