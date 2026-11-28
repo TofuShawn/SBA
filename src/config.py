@@ -88,7 +88,7 @@ _CFG_DEFAULTS = {
         "workers": 8,
         "assistant_sims": 2000,  # AI assistant (Best Moves) search budget
     },
-    "session": {"mcts_budget": 800, "minimax_depth": 4},
+    "session": {"mcts_budget": 800, "minimax_depth": 4, "theme": "DARK"},
 }
 
 # Shared visit threshold for "best move" so the UI hint and the engine agree.
@@ -154,6 +154,7 @@ _SECTION_RE = re.compile(r"^\[([^\]]+)\]\s*$")
 # float (incl. exponent). Used only to consume the value we are replacing.
 _SCALAR_RE = (
     r"(?:true|false"
+    r"|\"(?:[^\"\\\n]|\\.)*\""  # basic string (the theme key; escapes honored)
     r"|[+-]?(?:0[xX][0-9A-Fa-f_]+|0[oO][0-7_]+|0[bB][01_]+"
     r"|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?"
     r"|\.\d[\d_]*(?:[eE][+-]?\d+)?))"
@@ -161,13 +162,21 @@ _SCALAR_RE = (
 
 
 def _toml_literal(value):
-    """Render a scalar the way TOML spells it; None for hand-managed types."""
+    """Render a scalar the way TOML spells it; None for hand-managed types.
+
+    Plain strings render as escaped basic strings (the theme key rides the
+    [session] section); strings carrying control characters stay None —
+    those are hand-managed, never machine-written."""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
         return repr(value)
+    if isinstance(value, str):
+        if not value or any(ord(c) < 32 for c in value):
+            return None
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
     return None
 
 
