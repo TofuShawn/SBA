@@ -97,6 +97,7 @@ from engines.ai import (
 )
 from session.SBA import (
     AI_OPTIONS,
+    ai_options_for,
     REASON_TEXT,
     current_side_type,
     history_point,
@@ -1260,6 +1261,7 @@ class MenuPage(EndfieldPage):
         self.game_type = _deck_combo()
         self.game_type.addItem("Normal Tic Tac Toe (普通井字棋)", "normal")
         self.game_type.addItem("Ultimate Tic Tac Toe (終極井字棋)", "ultimate")
+        self.game_type.currentIndexChanged.connect(lambda _: self._update_visibility())
         card_lay.addWidget(self._field_row(t("Game Type", "遊戲類型"), self.game_type)[0])
 
         self.mode = _deck_combo()
@@ -1370,6 +1372,22 @@ class MenuPage(EndfieldPage):
         self.first_row.setVisible(mode == "pvc")
         self.ai_x_row.setVisible(mode == "cvc")
         self.ai_o_row.setVisible(mode in ("pvc", "cvc"))
+        # capability matrix (D65): the engine menus follow the board size —
+        # the MCTS family has no Normal backend
+        opts = ai_options_for(self.game_type.currentData())
+        fallbacks = {"ultimate": ("Minimax", "MCTS"), "normal": ("Minimax", "Minimax")}[
+            self.game_type.currentData()
+        ]
+        for combo, fallback in ((self.ai_x, fallbacks[0]), (self.ai_o, fallbacks[1])):
+            cur = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for key, label in opts.items():
+                combo.addItem(label, key)
+            combo.setCurrentIndex(
+                max(0, list(opts).index(cur)) if cur in opts else list(opts).index(fallback)
+            )
+            combo.blockSignals(False)
         if mode == "pvc":
             label = (
                 t("Computer (X) — AI Level", "電腦 (X) — AI 等級")

@@ -140,6 +140,20 @@ AI_OPTIONS = {
     # Flat is a research baseline. Both remain reachable via get_ai_move.
 }
 
+# the removal's capability matrix (D65): the MCTS family has no Normal
+# backend — the C kernels serialize Ultimate layouts only — and
+# AlphaZero-on-Normal has no trained model to serve. The menu helpers keep
+# the UIs from offering a combination that get_ai_move would reject.
+_NORMAL_EXCLUDED = ("AlphaZero", "MCTS", "MCTS+GRAVE")
+
+
+def ai_options_for(game_type):
+    """The engine menu for a board size. Ultimate offers everything;
+    Normal drops the MCTS family and AlphaZero (see _NORMAL_EXCLUDED)."""
+    if game_type == "ultimate":
+        return dict(AI_OPTIONS)
+    return {k: v for k, v in AI_OPTIONS.items() if k not in _NORMAL_EXCLUDED}
+
 
 def t(en: str, zh: str) -> str:
     return f"{en} — {zh}"
@@ -256,7 +270,16 @@ def bench(
             if name not in BENCH_AI_NAMES:
                 print(f"Unknown AI: {name!r}. Choose from: {', '.join(BENCH_AI_NAMES)}")
                 return 2
+            if game_type == "normal" and name in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE", "Flat MCTS"):
+                print(
+                    f"{name!r} has no Normal backend (the C kernels serialize"
+                    " Ultimate layouts only) — pick Minimax/Minimax Pro/Solver/"
+                    "Basic/Random, or --game-type ultimate"
+                )
+                return 2
         matchups = [(ai_a, ai_b)]
+    elif game_type == "normal":
+        matchups = [("Minimax Pro", "Minimax"), ("Minimax Pro", "Solver")]
     else:
         matchups = [("MCTS", "MCTS+RAVE"), ("MCTS", "MCTS+GRAVE"), ("MCTS+RAVE", "MCTS+GRAVE")]
     if len(matchups) == 1:

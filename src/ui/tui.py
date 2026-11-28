@@ -42,7 +42,7 @@ from engines.ai import (
     cfg_session,
 )
 from session.SBA import (
-    AI_OPTIONS,
+    ai_options_for,
     history_point,
     REASON_TEXT,
     current_side_type,
@@ -661,7 +661,7 @@ class MenuScreen(Screen):
             with Vertical(id="ai-x-row", classes="field"):
                 yield Static(t("Player X — AI Level", "玩家 X — AI 等級"), classes="muted")
                 yield Select(
-                    [(label, key) for key, label in AI_OPTIONS.items()],
+                    [(label, key) for key, label in ai_options_for("ultimate").items()],
                     value="Minimax",
                     allow_blank=False,
                     id="sel-ai-x",
@@ -671,7 +671,7 @@ class MenuScreen(Screen):
                     t("Player O — AI Level", "玩家 O — AI 等級"), id="lbl-ai-o", classes="muted"
                 )
                 yield Select(
-                    [(label, key) for key, label in AI_OPTIONS.items()],
+                    [(label, key) for key, label in ai_options_for("ultimate").items()],
                     value="MCTS",
                     allow_blank=False,
                     id="sel-ai-o",
@@ -716,9 +716,7 @@ class MenuScreen(Screen):
 
     def _ai_options(self):
         game_type = self._radio_value("#rs-type", self.TYPE_VALUES)
-        if game_type == "ultimate":
-            return dict(AI_OPTIONS)
-        return {k: v for k, v in AI_OPTIONS.items() if k != "AlphaZero"}
+        return ai_options_for(game_type)
 
     def _update_visibility(self):
         mode = self._radio_value("#rs-mode", self.MODE_VALUES)
@@ -739,7 +737,14 @@ class MenuScreen(Screen):
 
     def _update_ai_options(self):
         opts = self._ai_options()
-        for sel_id, fallback in (("#sel-ai-x", "Minimax"), ("#sel-ai-o", "MCTS")):
+        game_type = self._radio_value("#rs-type", self.TYPE_VALUES)
+        # capability-aware fallbacks: MCTS is Ultimate-only, so the Normal
+        # menu falls back to the C perfect solver instead
+        fallbacks = {
+            "ultimate": ("Minimax", "MCTS"),
+            "normal": ("Minimax", "Minimax"),
+        }[game_type]
+        for sel_id, fallback in zip(("#sel-ai-x", "#sel-ai-o"), fallbacks, strict=True):
             sel = self.query_one(sel_id, Select)
             cur = sel.value if sel.value in opts else fallback
             sel.set_options([(label, key) for key, label in opts.items()])

@@ -33,7 +33,7 @@ from textual.widgets import (
     Static,
 )
 
-from session.SBA import BENCH_AI_NAMES
+from session.SBA import BENCH_AI_NAMES, ai_options_for
 
 HINT_PARAMS = "[TAB] 下一欄 · [ENTER] 開始 · [1] 參數頁 · [2] 進度頁 · [Q] 離開"
 HINT_RUN = "[2] 進度頁 · [1] 回參數頁（可調整後重跑） · [Q] 離開"
@@ -265,6 +265,21 @@ class BenchTUI(App):
         self.query_one("#log", RichLog).write("[bold green]done[/bold green]")
         if self._auto_exit:
             self.exit()
+
+    def on_select_changed(self, event: Select.Changed):
+        """Board switch rebuilds the engine menus (D65 capability matrix:
+        the MCTS family has no Normal backend)."""
+        if event.select.id != "board":
+            return
+        opts = [(label, key) for key, label in ai_options_for(event.value).items()]
+        fallbacks = {"ultimate": ("MCTS", "MCTS+GRAVE"), "normal": ("Minimax", "Minimax Pro")}[
+            event.value
+        ]
+        for sel_id, fallback in (("#ai-a", fallbacks[0]), ("#ai-b", fallbacks[1])):
+            sel = self.query_one(sel_id, Select)
+            cur = sel.value if sel.value in dict(opts) else fallback
+            sel.set_options(opts)
+            sel.value = cur
 
     def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "start":
