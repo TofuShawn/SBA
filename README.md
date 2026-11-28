@@ -430,14 +430,19 @@ The engines reimplement these published methods:
 crates) is released under the **GNU General Public License v3 (GPLv3)** —
 see the [LICENSE](LICENSE) file.
 
-**Documents** — the technical report (`docs/AlphaZero_UTTT_Technical_Report.html`
-and its released HTML/PDF renditions, stylesheets included) and everything
-else under `docs/` (tutorials, decision log, development guide) — are licensed
-under **Creative Commons Attribution-NonCommercial 4.0**
-([CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/));
+**Documents — the authored works**: the technical report
+(`docs/AlphaZero_UTTT_Technical_Report.html` and its released HTML/PDF
+renditions, stylesheets included) and the tutorials
+(`docs/tutorial-zh*.md`) are licensed under **Creative Commons
+Attribution-NonCommercial 4.0** ([CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/));
 the full legal text ships in [LICENSE.docs](LICENSE.docs). Embedded
 components keep their own licenses: Noto Sans TC (SIL OFL 1.1), the
 highlight.js theme (BSD-3-Clause), MathJax 3 (Apache-2.0, build-time SVG).
+
+**Engineering records** — `docs/decisions.md` (the decision log),
+`docs/development.md`, `docs/releases/*.md` and `docs/rocm-wsl2.md` — are
+technical records of a GPL project and stay under **GPL-3.0-or-later**
+with the code.
 
 ### Third-party licenses
 

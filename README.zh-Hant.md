@@ -389,10 +389,16 @@ n = 20；95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C �
 **程式碼**（`src/`、`tests/`、C 引擎與兩個 Rust crate）以 **GNU GPL v3（GPLv3）**
 授權釋出，詳細條款請見 [LICENSE](LICENSE)。
 
-**文件**——技術報告（`docs/AlphaZero_UTTT_Technical_Report.html` 及其發佈的
-HTML/PDF 版本）與 `docs/` 下所有內容（教程、決策記錄、開發指南）——以
+**文件——作者創作**：技術報告（`docs/AlphaZero_UTTT_Technical_Report.html`
+及其發佈的 HTML/PDF 版本）與教程（`docs/tutorial-zh*.md`）以
 **創作共用姓名標示－非商業性 4.0**（[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)）
-授權；法律全文見 [LICENSE.docs](LICENSE.docs)。
+授權；法律全文見 [LICENSE.docs](LICENSE.docs)。內嵌元件各自保有授權：
+Noto Sans TC（SIL OFL 1.1）、highlight.js 主題（BSD-3-Clause）、MathJax 3
+（Apache-2.0，建置期 SVG）。
+
+**工程記錄**——`docs/decisions.md`（決策記錄）、`docs/development.md`、
+`docs/releases/*.md` 與 `docs/rocm-wsl2.md`——是 GPL 專案的技術記錄，
+隨程式碼以 **GPL-3.0-or-later** 授權。
 
 ### 第三方授權
 
