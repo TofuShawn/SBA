@@ -3,22 +3,21 @@
 # Point $SBA_CONFIG at another file to use a different configuration.
 
 [engine]
-# D37: uct_c / dynamic_uct / rollout_heuristic / symmetry / c_rollout_pattern
-# are passed to the native C backends through SbaSearchOpts; micro_tablebase
-# drives the C minimax evaluator. These are no longer Python-path-only.
+# uct_c / dynamic_uct / rollout_heuristic / symmetry / c_rollout_pattern /
+# micro_tablebase are passed to the native C backends through SbaSearchOpts.
+# The C engine is the only search backend (the removal project retired the
+# pure-Python engines — D65).
 # --- search switches / 搜尋開關 ---
 rollout_heuristic = true    # win/block biased MCTS rollouts (A1) / 啟發式 rollout
 c_mcts = true              # full tree search in C (D27; needs sba_engine.dll, built via src/tools/build.py) / 完整 MCTS 樹下沉 C
 c_minimax = true           # Minimax/Normal-solve in C (D27) / Minimax 與普通求解下沉 C
-c_rollout_pattern = false  # fork/safe-routing rollout variant (D26) — benched 47.5% vs plain at 4.4x cost, kept off; consumed by the C MCTS tree AND the RAVE/GRAVE trace playouts (C engine only — the Python fallback always plays the plain heuristic) / Pattern 變體——實測持平且貴 4.4 倍，預設關；C MCTS 樹與 RAVE/GRAVE 的 trace playout 都吃這個開關（僅 C 引擎；Python 回退恆用啟發式）
+c_rollout_pattern = false  # fork/safe-routing rollout variant (D26) — benched 47.5% vs plain at 4.4x cost, kept off; consumed by the C MCTS tree AND the RAVE/GRAVE trace playouts / Pattern 變體——實測持平且貴 4.4 倍，預設關；C MCTS 樹與 RAVE/GRAVE 的 trace playout 都吃這個開關
 tree_reuse = true           # keep the MCTS tree between moves (A2) / 樹重用
 dynamic_uct = true          # exploration factor shrinks as the search matures (A3) / 動態 UCT
-progressive_widening = false # limit expansions per node (A4) / 漸進式加粗
-early_stop = false          # stop a dominant search early (A5) / 提早終止
 
 # --- opening book & endgame tablebase / 開局書與殘局庫 ---
 opening_book = true         # curated first plies (Normal 2 plies, Ultimate 1 ply) / 開局書
-micro_tablebase = true      # exact 3x3 micro values in eval_ultimate (Python) and eval_ultt (C Minimax) / micro 殘局表：Python 與 C 的靜態評估皆使用
+micro_tablebase = true      # exact 3x3 micro values in the C minimax evaluator / micro 殘局表：C Minimax 的靜態評估使用
 
 # --- search refinements / 剪枝細化 ---
 use_lmr = true              # late-move reductions in Minimax Pro (B3) / LMR
@@ -28,17 +27,14 @@ use_eval_ordering = true    # eval-based root move ordering in Minimax Pro (root
 pro_time_ms = 8000          # wall-clock cap per Minimax Pro move, ms (D51; C backend) / Minimax Pro 每步時限（毫秒）
 
 # --- performance / 效能 ---
-symmetry = true            # D4 root dedup on the canonical resulting position (C1) — both the C tree and the Python MCTS root (D37) / 對稱性消除：C 樹與 Python MCTS 根節點皆生效（D37），key 為落子後盤面的正則形
-object_pool = true          # reuse MCTSNode objects (C2; skipped while tree_reuse) / 物件池
-bitboard = false             # MCTS searches on bitboards (C3) / Bitboard（MCTS 搜尋用 bit 版）
-multithreaded = false        # parallel MCTS (C4) / 多執行緒 MCTS
+symmetry = true            # D4 root dedup on the canonical resulting position (C1) — C tree / 對稱性消除：C 樹根節點生效（D37），key 為落子後盤面的正則形
+multithreaded = false        # C tree root parallelization / C 樹根節點並行
 
 # --- parameters / 參數 ---
 uct_c = 1.4                 # UCT exploration constant (A3) / UCT 探索常數
 rave_k = 150                # RAVE/GRAVE bias decay constant / RAVE k
 tt_max = 300000             # Minimax Pro transposition table cap / 置換表上限
-workers = 8                 # threads used by multithreaded MCTS (C4) / 執行緒數
-reuse_cache = 32            # tree-reuse cache entries (A2) / 樹重用快取上限
+workers = 8                 # threads used by the multithreaded C tree / 執行緒數
 assistant_sims = 2000       # AI assistant (Best Moves) search budget / AI 助手分析模擬數
 
 # Ultimate opening book: X's first move -> O's response cells in the routed

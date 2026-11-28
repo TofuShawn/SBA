@@ -2520,23 +2520,13 @@ class SettingsPage(EndfieldPage):
         "rollout_heuristic": ("Heuristic rollout (win/block)", "啟發式 rollout（贏/擋）"),
         "tree_reuse": ("Reuse search tree between moves", "跨手重用搜尋樹"),
         "dynamic_uct": ("Dynamic UCT exploration", "動態 UCT 探索"),
-        "bitboard": ("Bitboard acceleration (Python path)", "位元棋盤加速（僅 Python 路徑）"),
         "opening_book": ("Opening book", "開局書"),
         "micro_tablebase": ("Micro endgame tablebase", "micro 殘局表"),
         "multithreaded": (
-            "Multithreaded MCTS (C tree / Python fallback)",
-            "多執行緒 MCTS（C 樹並行／Python 回退並行）",
-        ),
-        "early_stop": (
-            "Stop dominant searches early (Python path)",
-            "提早終止優勢搜尋（僅 Python 路徑）",
-        ),
-        "progressive_widening": (
-            "Progressive widening (Python path)",
-            "漸進式加粗（僅 Python 路徑）",
+            "Multithreaded MCTS (C root parallelization)",
+            "多執行緒 MCTS（C 樹根並行）",
         ),
         "symmetry": ("Symmetry reduction", "對稱性歸約"),
-        "object_pool": ("Node object pool (Python path)", "節點物件池（僅 Python 路徑）"),
         "use_lmr": ("Late move reductions", "LMR 剪枝"),
         "use_killers": ("Killer move heuristic", "殺手棋啟發"),
         "use_aspiration": ("Aspiration windows", "期望視窗"),
@@ -2549,30 +2539,22 @@ class SettingsPage(EndfieldPage):
         (
             "C ENGINE BACKENDS",
             "C 引擎後端",
-            "哪些演算法走原生 C 實作；關閉後自動回退純 Python（較慢）。",
+            "哪些演算法走原生 C 實作。關閉 c_mcts 後 MCTS 家族在 Ultimate 停用；"
+            "關閉 c_minimax 後 Minimax／Minimax Pro 停用（無 Python 回退）。",
             ["c_mcts", "c_minimax", "c_rollout_pattern"],
         ),
         (
             "MCTS SEARCH",
             "MCTS 搜尋行為",
-            "影響 MCTS 搜尋策略與棋力。未標註的開關 C 樹與 Python 路徑皆生效"
-            "標註「僅 Python 路徑」者不影響 C 引擎。"
-            "多執行緒在 C 樹並行，C 關閉時則走 Python 的並行回退。",
-            [
-                "rollout_heuristic",
-                "tree_reuse",
-                "dynamic_uct",
-                "early_stop",
-                "progressive_widening",
-                "multithreaded",
-                "object_pool",
-            ],
+            "影響 C 樹搜尋策略與棋力——C 引擎是唯一後端。"
+            "多執行緒 = C 樹根節點並行（threads 上限由 workers 決定）。",
+            ["rollout_heuristic", "tree_reuse", "dynamic_uct", "multithreaded"],
         ),
         (
             "SEARCH AIDS",
             "搜尋輔助結構",
-            "開局書、殘局表與加速用的內部表示。",
-            ["opening_book", "micro_tablebase", "bitboard", "symmetry"],
+            "開局書、殘局表與對稱性歸約。",
+            ["opening_book", "micro_tablebase", "symmetry"],
         ),
         (
             "MINIMAX PRUNING",

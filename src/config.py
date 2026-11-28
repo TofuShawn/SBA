@@ -70,8 +70,6 @@ _CFG_DEFAULTS = {
         "rollout_heuristic": True,
         "tree_reuse": True,
         "dynamic_uct": True,
-        "progressive_widening": False,
-        "early_stop": False,
         "opening_book": True,
         "micro_tablebase": True,
         "symmetry": True,
@@ -88,7 +86,6 @@ _CFG_DEFAULTS = {
         "rave_k": 150,
         "tt_max": 300000,
         "workers": 8,
-        "reuse_cache": 32,
         "assistant_sims": 2000,  # AI assistant (Best Moves) search budget
     },
     "session": {"mcts_budget": 800, "minimax_depth": 4},
