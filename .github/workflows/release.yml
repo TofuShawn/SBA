@@ -125,6 +125,7 @@ jobs:
           node-version: '22'
 
       - name: Build the report set (static / embedded / PDF)
+        shell: bash
         env:
           TAG: ${{ steps.tag.outputs.tag || format('dev-{0}', github.run_number) }}
         run: |
@@ -132,9 +133,12 @@ jobs:
           # zip: a zero-dependency static HTML build, then the share trims,
           # the embedded-CJK-font variant, and the Chrome-printed A4 PDF.
           # The VF is vendored (docs/assets/fonts, OFL) so no system fonts
-          # are needed on the runner.
+          # are needed on the runner. bash shell: pwsh continues on error and
+          # would mask a failed step; the output dirs are gitignored and must
+          # be created here (make-share does not mkdir its parent).
           python -m pip install --quiet fonttools brotli pypdf
           cd docs/static-build
+          mkdir -p ../static ../share
           npm ci --silent
           node build-static.mjs ../AlphaZero_UTTT_Technical_Report.html ../static/AlphaZero_UTTT_Technical_Report.html
           python make-share.py ../static/AlphaZero_UTTT_Technical_Report.html ../share/AlphaZero_UTTT_Technical_Report.html --drop s12 --drop s15
