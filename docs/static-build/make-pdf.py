@@ -110,13 +110,14 @@ def stamp_footer(doc_pdf: Path, overlay_pdf: Path, out_pdf: Path) -> int:
 
     doc = PdfReader(str(doc_pdf))
     overlay = PdfReader(str(overlay_pdf))
-    writer = PdfWriter()
+    # pypdf 7: merge into a writer-attached page — clone_from gives every
+    # page a writer home, so merge_page never touches an orphan page
+    writer = PdfWriter(clone_from=str(doc_pdf))
     merged = 0
-    for i, page in enumerate(doc.pages):
+    for i, page in enumerate(writer.pages):
         if i < len(overlay.pages):
             page.merge_page(overlay.pages[i])
             merged += 1
-        writer.add_page(page)
     with open(out_pdf, "wb") as fh:
         writer.write(fh)
     return merged
