@@ -4,17 +4,17 @@
 """ctypes interop with sba_engine.dll (built to src/engines/ by
 src/tools/build.py)
 — the single boundary between the Python AI layer and the C backends
-(D27/D37).
+.
 
 Owns: DLL discovery/loading, the ABI signatures, state serialization
-(UltimateGame / BitUltimateGame -> the flat C encoding) and thin wrappers:
-rollout, full MCTS (with root stats), minimax (normal/ultimate), flat MCTS.
-Every wrapper returns None when the DLL is unavailable so ai.py can fall
-back to the pure-Python engines.
+(the Rust state layer -> the flat C encoding, via sba_ffi) and thin
+wrappers: rollout, full MCTS (with root stats), minimax (normal/ultimate),
+flat MCTS. The C engine IS the search backend (the pure-Python engines
+retired with the removal project).
 
-D37: SbaSearchOpts carries the search switches into C, and the MCTS arena
+SbaSearchOpts carries the search switches into C, and the MCTS arena
 is owned by the DLL. _CTree wraps the opaque handle and releases it on GC,
-so tree reuse (D30) still works without Python ever touching C memory.
+so tree reuse still works without Python ever touching C memory.
 """
 
 import contextlib
@@ -25,7 +25,7 @@ import random
 import threading
 import weakref
 
-# this file lives in src/engines/ (D61), so three dirnames up to the repo root
+# this file lives in src/engines/, so three dirnames up to the repo root
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ENGINE_DLL = os.path.join(_ROOT, "src", "engines", "sba_engine.dll")
 _LEGACY_DLL = os.path.join(_ROOT, "src", "engines", "sba_rollout.dll")
@@ -52,7 +52,7 @@ class SearchOpts(ctypes.Structure):
 
 
 class ProOpts(ctypes.Structure):
-    """Mirror of SbaProOpts in sba_ultt.h (D51 Minimax Pro). Keep the field
+    """Mirror of SbaProOpts in sba_ultt.h (Minimax Pro). Keep the field
     order in sync."""
 
     _fields_ = [
@@ -251,6 +251,13 @@ def _load():
                     state_args
                     + [ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ProOpts), ptr, dbl],
                 )
+                # build the minimax micro tablebase at load instead of on
+                # the first search, so the atomic-CAS guard never sits on the hot path.
+                tb_boot = getattr(lib, "sba_minimax_tb_init", None)
+                if tb_boot is not None:
+                    tb_boot.restype = ctypes.c_int32
+                    tb_boot.argtypes = []
+                    tb_boot()
                 _has_engine = True
             _lib = lib
         except (OSError, AttributeError) as exc:
@@ -271,41 +278,30 @@ def available(engine=False):
 
 
 def serialize_ultimate(state):
-    """Flatten an UltimateGame / BitUltimateGame into the C ABI:
-    (cells[81], macro[9], player 1/2, active -1..8)."""
+    """Flatten an ultimate game state into the C ABI:
+    (cells[81], macro[9], player 1/2, active -1..8).
+
+    The Rust state layer takes the sba_ffi fast path (see
+    _serialized_arrays); this list-contract walk remains the generic
+    fallback for any duck-typed implementation."""
     cells = [0] * 81
     macro = [0] * 9
-    if type(state).__name__ == "BitUltimateGame":
-        for idx in range(81):
-            b = 1 << idx
-            if state.x & b:
-                cells[idx] = 1
-            elif state.o & b:
-                cells[idx] = 2
-        for m in range(9):
-            if (state.mx >> m) & 1:
-                macro[m] = 1
-            elif (state.mo >> m) & 1:
-                macro[m] = 2
-            elif ((state.x | state.o) >> (m * 9)) & 0x1FF == 0x1FF:
-                macro[m] = 3
-    else:
-        for m in range(9):
-            row = state.micro[m]
-            base = m * 9
-            for i in range(9):
-                c = row[i]
-                if c == "X":
-                    cells[base + i] = 1
-                elif c == "O":
-                    cells[base + i] = 2
-            w = state.macro[m]
-            if w == "X":
-                macro[m] = 1
-            elif w == "O":
-                macro[m] = 2
-            elif w == "D":
-                macro[m] = 3
+    for m in range(9):
+        row = state.micro[m]
+        base = m * 9
+        for i in range(9):
+            c = row[i]
+            if c == "X":
+                cells[base + i] = 1
+            elif c == "O":
+                cells[base + i] = 2
+        w = state.macro[m]
+        if w == "X":
+            macro[m] = 1
+        elif w == "O":
+            macro[m] = 2
+        elif w == "D":
+            macro[m] = 3
     active = -1 if state.active_macro is None else state.active_macro
     player = 1 if state.current == "X" else 2
     return cells, macro, player, active
@@ -316,7 +312,7 @@ def _arrays(cells, macro):
 
 
 def _serialized_arrays(state):
-    """(ca, ma, player, active) FFI-ready. The D50 fast path hands ctypes
+    """(ca, ma, player, active) FFI-ready. The fast path hands ctypes
     arrays straight from the Rust wrapper (one sba_game_serialize call);
     every other game implementation packs through the list contract."""
     if type(state).__name__ == "RustUltimateGame":
@@ -355,7 +351,7 @@ def rollout_state(state, pattern=False, rng_seed=None, opts=None):
 def rollout_trace(state, rng_seed=None, pattern=False, opts=None):
     """Native rollout that also returns the move sequence (for the RAVE/GRAVE
     AMAF statistics). The playout policy comes from opts: uniform random when
-    rollout_heuristic is off, else plain / D26 pattern. Returns
+    rollout_heuristic is off, else plain / pattern. Returns
     (result, [moves]) or (None, [])."""
     lib = _load()
     if lib is None or not _has_engine:
@@ -381,7 +377,7 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None, 
     """Full native MCTS. Returns (best_move, stats, tree) where stats is a
     list of (move, visits, wins, mover, draws) for the root children, and
     tree is a _CTree owning the C-allocated arena (pass it back as `prev`
-    on the next search to reuse it, D30). Returns (None, [], None) when the
+    on the next search to reuse it). Returns (None, [], None) when the
     full engine DLL is unavailable.
 
     The arena lives inside the DLL and is allocated per call, so the
@@ -439,7 +435,7 @@ def mcts_search(state, iterations, use_pattern=False, rng_seed=None, prev=None, 
 def _rave_grave_search(
     state, iterations, k, grave, use_pattern=False, rng_seed=None, prev=None, opts=None
 ):
-    """Native RAVE (grave=False) / GRAVE (grave=True) tree (D51). Same
+    """Native RAVE (grave=False) / GRAVE (grave=True) tree. Same
     return contract as mcts_search: (best_move, stats, _CTree)."""
     lib = _load()
     if lib is None or not _has_engine:
@@ -547,7 +543,7 @@ def minimax_pro(
     use_eval_ordering=True,
     tt_max=None,
 ):
-    """Minimax Pro (D51): negamax + TT + killers + LMR + ID + aspiration +
+    """Minimax Pro: negamax + TT + killers + LMR + ID + aspiration +
     time cap. Returns the best move or None."""
     lib = _load()
     if lib is None or not _has_engine:

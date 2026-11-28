@@ -2,74 +2,21 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """analysis — the assistant surface: position evaluation, win-rate
-overlays, best-move analysis and the reason classifier (D3/D24)."""
+overlays, best-move analysis and the reason classifier.
 
-from core.game import EMPTY, LINES, NormalGame, O, UltimateGame, X, apply_move, count_threats
+Ultimate analysis runs on the native C engine (the pure-Python MCTS
+fallback retired with the removal project)."""
+
+from core.game import EMPTY, LINES, NormalGame, O, X, apply_move, count_threats
 from config import cfg_engine
 
-from engines.cbridge import _C_PREV, _c_search_opts, _ce, BitUltimateGame
-from engines.mcts import mcts_search
-from analysis.tablebase import _board_key, build_micro_tablebase, build_tablebase
-
-
-def eval_ultimate(game, player):
-    opp = O if player == X else X
-    score = 0
-    tb = build_micro_tablebase() if cfg_engine("micro_tablebase", True) else None
-    for m in range(9):
-        state = game.macro[m]
-        if state == player:
-            score += 1000
-        elif state == opp:
-            score -= 1000
-        elif state == EMPTY:
-            cells = game.micro[m]
-            empty = sum(1 for c in cells if c == EMPTY)
-            if tb is not None and empty <= 2:
-                v = tb.get(_board_key(cells))
-                if v is not None:
-                    # The side to move inside an idle micro is ambiguous, so
-                    # credit the player most likely to be moving there.
-                    theirs = 9 - empty - sum(1 for c in cells if c == player)
-                    sign = 1 if sum(1 for c in cells if c == player) >= theirs else -1
-                    score += 80 * v * sign
-                    continue
-            score += 40 * _fork_count(cells, player)
-            score -= 40 * _fork_count(cells, opp)
-            score += 3 * count_threats(cells, player)
-            score -= 3 * count_threats(cells, opp)
-            score += 0.5 * sum(1 for c in cells if c == player)
-            score -= 0.5 * sum(1 for c in cells if c == opp)
-    for a, b, c in LINES:
-        vals = [game.macro[a], game.macro[b], game.macro[c]]
-        if vals.count(player) == 2 and EMPTY in vals:
-            score += 20
-        if vals.count(opp) == 2 and EMPTY in vals:
-            score -= 20
-    return score
-
-
-def _fork_count(cells, player):
-    """Number of empty cells whose play creates >=2 winning lines for `player`."""
-    n = 0
-    for i, c in enumerate(cells):
-        if c != EMPTY:
-            continue
-        lines = 0
-        for a, b, d in LINES:
-            if i not in (a, b, d):
-                continue
-            others = [cells[j] for j in (a, b, d) if j != i]
-            if others.count(player) == 2:
-                lines += 1
-        if lines >= 2:
-            n += 1
-    return n
+from engines.cbridge import _C_PREV, _TREE_REUSE_LOCK, _c_search_opts, _ce
+from analysis.tablebase import _board_key, build_tablebase
 
 
 def blocks_immediate_win(game, move):
     opp = O if game.current == X else X
-    if isinstance(game, UltimateGame):
+    if isinstance(move, tuple):  # ultimate moves are (macro, cell) — Normal moves are ints
         m, idx = move
         cells = game.micro[m]
     else:
@@ -99,7 +46,7 @@ def reason_for_move(game, move):
         return "Win"
     if blocks_immediate_win(game, move):
         return "Block"
-    if isinstance(game, UltimateGame):
+    if isinstance(move, tuple):  # ultimate moves are (macro, cell) — Normal moves are ints
         m, i = move
         if i == 4 and game.micro[m][4] == EMPTY:
             return "Center"
@@ -111,35 +58,6 @@ def reason_for_move(game, move):
     if move in (0, 2, 6, 8):
         return "Corner"
     return "Positional"
-
-
-def _rates_from_root(root, game):
-    """(X win, draw, O win) probabilities derived from an Ultimate MCTS root.
-
-    Each child's wins carry draws at 0.5 from the mover's perspective, so the
-    draw share needs the node's raw draw counter — 1 - x - o from the score
-    alone is identically zero and used to fake the triplet (D15 regression)."""
-    tot_x = tot_o = tot_d = tot = 0.0
-    for child in root.children:
-        if child.visits == 0:
-            continue
-        v = child.wins / child.visits  # mover score = win + draw/2
-        d = getattr(child, "draws", 0) / child.visits
-        tot += child.visits
-        win_m = v - 0.5 * d  # mover's pure win share
-        lose_m = 1.0 - v - 0.5 * d  # opponent's pure win share
-        if child.mover == X:
-            tot_x += child.visits * win_m
-            tot_o += child.visits * lose_m
-        else:
-            tot_o += child.visits * win_m
-            tot_x += child.visits * lose_m
-        tot_d += child.visits * d
-    if tot == 0:
-        return (0.5, 0.0, 0.5)
-    x, o, d = tot_x / tot, tot_o / tot, tot_d / tot
-    s = x + o + d
-    return (x / s, d / s, o / s) if s > 0 else (0.5, 0.0, 0.5)
 
 
 def _rates_from_stats(stats):
@@ -171,14 +89,29 @@ def _rates_from_stats(stats):
 def _c_ultt_analysis(game, mcts_budget):
     """One native MCTS search feeding both the top-moves list and the
     win-rate triplet (the C twin of the analyze_position Ultimate branch).
-    Reuses the AI move search's warm tree when available (read-only — it
-    never writes back to _C_PREV). Returns None when the full engine DLL is
-    unavailable."""
+    Reuses the AI move search's warm tree when available. Returns None when
+    the full engine DLL is unavailable.
+
+    ownership rule: the borrow is a POP under _TREE_REUSE_LOCK — analysis
+    takes the idle tree out of the shared slot so the AI worker can never
+    hand the same arena out mid-search, and gives it back only while the
+    slot is still empty (the AI's write-back always wins). While the AI owns
+    the tree, analysis misses the reuse and starts fresh on its own arena;
+    both searches still run concurrently because their arenas are private.
+    """
     if not (_ce.available(engine=True) and cfg_engine("c_mcts", True)):
         return None
-    _mv, stats, _tree = _ce.mcts_search(
-        game, mcts_budget, opts=_c_search_opts(), prev=_C_PREV.get("MCTS")
-    )
+    prev = None
+    if cfg_engine("tree_reuse", True):
+        with _TREE_REUSE_LOCK:
+            prev = _C_PREV.pop("MCTS", None)
+    try:
+        _mv, stats, _tree = _ce.mcts_search(game, mcts_budget, opts=_c_search_opts(), prev=prev)
+    finally:
+        if prev is not None:
+            with _TREE_REUSE_LOCK:
+                if "MCTS" not in _C_PREV:
+                    _C_PREV["MCTS"] = prev
     if not stats:
         return None
     items = []
@@ -246,26 +179,11 @@ def analyze_position(game, mcts_budget):
         return items, _normal_rates(game, best)
     else:
         c_analysis = _c_ultt_analysis(game, mcts_budget)
-        if c_analysis is not None:
-            return c_analysis
-        if cfg_engine("bitboard", True) and isinstance(game, UltimateGame):
-            search_game = BitUltimateGame.from_game(game)
-        else:
-            search_game = game
-        root = mcts_search(search_game, mcts_budget)
-        for child in sorted(root.children, key=lambda c: (-c.visits, -c.wins / max(1, c.visits)))[
-            :5
-        ]:
-            if child.visits == 0:
-                continue
-            items.append(
-                {
-                    "move": child.move,
-                    "pct": child.wins / child.visits,
-                    "reason": reason_for_move(game, child.move),
-                }
-            )
-        return items, _rates_from_root(root, game)
+        if c_analysis is None:
+            # the pure-Python MCTS fallback retired — Ultimate analysis
+            # needs the native engine, full stop
+            raise RuntimeError("Ultimate analysis requires the native engine (python dev.py build)")
+        return c_analysis
 
 
 def compute_analysis(game, mcts_budget):
@@ -290,14 +208,9 @@ def position_win_rates(game, mcts_budget):
         table = build_tablebase()
         return _normal_rates(game, _normal_best(game, table))
     c_analysis = _c_ultt_analysis(game, mcts_budget)
-    if c_analysis is not None:
-        return c_analysis[1]
-    if cfg_engine("bitboard", True) and isinstance(game, UltimateGame):
-        search_game = BitUltimateGame.from_game(game)
-    else:
-        search_game = game
-    root = mcts_search(search_game, mcts_budget)
-    return _rates_from_root(root, game)
+    if c_analysis is None:
+        raise RuntimeError("Ultimate analysis requires the native engine (python dev.py build)")
+    return c_analysis[1]
 
 
 def position_win_rate(game, mcts_budget):

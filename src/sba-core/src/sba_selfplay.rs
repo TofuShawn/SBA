@@ -1,24 +1,15 @@
-//! sba_selfplay — root-parallel self-play orchestration (spec §5.1/§5.2).
-//! Thin bin gluing Tasks 1-5: clap args -> AzNet weights load -> batched
-//! inference worker -> N game threads pulling indices off a shared counter
-//! -> one JSONL event per println on stdout, one record per game
-//! (g%05d.safetensors). Human diagnostics go to stderr; stdout carries
-//! ONLY JSONL lines. Stream contract: start -> (game_done|batch_stats)* ->
-//! (error -> nonzero exit | clean exit) — every weights (exit 3) and
-//! game/record (exit 4) failure emits {"type":"error","message":...} on
-//! stdout before exiting; weights failures precede the worker, so their
-//! stream is the bare error event, and exit 2 (bad --game-type) fires
-//! before any output. Exit codes: 0 ok, 2 bad --game-type, 3 weights
-//! read/parse failure, 4 game/record runtime failure.
-//!
-//! RAW LOGITS contract: the worker replies with the network's raw logit
-//! row; softmax happens inside search — nowhere in this exe.
+//! sba_selfplay — root-parallel self-play orchestration: clap args -> AzNet load ->
+//! batched inference worker -> N game threads -> one JSONL event per stdout line and
+//! one record per game (g%05d.safetensors); diagnostics go to stderr only.
+//! Stream: start -> (game_done|batch_stats)* -> (error -> nonzero exit | clean exit).
+//! Exit codes: 0 ok, 2 bad --game-type, 3 weights failure, 4 game/record failure.
+//! RAW LOGITS contract: the worker replies with raw logits; softmax is in search.
 
 use clap::Parser;
 use rand::SeedableRng;
-use sha2::{Digest, Sha256};
 use sba_core::net::{infer_arch, AzNet};
 use sba_core::{default_device, search, worker, DefaultBackend};
+use sha2::{Digest, Sha256};
 
 #[derive(Parser)]
 struct Args {
@@ -34,7 +25,7 @@ struct Args {
     threads: usize,
     #[arg(long, default_value_t = 0)]
     seed_base: u64,
-    /// D59: first absolute round index for the record names — the K-process
+    /// First absolute round index for the record names — the K-process
     /// split (the Python bridge spawns K exes with disjoint slices) passes
     /// k*games_per_proc so every g%05d name is globally unique inside the
     /// shared out dir. Games/seeds are unaffected (seeds still come from
@@ -146,11 +137,17 @@ fn main() {
                 // temp_min (games == 1 -> frac 0 -> temp_start)
                 let denom = (args.games as f32 - 1.0).max(1.0);
                 let frac = idx as f32 / denom;
-                let temp = (args.temp_start + (args.temp_end - args.temp_start) * frac)
-                    .max(args.temp_min);
+                let temp =
+                    (args.temp_start + (args.temp_end - args.temp_start) * frac).max(args.temp_min);
                 let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-                let game = search::play_game(sba_game::SbaGame::fresh(), &mut handle, limits, temp, &mut rng)
-                    .unwrap_or_else(|e| fail(4, &format!("game {idx} failed: {e}")));
+                let game = search::play_game(
+                    sba_game::SbaGame::fresh(),
+                    &mut handle,
+                    limits,
+                    temp,
+                    &mut rng,
+                )
+                .unwrap_or_else(|e| fail(4, &format!("game {idx} failed: {e}")));
                 let mut rec = game.record;
                 rec.meta.seed = seed;
                 rec.meta.result = game.result.clone();

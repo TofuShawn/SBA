@@ -8,8 +8,53 @@ import pytest
 
 from engines import ai
 import config
-from session.SBA import bench, new_session, side_types
+from session.SBA import ai_options_for, bench, new_session, side_types
 from engines.ai import cfg_session, set_engine_config, save_engine_config
+
+
+def test_ai_options_capability_matrix():
+    """D65: the engine menu follows the board size — the MCTS family has no
+    Normal backend, and AlphaZero-on-Normal has no trained model to serve."""
+    assert set(ai_options_for("ultimate")) == {
+        "AlphaZero",
+        "Random",
+        "Basic",
+        "Minimax",
+        "Minimax Pro",
+        "Solver",
+        "MCTS",
+        "MCTS+GRAVE",
+    }
+    assert set(ai_options_for("normal")) == {"Random", "Basic", "Minimax", "Minimax Pro", "Solver"}
+
+
+def test_bench_rejects_normal_mcts_family():
+    """bench on Normal with an MCTS-family engine must fail fast with the
+    capability message, not crash inside get_ai_move."""
+    rc = bench(
+        games=1,
+        iterations=4,
+        game_type="normal",
+        ai_a="MCTS",
+        ai_b="Random",
+        quiet=True,
+    )
+    assert rc == 2
+
+
+def test_bench_normal_default_matchups_run():
+    """No explicit pair on Normal: the capability-valid defaults run to
+    completion (Minimax Pro / Minimax / Solver are all C-served)."""
+    calls = []
+    rc = bench(
+        games=1,
+        iterations=4,
+        game_type="normal",
+        on_progress=calls.append,
+        quiet=True,
+    )
+    assert rc == 0
+    assert len(calls) == 2  # one default matchup pair, doubled for colors
 
 
 def test_session_defaults():

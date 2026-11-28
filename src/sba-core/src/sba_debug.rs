@@ -1,30 +1,11 @@
-//! sba_debug — the parity-harness debug bin (Task 11). Two thin clap
-//! subcommands, both side-effect-free beyond their stated output (stdout /
-//! one dump dir — no records, no events, no stderr noise on success):
-//!
-//! - `planes --games N --seed S --moves K --out DIR`: dump fixture. Per
-//!   game idx: a fresh SbaGame + StdRng(seed + idx), K random legal moves
-//!   (stopping early only if the game ends), then `planes_g%05d.bin`
-//!   (324 f32 little-endian from SbaGame::planes()) plus
-//!   `planes_g%05d.meta.json` `{"moves": [[m, i], …], "seed": S}`. The
-//!   meta/plane pair is a cross-language contract: tests/
-//!   test_encode_parity.py replays the moves on the pure-Python
-//!   UltimateGame and compares alphazero.encode() BITWISE.
-//! - `search --weights W --moves "m,i;m,i" --sims N [--batch-size K]`:
-//!   apply the moves to a fresh state, load the weights (architecture
-//!   inferred via net::infer_arch), spawn the batched worker and run
-//!   search_position — the SAME single-root loop play_game uses, with
-//!   dirichlet_eps 0.0 (no prior noise: deterministic, and the rng stream
-//!   never touches the result) — then print ONE JSON line
-//!   `{"counts": {"<k>": visits, …}, "value": <root_value>}` where value
-//!   is the visit-weighted mean of the children's Q, the same z formula
-//!   play_game records. No sampling, no target — the root statistics are
-//!   the whole output. --batch-size mirrors python's
-//!   `mcts_search(batch_size=...)`: default 256 (the leaf-parallel wave
-//!   mode the layer-3 harness compares against), 1 = the serial mode.
-//!
-//! Exit codes: 0 ok, 1 runtime failure (weights, moves, IO); clap exits 2
-//! on bad usage itself.
+//! sba_debug — the parity-harness debug bin. Two side-effect-free clap subcommands:
+//! `planes --games N --seed S --moves K --out DIR` dumps `planes_g%05d.bin` (324 f32
+//! LE from SbaGame::planes()) plus a meta JSON whose moves tests/test_encode_parity.py
+//! replays on the pure-Python UltimateGame to compare encode() BITWISE; and
+//! `search --weights W --moves "m,i;m,i" --sims N [--batch-size K]` prints one JSON
+//! line of counts and root value with dirichlet_eps 0.0 (deterministic).
+//! `--batch-size` mirrors python's `mcts_search(batch_size=...)`: 256 = wave, 1 = serial.
+//! Exit codes: 0 ok, 1 runtime failure (weights, moves, IO); clap exits 2 on bad usage.
 
 use clap::{Parser, Subcommand};
 use rand::{Rng, SeedableRng};
@@ -108,12 +89,16 @@ fn cmd_search(weights: &std::path::Path, moves: &str, sims: u32, batch_size: usi
     let mut game = sba_game::SbaGame::fresh();
     if !moves.trim().is_empty() {
         for step in moves.split(';') {
-            let (m, i) = step.split_once(',').unwrap_or_else(|| {
-                fail(&format!("bad --moves step '{step}' (want m,i;m,i)"))
-            });
+            let (m, i) = step
+                .split_once(',')
+                .unwrap_or_else(|| fail(&format!("bad --moves step '{step}' (want m,i;m,i)")));
             let (m, i) = (
-                m.trim().parse::<i32>().unwrap_or_else(|e| fail(&format!("bad m in '{step}': {e}"))),
-                i.trim().parse::<i32>().unwrap_or_else(|e| fail(&format!("bad i in '{step}': {e}"))),
+                m.trim()
+                    .parse::<i32>()
+                    .unwrap_or_else(|e| fail(&format!("bad m in '{step}': {e}"))),
+                i.trim()
+                    .parse::<i32>()
+                    .unwrap_or_else(|e| fail(&format!("bad i in '{step}': {e}"))),
             );
             if game.apply(m, i) != sba_game::OK {
                 fail(&format!("move ({m},{i}) is not legal here"));
@@ -124,14 +109,15 @@ fn cmd_search(weights: &std::path::Path, moves: &str, sims: u32, batch_size: usi
     let bytes = std::fs::read(weights)
         .unwrap_or_else(|e| fail(&format!("cannot read weights {}: {e}", weights.display())));
     let device = default_device();
-    let model = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> AzNet<DefaultBackend> {
-        let (channels, blocks) =
-            infer_arch(&bytes).unwrap_or_else(|e| fail(&format!("weights load failed: {e}")));
-        let mut model = AzNet::<DefaultBackend>::new(&device, channels, blocks);
-        model.load_safetensors(&bytes, &device);
-        model
-    }))
-    .unwrap_or_else(|_| fail("weights load failed (shape/name mismatch?)"));
+    let model =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> AzNet<DefaultBackend> {
+            let (channels, blocks) =
+                infer_arch(&bytes).unwrap_or_else(|e| fail(&format!("weights load failed: {e}")));
+            let mut model = AzNet::<DefaultBackend>::new(&device, channels, blocks);
+            model.load_safetensors(&bytes, &device);
+            model
+        }))
+        .unwrap_or_else(|_| fail("weights load failed (shape/name mismatch?)"));
 
     let (mut handle, _stats) = worker::spawn(model, device);
     let limits = search::SearchLimits {
@@ -147,7 +133,10 @@ fn cmd_search(weights: &std::path::Path, moves: &str, sims: u32, batch_size: usi
         .into_iter()
         .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
         .collect();
-    println!("{}", serde_json::json!({ "counts": counts, "value": value }));
+    println!(
+        "{}",
+        serde_json::json!({ "counts": counts, "value": value })
+    );
 }
 
 fn main() {

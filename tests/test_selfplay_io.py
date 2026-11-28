@@ -1,7 +1,9 @@
 import numpy as np
-import torch
+import pytest
 
-from az.alphazero import AZNet, export_safetensors
+torch = pytest.importorskip("torch")
+
+from az.alphazero import AZNet, export_safetensors  # noqa: E402
 
 
 def _write_fake_record(path, t=3, seed=11):

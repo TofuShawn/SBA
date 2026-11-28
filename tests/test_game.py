@@ -1,22 +1,32 @@
-"""Game rules, geometry, and bitboard equivalence tests."""
+"""Game rules, geometry tests.
 
-import random
+NormalGame keeps its pure-Python rules here; the Ultimate rules live in
+the Rust state layer (az.rustbridge.RustUltimateGame — the pure-Python
+implementation retired with the removal project), so the ultimate rules
+pins run against the rust layer, seeded from bit masks via
+conftest.rust_game_from_bits.
+"""
 
 import pytest
 
+from conftest import rust_game_from_bits
 from core.game import (
     X,
     O,
     EMPTY,
     NormalGame,
-    UltimateGame,
-    BitUltimateGame,
     apply_move,
+    count_threats,
+    micro_win_line,
     line_coords,
     win_segment,
     macro_center,
     win_badge_svg,
 )
+
+# a drawn 3x3 micro (full, no winning line): X at 0,2,3,7,8 / O at 1,4,5,6
+_DRAWN_MICRO_X = 1 | 4 | 8 | 128 | 256
+_DRAWN_MICRO_O = 2 | 16 | 32 | 64
 
 
 def test_normal_x_wins_top_row():
@@ -35,7 +45,7 @@ def test_normal_draw_detected():
 
 
 def test_ultimate_routing():
-    g = UltimateGame()
+    g = rust_game_from_bits()
     g.make_move(0, 2)
     assert g.active_macro == 2 and g.current == O
     moves = g.legal_moves()
@@ -43,44 +53,39 @@ def test_ultimate_routing():
 
 
 def test_ultimate_full_macro_frees_moves():
-    g = UltimateGame()
-    g.micro[0] = [X, O, X, X, O, O, O, X, X]
-    g.macro[0] = "D"
-    g.active_macro = 0
-    g.current = X
+    # macro 0 drawn full (closed) while routing points at it -> free choice
+    g = rust_game_from_bits(
+        px=[_DRAWN_MICRO_X] + [0] * 8,
+        po=[_DRAWN_MICRO_O] + [0] * 8,
+        current=0,
+        active=0,
+    )
     assert any(m != 0 for m, _ in g.legal_moves())
 
 
 def test_ultimate_won_macro_frees_moves():
-    g = UltimateGame()
-    g.macro[4] = O
-    g.active_macro = 4
-    g.current = X
+    # macro 4 taken by O while routing points at it -> free choice
+    g = rust_game_from_bits(mo=1 << 4, current=0, active=4)
     assert any(m != 4 for m, _ in g.legal_moves())
 
 
 def test_ultimate_micro_win_claims_macro():
-    g = UltimateGame()
-    g.micro[3] = [X, X, EMPTY] + [EMPTY] * 6
-    g.current = X
+    g = rust_game_from_bits(px={3: 3}, current=0, active=3)
     g.make_move(3, 2)
     assert g.macro[3] == X
 
 
 def test_ultimate_macro_win_detected():
-    g = UltimateGame()
-    g.macro = [X, X, EMPTY] + [EMPTY] * 6
-    g.micro[2] = [X, X, EMPTY] + [EMPTY] * 6
-    g.current = X
+    g = rust_game_from_bits(px={2: 3}, mx=0b000000011, current=0, active=2)
     g.make_move(2, 2)
     assert g.winner() == X
 
 
 def test_ultimate_draw_detected():
-    g = UltimateGame()
-    g.macro = ["D"] * 9
-    for m in range(9):
-        g.micro[m] = [X, O, X, X, O, O, O, X, X]
+    g = rust_game_from_bits(
+        px=[_DRAWN_MICRO_X] * 9,
+        po=[_DRAWN_MICRO_O] * 9,
+    )
     assert g.result() == "D" and g.is_full()
 
 
@@ -91,39 +96,9 @@ def test_geometry_helpers():
     assert "<line" in win_badge_svg(X) and "<circle" in win_badge_svg(O)
 
 
-def test_bitboard_equivalence():
-    for _ in range(5):
-        a = UltimateGame()
-        b = BitUltimateGame.from_game(a)
-        steps = 0
-        while not a.is_over() and steps < 60:
-            assert set(a.legal_moves()) == set(b.legal_moves())
-            m = random.choice(a.legal_moves())
-            apply_move(a, m)
-            b.make_move(*m)
-            steps += 1
-        assert a.result() == b.result()
-
-
-def test_bitboard_occupied_cell_raises():
-    b = BitUltimateGame()
-    b.make_move(0, 0)
-    with pytest.raises(ValueError):
-        b.make_move(0, 0)
-
-
-def test_bitboard_drawn_macro_displays_D():
-    g = UltimateGame()
-    g.micro[0] = [X, O, X, X, O, O, O, X, X]
-    g.macro[0] = "D"
-    b = BitUltimateGame.from_game(g)
-    assert b.macro[0] == "D"
-
-
 def test_make_move_rejects_terminal_and_misrouted_moves():
-    """The rules layer is the ground truth: a won board has no legal moves,
-    and a move must honour the macro routing. All three implementations
-    agree."""
+    """The rules layers are the ground truth: a won board has no legal
+    moves, and a move must honour the macro routing."""
     n = NormalGame()
     for mv in (0, 3, 1, 4, 2):
         n.make_move(mv)
@@ -131,18 +106,34 @@ def test_make_move_rejects_terminal_and_misrouted_moves():
     with pytest.raises(ValueError, match="game is over"):
         n.make_move(5)
 
-    u = UltimateGame()
+    u = rust_game_from_bits()
     apply_move(u, (0, 2))  # routes the reply into macro 2
     with pytest.raises(ValueError, match="routed macro"):
         u.make_move(5, 5)
-    b = BitUltimateGame.from_game(u)
-    with pytest.raises(ValueError, match="routed macro"):
-        b.make_move(5, 5)
 
-    draw = UltimateGame()
-    draw.macro = ["D"] * 9
-    for m in range(9):
-        draw.micro[m] = [X, O, X, X, O, O, O, X, X]
+    draw = rust_game_from_bits(
+        px=[_DRAWN_MICRO_X] * 9,
+        po=[_DRAWN_MICRO_O] * 9,
+    )
     assert draw.result() == "D"
     with pytest.raises(ValueError, match="game is over"):
         draw.make_move(0, 0)
+
+
+def test_normal_occupied_cell_raises():
+    g = NormalGame()
+    g.make_move(4)
+    with pytest.raises(ValueError, match="cell is occupied"):
+        g.make_move(4)
+
+
+def test_count_threats_and_micro_win_line():
+    assert count_threats([X, X, EMPTY] + [EMPTY] * 6, X) == 1
+    assert count_threats([EMPTY] * 9, X) == 0
+    assert micro_win_line([X, X, X] + [EMPTY] * 6) == (0, 1, 2)
+    assert micro_win_line([EMPTY] * 9) is None
+
+
+def test_win_segment_vertical_line():
+    # a vertical triple takes the fixed-margin branch (x1 == x2)
+    assert win_segment((0, 3, 6), line_coords) == ((20, 4), (20, 96))

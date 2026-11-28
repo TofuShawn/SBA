@@ -44,3 +44,38 @@ select = ["F", "E9", "E7", "B", "SIM", "PERF"]
 "src/az/alphazero.py" = ["E402", "E741"]
 # `O` is the second player's mark — the domain names the constant
 "src/core/game.py" = ["E741"]
+
+[tool.mypy]
+# The type gate covers ONLY the two ctypes FFI boundary modules (the `mypy`
+# task in dev.py / CI passes exactly those two files). Everything here is
+# scoped to keep it that way:
+# - ignore_missing_imports: ctypes/numpy/third-party have no installed stubs
+# - follow_imports=silent: cengine/rustbridge pull in config.py and
+#   core/game.py; their errors belong to their own gates, not this one
+#   (modules passed explicitly on the command line still report)
+ignore_missing_imports = true
+follow_imports = "silent"
+
+# check_untyped_defs lives HERE (not global): untyped bodies are only
+# checked where the FFI actually bites.
+[[tool.mypy.overrides]]
+module = ["engines.cengine", "az.rustbridge"]
+check_untyped_defs = true
+
+[tool.ruff.lint.mccabe]
+# C901 is deliberately NOT in the lint gate selection above — max-complexity
+# only takes effect for the warn-only `dev.py complexity` report on src/ui
+# (findings print, nothing blocks). The GamePage split decides whether the
+# report graduates into a gate.
+max-complexity = 10
+
+[tool.coverage.run]
+# Measure the package only — tests and tooling are not the product.
+source = ["src"]
+
+[tool.coverage.report]
+# Baseline measured 2026-11-26: 68% (tui.py is the 0% hole; the Qt UI sits at
+# 63%). The floor is a regression guard, not a target: raise it when a module
+# gains tests, never lower it to make a red build green.
+fail_under = 65
+skip_covered = true

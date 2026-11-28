@@ -1,9 +1,7 @@
-//! sba-core — the Rust core (D55 Phase A). See net.rs for the AZNet/weights
-//! contract; records.rs for the training-record format; tree.rs for the
-//! PUCT tree (wave.rs for the search engine, runner.rs for the self-play
-//! runner — search.rs is a re-export shim); worker.rs for batched
-//! inference. Bins: bench_burn, sba_selfplay, sba_debug (the parity-harness
-//! planes/search dump).
+//! sba-core — the Rust core: net.rs (AZNet/weights), records.rs (record format),
+//! tree.rs (PUCT tree), wave.rs (search engine), runner.rs (self-play), worker.rs
+//! (batched inference), search.rs (re-export shim). Bins: bench_burn, sba_selfplay,
+//! sba_debug.
 
 pub mod net;
 pub mod records;

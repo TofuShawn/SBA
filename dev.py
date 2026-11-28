@@ -100,6 +100,17 @@ def task_build(_args):
     return crate_task("sba-core", ["build", "--release", "--target", TARGET])
 
 
+def task_complexity(_args):
+    """Complexity REPORT, warn-only until the GamePage split (H2): findings
+    are printed (rcs ignored, exit 0 always) like the old pip-audit report
+    pattern. Two halves — ruff C901 on src/ui (max-complexity 10, see
+    pyproject [tool.ruff.lint.mccabe]) and src/tools/func_len.py's AST scan
+    for functions over 50 lines (def line to block end) across src/."""
+    venv(["-m", "ruff", "check", "--select", "C901", "src/ui/"])
+    venv(["src/tools/func_len.py", "src"])
+    return 0
+
+
 TASKS = {
     "build": ("compile every native (C DLL + Rust cdylib + sba-core bench)", task_build),
     "test": (
@@ -107,11 +118,33 @@ TASKS = {
         lambda a: venv(["-m", "pytest", "tests", "-q", *a]),
     ),
     "lint": ("ruff check", lambda a: venv(["-m", "ruff", "check", "."])),
+    "mypy": (
+        "mypy on the two FFI boundary modules (--check-untyped-defs; scope in pyproject)",
+        lambda a: venv(
+            [
+                "-m",
+                "mypy",
+                "--check-untyped-defs",
+                "src/engines/cengine.py",
+                "src/az/rustbridge.py",
+                *a,
+            ]
+        ),
+    ),
+    "complexity": (
+        "C901 + >50-line function report (src/ui C901, src/ length; warn-only, exit 0)",
+        task_complexity,
+    ),
     "format": (
         "ruff format --check (same gate as CI)",
         lambda a: venv(["-m", "ruff", "format", "--check", "."]),
     ),
     "format-write": ("apply ruff formatting", lambda a: venv(["-m", "ruff", "format", "."])),
+    "fmt": (
+        "cargo fmt --all --check (the CI gate; format-write-safe, no crate to pick)",
+        lambda a: wsl_cargo(["fmt", "--all", "--", "--check", *a]),
+    ),
+    "fmt-write": ("apply rustfmt across the workspace", lambda a: wsl_cargo(["fmt", "--all", *a])),
     "clippy": (
         "cargo clippy -D warnings on sba-game",
         lambda a: crate_task(
@@ -123,10 +156,13 @@ TASKS = {
         lambda a: crate_task("sba-core", ["clippy", "--release", "--", "-D", "warnings"]),
     ),
     "cgate": ("C warnings gate (-Wall -Wextra -Werror, mirrors CI)", lambda a: wsl_gcc_check()),
-    "bench-rust": ("Rust state-layer A/B harness", lambda a: venv(["src/tools/bench_rust.py"])),
     "bench-selfplay": (
         "self-play A/B: mp.Pool path vs rust exe (pos/s, speedup)",
         lambda a: venv(["src/tools/bench_selfplay.py", *a]),
+    ),
+    "coverage": (
+        "pytest with coverage; the floor lives in pyproject [tool.coverage.report]",
+        lambda a: venv(["-m", "pytest", "tests", "-q", "--cov", *a]),
     ),
     "self-test": (
         "headless suite through the real entry point",

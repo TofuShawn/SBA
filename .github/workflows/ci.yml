@@ -17,7 +17,7 @@ jobs:
   # lint is platform-independent and needs no torch — a lone job reports
   # red in seconds, before the test matrix pays for any heavy install
   lint:
-    name: Lint (ruff / format / C)
+    name: Lint (ruff / format / mypy / C)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -37,6 +37,25 @@ jobs:
 
       - name: Ruff format
         run: ruff format --check .
+
+      # Narrow mypy gate: ONLY the two ctypes FFI boundary modules, with
+      # untyped bodies checked. The scope (ignore_missing_imports,
+      # follow_imports=silent, the per-module check_untyped_defs override)
+      # lives in pyproject [tool.mypy] so a wider run is an explicit choice,
+      # not an accident.
+      - name: Mypy (FFI boundary)
+        run: mypy --check-untyped-defs src/engines/cengine.py src/az/rustbridge.py
+
+      # Complexity REPORT, warn-only until the GamePage split (H2):
+      # findings are printed but never block, so the heavy hitters stay
+      # visible without failing unrelated work. Two halves: ruff C901 on
+      # src/ui (NOT in the lint gate selection; `|| true` keeps the step
+      # green like the pip-audit report it mirrors) and func_len.py's AST
+      # scan for functions over 50 lines across src/ (always exits 0).
+      - name: Complexity report (warn-only)
+        run: |
+          ruff check --select C901 src/ui/ || true
+          python src/tools/func_len.py src
 
       # D62: blocking gate. The lint env (requirements-dev + pip-audit, fresh
       # resolve) audits 0 findings, so `|| true` is gone — any NEW finding
@@ -151,6 +170,12 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
           pip install torch --index-url https://download.pytorch.org/whl/cpu
 
+      # rustfmt gate: the workspace committed 28 unformatted spots for months
+      # because nothing checked them. Runs before clippy so a formatting red
+      # is unambiguous.
+      - name: Rustfmt
+        run: cargo fmt --all -- --check
+
       # the crate has compiled clean here since D49 — clippy is a gate now
       # (D60 workspace: cargo runs at the repo root, -p selects the crate)
       - name: Clippy
@@ -200,8 +225,17 @@ jobs:
       - name: Build native engine (sba_engine.dll)
         run: python src/tools/build.py
 
+      # coverage floor lives in pyproject [tool.coverage.report] — measured
+      # 68% on 2026-11-26, the gate sits at 65 so it only catches regressions.
+      # Linux only: the windows leg runs the same suite without coverage so a
+      # cov-plugin hiccup on one runner cannot mask a real test failure.
       - name: Run tests
+        if: runner.os != 'Linux'
         run: python -m pytest tests -q
+
+      - name: Run tests (coverage gate)
+        if: runner.os == 'Linux'
+        run: python -m pytest tests -q --cov
 
       # The test matrix calls the engine modules directly; these three
       # entry points have their own argv routing and used to be unverified.

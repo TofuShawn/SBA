@@ -1,5 +1,5 @@
 /*
- * sba_ultt.c — shared rules core for the SBA native engine (D27).
+ * sba_ultt.c — shared rules core for the SBA native engine.
  */
 
 #include "sba_ultt.h"

@@ -119,7 +119,7 @@ int32_t __stdcall sba_rollout(const int32_t *cells_in, const int32_t *macro_in,
 }
 
 /* ---------------------------------------------------------------------------
- * Pattern rollout (D26): a stronger policy with fork creation, safe routing
+ * Pattern rollout: a stronger policy with fork creation, safe routing
  * (never hand the opponent a macro where they can win immediately), blocking
  * and positional bias. Same signature and RNG contract as sba_rollout so the
  * two kernels can be A/B benched (c_rollout_pattern in config.toml).
@@ -294,10 +294,10 @@ int32_t __stdcall sba_rollout_pattern(const int32_t *cells_in,
     }
 }
 
-/* Trace variant (D27/D37): records every move so the RAVE/GRAVE backends can
+/* Trace variant: records every move so the RAVE/GRAVE backends can
  * maintain their AMAF statistics. The playout policy is driven by
  * SbaSearchOpts: uniform random when rollout_heuristic is off, otherwise the
- * plain heuristic or the D26 pattern kernel (use_pattern). */
+ * plain heuristic or the pattern kernel (use_pattern). */
 int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
                                     const int32_t *macro_in, int32_t player,
                                     int32_t active, uint64_t seed,
@@ -346,7 +346,7 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
             int32_t r = sba_rng_below(&rng, (uint32_t)n_legal);
             pick = legal_m[r] * 9 + legal_i[r];
         } else if (use_pattern) {
-            /* D26 policy, mirroring sba_rollout_pattern (tier 0/1/2) */
+            /* policy, mirroring sba_rollout_pattern (tier 0/1/2) */
             int32_t opp = player == 1 ? 2 : 1;
             int32_t win_m = -1, win_i = -1, game_win_m = -1, game_win_i = -1;
             for (int32_t k = 0; k < n_legal; k++) {
@@ -459,11 +459,11 @@ int32_t __stdcall sba_rollout_trace(const int32_t *cells_in,
 }
 
 /* ---------------------------------------------------------------------------
- * Uniform-random playout (D37): rollout_heuristic = false. Same rules and
+ * Uniform-random playout: rollout_heuristic = false. Same rules and
  * terminal bookkeeping as sba_rollout, but the move is drawn uniformly from
  * the legal list instead of preferring an immediate win / blocking a single
  * threat. Kept as a separate exported kernel so the ABI of the two benched
- * kernels (D26) stays untouched.
+ * kernels stays untouched.
  * ------------------------------------------------------------------------- */
 int32_t __stdcall sba_rollout_random(const int32_t *cells_in,
                                      const int32_t *macro_in, int32_t player,

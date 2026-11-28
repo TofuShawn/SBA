@@ -3,7 +3,7 @@ name = "sba-core"
 version = "0.1.0"
 edition = "2021"
 
-# D55 Phase A: the Rust core. The AZNet model is hand-written in burn
+# Phase A: the Rust core. The AZNet model is hand-written in burn
 # (readable, no codegen), weights come from PyTorch via safetensors, and
 # the wgpu backend runs inference on Vulkan/DX12 — pure Rust, no C++
 # runtime. bench_burn is the inference spike; the PUCT tree and the

@@ -1,14 +1,14 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Build the SBA native engines: src/engines/sba_engine.dll (D27) and —
-when a Rust toolchain exists — src/az/sba_game.dll, the D48 state-layer
+"""Build the SBA native engines: src/engines/sba_engine.dll and —
+when a Rust toolchain exists — src/az/sba_game.dll, the state-layer
 cdylib.
 
 C modules: sba_ultt.c (shared rules) + sba_rollout.c (plain/pattern) +
 sba_mcts.c (full tree search) + sba_minimax.c (normal solve / ultimate
 alpha-beta / flat MCTS). One DLL exports everything. All five live in
-src/engines/ beside the engine modules they serve (D61).
+src/engines/ beside the engine modules they serve.
 
 Compiler search order:
 1. a Windows gcc/clang on PATH (native build)
@@ -19,8 +19,8 @@ Rust (sba-game crate, a workspace member): cargo on PATH builds the host
 target; otherwise WSL's cargo builds the x86_64-pc-windows-gnu target when
 its std is installed (`rustup target add x86_64-pc-windows-gnu`). No cargo
 -> skipped with a note; the Python game stays the fallback. Both routes
-land the cdylib in the workspace-shared target/ at the repo root (D60);
-this script copies it into src/az/, next to the az modules it serves (D61).
+land the cdylib in the workspace-shared target/ at the repo root;
+this script copies it into src/az/, next to the az modules it serves.
 
 Usage:  python src/tools/build.py
 """
@@ -33,8 +33,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root (workspace)
 SRC = os.path.join(ROOT, "src")
-ENGINES = os.path.join(SRC, "engines")  # C sources + the engine DLL (D61)
-AZ = os.path.join(SRC, "az")  # the Rust state-layer cdylib lands here (D61)
+ENGINES = os.path.join(SRC, "engines")  # C sources + the engine DLL
+AZ = os.path.join(SRC, "az")  # the Rust state-layer cdylib lands here
 OUT = os.path.join(ENGINES, "sba_engine.dll")
 SOURCES = ["sba_ultt.c", "sba_rollout.c", "sba_mcts.c", "sba_rave.c", "sba_minimax.c"]
 
@@ -42,13 +42,13 @@ RUST_DIR = os.path.join(SRC, "sba-game")
 RUST_MANIFEST = os.path.join(RUST_DIR, "Cargo.toml")
 TARGET_DIR = os.path.join(ROOT, "target")  # workspace-shared cargo output
 # cargo names the cdylib sba_game.dll (Windows) / libsba_game.so (Linux);
-# both ship as src/az/sba_game.dll|so next to the az modules (D61)
+# both ship as src/az/sba_game.dll|so next to the az modules
 RUST_PRODUCED = "sba_game.dll" if os.name == "nt" else "libsba_game.so"
 RUST_LIB = "sba_game.dll" if os.name == "nt" else "sba_game.so"
 
 
 def build_rust():
-    """cargo build the sba_game cdylib (D48). Best-effort: without cargo
+    """cargo build the sba_game cdylib. Best-effort: without cargo
     the step is skipped and the Python game remains the fallback."""
     if not os.path.isfile(RUST_MANIFEST):
         return 0

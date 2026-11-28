@@ -1,35 +1,16 @@
-//! sba_game — the Ultimate Tic-Tac-Toe state layer in Rust (D48, Phase 1).
-//!
-//! Owns the game LOGISTICS only (apply / legal moves / result / clone /
-//! state dump); the search algorithms stay in Python and in sba_engine.dll.
-//! The state is packed bitboards porting src/game.py's BitUltimateGame,
-//! with one difference forced by the languages: Python's 81-bit big-int
-//! becomes per-macro `u16` occupancy arrays (`px` / `po`, nine bits each),
-//! which keeps every shift inside a machine word and is otherwise the same
-//! representation (macro wins as 9-bit `mx` / `mo`, side to move, and the
-//! forced-routing macro; `-1` = free choice).
-//!
-//! Semantics mirror `UltimateGame` / `BitUltimateGame` exactly, including
-//! the error order of `make_move` (game over -> routing -> occupied) and
-//! the same ValueError texts on the Python side (`_ERR_TEXT` in
-//! rustbridge.py). tests/test_rustgame.py fuzzes the parity.
-//!
-//! ABI: everything is `#[no_mangle] extern "C"` over opaque handles. The
-//! crate owns the state `Box` and frees it in `sba_game_free` — no
-//! caller-passed arenas (unlike sba_engine.dll, the state is a single
-//! small struct, so there is no allocation on the hot path at all).
-//!
-//! No panics cross the boundary: every index is validated or comes from a
-//! fixed 0..9 loop, and no function unwraps an Option/Result.
+//! sba_game — the Ultimate Tic-Tac-Toe state layer in Rust (Phase 1). Owns the
+//! game LOGISTICS only (apply / legal / result / clone / state dump); search stays in
+//! Python and sba_engine.dll. Packed bitboards port BitUltimateGame, with per-macro
+//! `u16` occupancy arrays (px/po) instead of Python's 81-bit int so shifts stay in a
+//! machine word. Semantics mirror UltimateGame exactly, including make_move's error
+//! order (game over -> routing -> occupied) and the ValueError texts.
+//! ABI: `#[no_mangle] extern "C"` over opaque handles; the crate owns the state Box
+//! and frees it in `sba_game_free`. No panics cross the boundary — every index is
+//! validated or comes from a fixed 0..9 loop, and nothing unwraps an Option/Result.
 
-// This crate IS the FFI boundary: every export is called from ctypes with
-// caller-owned buffers, so BUFFER validity is the caller's contract (the
-// docs above). HANDLE liveness, by contrast, is enforced in-crate via the
-// LIVE registry below — a freed or foreign handle comes back as ERR_CLOSED
-// instead of reading freed memory. clippy 1.99 wants `unsafe fn` on every
-// extern that dereferences a pointer — we keep the exports
-// safe-signatured and state the trust boundary here once, instead of 19
-// per-function attributes.
+// FFI boundary: exports take caller-owned buffers (buffer validity is the caller's
+// contract) but in-crate HANDLE liveness is enforced by the LIVE registry below, so a
+// freed or foreign handle returns ERR_CLOSED instead of reading freed memory.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 pub const ABI: i32 = 1;
@@ -55,12 +36,9 @@ pub const ERR_CLOSED: i32 = -6;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-/// Addresses this crate has handed out and not yet received back in
-/// `sba_game_free`. A dangling (freed) pointer is indistinguishable from a
-/// live one by value alone, so every export checks membership before
-/// dereferencing: use-after-free becomes a clean `ERR_CLOSED` instead of
-/// silent heap corruption, and a double free becomes a no-op.
-/// (Mutex<Option<..>> because HashSet::new is not const.)
+/// Handles handed out and not yet freed. A dangling pointer cannot be told from a live
+/// one by value, so every export checks membership: use-after-free becomes ERR_CLOSED
+/// and a double free is a no-op. (Option because HashSet::new is not const.)
 static LIVE: Mutex<Option<HashSet<usize>>> = Mutex::new(None);
 
 fn with_live<R>(f: impl FnOnce(&mut HashSet<usize>) -> R) -> R {
@@ -100,12 +78,12 @@ const LINES: [[usize; 3]; 8] = [
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SbaGame {
-    px: [u16; 9],  // X marks per micro board (bits 0..8)
-    po: [u16; 9],  // O marks per micro board
-    mx: u16,       // macro boards won by X (bits 0..8)
-    mo: u16,       // macro boards won by O
-    current: u8,   // 0 = X to move, 1 = O to move
-    active: i32,   // the macro the reply is routed into; -1 = free choice
+    px: [u16; 9], // X marks per micro board (bits 0..8)
+    po: [u16; 9], // O marks per micro board
+    mx: u16,      // macro boards won by X (bits 0..8)
+    mo: u16,      // macro boards won by O
+    current: u8,  // 0 = X to move, 1 = O to move
+    active: i32,  // the macro the reply is routed into; -1 = free choice
 }
 
 /// A full state dump for encode-from-bits and the Python parity fuzz.
@@ -365,13 +343,17 @@ pub extern "C" fn sba_game_free(g: *mut SbaGame) {
 /// (game over -> range -> routing -> occupied), then apply.
 #[no_mangle]
 pub extern "C" fn sba_game_apply(g: *mut SbaGame, m: i32, i: i32) -> i32 {
-    if !handle_live(g) { return ERR_CLOSED; }
+    if !handle_live(g) {
+        return ERR_CLOSED;
+    }
     unsafe { (*g).apply(m, i) }
 }
 
 #[no_mangle]
 pub extern "C" fn sba_game_result(g: *const SbaGame) -> i32 {
-    if !handle_live(g) { return ERR_CLOSED; }
+    if !handle_live(g) {
+        return ERR_CLOSED;
+    }
     unsafe { (*g).result() }
 }
 
@@ -418,10 +400,8 @@ pub extern "C" fn sba_game_state(g: *const SbaGame, out: *mut SbaState) {
     st.result = raw_result(g);
 }
 
-/// Pack the sba_engine.dll ABI in one call (cells[81]: 0 empty / 1 X /
-/// 2 O; macro[9]: 0 open / 1 X / 2 O / 3 drawn-full; player 1 X / 2 O;
-/// active -1..8) — replaces the wrapper's per-cell Python property
-/// materialization on the stage-1 self-play path.
+/// Pack the sba_engine.dll ABI in one call (cells[81] 0/X/O, macro[9] open/X/O/drawn,
+/// player 1 X / 2 O, active -1..8), replacing per-cell Python property materialization.
 #[no_mangle]
 pub extern "C" fn sba_game_serialize(
     g: *const SbaGame,
@@ -482,11 +462,8 @@ pub extern "C" fn sba_game_planes(g: *const SbaGame, out: *mut f32) -> i32 {
     OK
 }
 
-/// Clone + apply in one round trip (the PUCT expansion loop does
-/// clone-then-apply across the boundary for every child node). Returns
-/// the child handle, or null when the move is illegal. Writes the
-/// child's routing macro (-1 = free choice) so the Python mirror stays
-/// in lockstep without a second call.
+/// Clone + apply in one round trip for the PUCT expansion loop. Returns the child
+/// handle (null if the move is illegal) and writes the routing macro (-1 = free).
 #[no_mangle]
 pub extern "C" fn sba_game_clone_apply(
     src: *const SbaGame,

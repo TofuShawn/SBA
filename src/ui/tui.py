@@ -31,10 +31,10 @@ from core.game import (
     X,
     O,
     NormalGame,
-    UltimateGame,
     apply_move,
     micro_win_line,
 )
+from az.rustbridge import RustUltimateGame
 from engines.ai import (
     get_ai_move,
     analyze_position,
@@ -42,7 +42,7 @@ from engines.ai import (
     cfg_session,
 )
 from session.SBA import (
-    AI_OPTIONS,
+    ai_options_for,
     history_point,
     REASON_TEXT,
     current_side_type,
@@ -301,7 +301,7 @@ class Board(Static):
             if move in win_moves:
                 styled(line, col, col + 3, f"on #1E3D2F bold {GREEN}")
 
-        if isinstance(game, UltimateGame):
+        if isinstance(game, RustUltimateGame):
             boxes = [self._box_lines() for _ in range(9)]
             active = game.active_macro
             whole = micro_win_line(game.macro)
@@ -661,7 +661,7 @@ class MenuScreen(Screen):
             with Vertical(id="ai-x-row", classes="field"):
                 yield Static(t("Player X — AI Level", "玩家 X — AI 等級"), classes="muted")
                 yield Select(
-                    [(label, key) for key, label in AI_OPTIONS.items()],
+                    [(label, key) for key, label in ai_options_for("ultimate").items()],
                     value="Minimax",
                     allow_blank=False,
                     id="sel-ai-x",
@@ -671,7 +671,7 @@ class MenuScreen(Screen):
                     t("Player O — AI Level", "玩家 O — AI 等級"), id="lbl-ai-o", classes="muted"
                 )
                 yield Select(
-                    [(label, key) for key, label in AI_OPTIONS.items()],
+                    [(label, key) for key, label in ai_options_for("ultimate").items()],
                     value="MCTS",
                     allow_blank=False,
                     id="sel-ai-o",
@@ -716,9 +716,7 @@ class MenuScreen(Screen):
 
     def _ai_options(self):
         game_type = self._radio_value("#rs-type", self.TYPE_VALUES)
-        if game_type == "ultimate":
-            return dict(AI_OPTIONS)
-        return {k: v for k, v in AI_OPTIONS.items() if k != "AlphaZero"}
+        return ai_options_for(game_type)
 
     def _update_visibility(self):
         mode = self._radio_value("#rs-mode", self.MODE_VALUES)
@@ -739,7 +737,14 @@ class MenuScreen(Screen):
 
     def _update_ai_options(self):
         opts = self._ai_options()
-        for sel_id, fallback in (("#sel-ai-x", "Minimax"), ("#sel-ai-o", "MCTS")):
+        game_type = self._radio_value("#rs-type", self.TYPE_VALUES)
+        # capability-aware fallbacks: MCTS is Ultimate-only, so the Normal
+        # menu falls back to the C perfect solver instead
+        fallbacks = {
+            "ultimate": ("Minimax", "MCTS"),
+            "normal": ("Minimax", "Minimax"),
+        }[game_type]
+        for sel_id, fallback in zip(("#sel-ai-x", "#sel-ai-o"), fallbacks, strict=True):
             sel = self.query_one(sel_id, Select)
             cur = sel.value if sel.value in opts else fallback
             sel.set_options([(label, key) for key, label in opts.items()])
@@ -811,8 +816,8 @@ class GameScreen(Screen):
         self._ai_worker = None
         self._ai_token = 0
         self._ai_busy = False
-        self._ai_progress = None  # D24: live search info from the AI worker
-        self._ai_trace = None  # D24: last move's thinking summary
+        self._ai_progress = None  # live search info from the AI worker
+        self._ai_trace = None  # last move's thinking summary
         self._analysis_token = 0
         self._analysis_items = []
         self._last_rates = None
@@ -898,7 +903,7 @@ class GameScreen(Screen):
     def new_game(self):
         s = self.session
         s["game_id"] += 1
-        s["game"] = NormalGame() if s["game_type"] == "normal" else UltimateGame()
+        s["game"] = NormalGame() if s["game_type"] == "normal" else RustUltimateGame()
         s["moves"] = []
         s["history"] = [history_point(s["game"])]
         s["step"] = 0
@@ -1139,7 +1144,7 @@ class GameScreen(Screen):
         self._analysis_token += 1
         tok = self._analysis_token
         snapshot = game.clone()
-        budget = s["mcts"] if isinstance(snapshot, UltimateGame) else 0
+        budget = s["mcts"] if isinstance(snapshot, RustUltimateGame) else 0
         gen = s["analysis_gen"]
         step = s["step"]
         gid = s["game_id"]
@@ -1290,7 +1295,7 @@ class GameScreen(Screen):
                     txt.append(" · " + done, style="dim")
             txt.append(f" · {t('step', '步')} {s['step']}/{len(s['moves'])}")
             if (
-                isinstance(game, UltimateGame)
+                isinstance(game, RustUltimateGame)
                 and game.active_macro is not None
                 and game.macro_open(game.active_macro)
             ):
@@ -1299,7 +1304,7 @@ class GameScreen(Screen):
                 txt.append(" · " + t("PAUSED", "已暫停"), style="bold")
         self.query_one("#status", Static).update(txt)
         self.query_one("#info-line", Static).update(
-            f"{('Ultimate' if isinstance(game, UltimateGame) else 'Normal')}"
+            f"{('Ultimate' if isinstance(game, RustUltimateGame) else 'Normal')}"
             f" · {s['mode'].upper()}"
             f" · {t('MCTS', 'MCTS')} {s['mcts']} · "
             f"{t('depth', '深度')} {s.get('minimax_depth', 4)}"

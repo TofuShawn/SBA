@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """tablebase — the persisted perfect-play table for Normal mode
-(D38: data/tt_normal.bin + the DFS fallback) and the Solver engine."""
+(data/tt_normal.bin + the DFS fallback) and the Solver engine.
+
+Normal mode only: the Ultimate Solver routes through the native C tree
+via get_ai_move (the python MCTS fallback retired with the removal
+project)."""
 
 import math
 import os
@@ -10,7 +14,6 @@ import random
 
 from core.game import EMPTY, LINES, NormalGame, O, X
 from config import ROOT, writable_path
-from engines.mcts import mcts_move
 
 
 _TABLEBASE = None
@@ -153,9 +156,10 @@ def build_micro_tablebase():
 
 
 def solver_move(game, mcts_budget=800):
-    """Perfect play on Normal; falls back to MCTS on Ultimate."""
+    """Perfect play on Normal (Ultimate solvers route via get_ai_move's
+    native C tree — see ai._get_ai_move_impl)."""
     if not isinstance(game, NormalGame):
-        return mcts_move(game, mcts_budget)
+        raise RuntimeError("solver_move applies to Normal boards only")
     table = build_tablebase()
     current = game.current
     best_moves, best_val = [], -math.inf

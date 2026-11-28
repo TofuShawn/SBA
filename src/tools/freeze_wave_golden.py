@@ -4,7 +4,7 @@
 """freeze_wave_golden — freeze the Python wave-search reference as golden vectors.
 
 Runs the Python batched wave search (`alphazero.mcts_search`, sims 200 /
-batch 256 / c_puct 1.5 / dirichlet off / rollout_weight 0.0 — the D58
+batch 256 / c_puct 1.5 / dirichlet off / rollout_weight 0.0 — the pure-net
 pure-net recipe, the only configuration layer 3 proved byte-equal against
 the Rust wave search) over a seeded position battery and writes:
 
@@ -37,7 +37,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, HERE):  # SRC for the az/ packages (D61), HERE for parity_search
+for _p in (SRC, HERE):  # SRC for the az/ packages, HERE for parity_search
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -78,9 +78,7 @@ def build_battery(seed, n, model, gen_sims, sims, batch_size):
         legal = g.legal_moves()
         if g.is_over() or not legal:
             raise SystemExit(f"battery position {idx} is terminal — generator drifted")
-        _root, counts = mcts_search(
-            g, model, sims, rollout_weight=0.0, batch_size=batch_size, dirichlet_alpha=None
-        )
+        _root, counts = mcts_search(g, model, sims, batch_size=batch_size, dirichlet_alpha=None)
         row = np.zeros(81, dtype=np.int64)
         for m, i in legal:
             row[m * 9 + i] = counts.get((m, i), 0)

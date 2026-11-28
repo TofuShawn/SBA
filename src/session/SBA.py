@@ -3,7 +3,7 @@
 
 """Ultimate Tic Tac Toe — entry point, session state, and self-tests.
 
-Game rules live in core/game.py and the AI engines in engines/ai.py (D61).
+Game rules live in core/game.py and the AI engines in engines/ai.py.
 This module wires them together, keeps the per-session UI state, runs the
 headless self-tests, and provides the CLI entry point.
 
@@ -15,7 +15,7 @@ Run:
     python src/session/SBA.py --debug      # verbose backend logs
 
 Maintenance notes:
-- The desktop app is the default entry (decision D1).
+- The desktop app is the default entry.
 - Session state lives here; the module is aliased as 'session.SBA' so
   ui/qtui.py and ui/tui.py reuse it instead of importing a second copy.
 """
@@ -25,8 +25,8 @@ import os
 import random
 import sys
 
-# direct `python src/session/SBA.py` invocation: put src/ (the package root,
-# D61) on sys.path before the repo imports — the sba.py shim does the same
+# direct `python src/session/SBA.py` invocation: put src/ (the package root)
+# on sys.path before the repo imports - the sba.py shim does the same
 _SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
@@ -35,9 +35,9 @@ from core.game import (  # noqa: E402
     X,
     O,
     NormalGame,
-    UltimateGame,
     apply_move,
 )
+from az.rustbridge import RustUltimateGame  # noqa: E402
 from engines.ai import (  # noqa: E402
     get_ai_move,
     cfg_session,
@@ -98,7 +98,7 @@ def replay_to(session, k):
     """
     moves = session["moves"]
     k = max(0, min(k, len(moves)))
-    game = NormalGame() if session["game_type"] == "normal" else UltimateGame()
+    game = NormalGame() if session["game_type"] == "normal" else RustUltimateGame()
     for mv in moves[:k]:
         apply_move(game, mv)
     return game, k
@@ -136,12 +136,23 @@ AI_OPTIONS = {
     "Solver": "Solver — 完美解（Normal 讀持久化解表，Ultimate 為 MCTS）",
     "MCTS": "MCTS — 蒙地卡羅",
     "MCTS+GRAVE": "MCTS+GRAVE — 蒙地卡羅+GRAVE",
-    # MCTS+RAVE is intentionally hidden from the menu: MCTS+GRAVE is its
-    # successor (same bias term, lower memory). The engine stays available
-    # through get_ai_move for self-tests and the --bench comparison.
-    # Flat MCTS (root-level playouts, no tree) is likewise hidden — it is a
-    # research/learning baseline, not a menu-worthy opponent.
+    # MCTS+RAVE and Flat MCTS stay out of the menu: GRAVE supersedes RAVE, and
+    # Flat is a research baseline. Both remain reachable via get_ai_move.
 }
+
+# the removal's capability matrix (D65): the MCTS family has no Normal
+# backend — the C kernels serialize Ultimate layouts only — and
+# AlphaZero-on-Normal has no trained model to serve. The menu helpers keep
+# the UIs from offering a combination that get_ai_move would reject.
+_NORMAL_EXCLUDED = ("AlphaZero", "MCTS", "MCTS+GRAVE")
+
+
+def ai_options_for(game_type):
+    """The engine menu for a board size. Ultimate offers everything;
+    Normal drops the MCTS family and AlphaZero (see _NORMAL_EXCLUDED)."""
+    if game_type == "ultimate":
+        return dict(AI_OPTIONS)
+    return {k: v for k, v in AI_OPTIONS.items() if k not in _NORMAL_EXCLUDED}
 
 
 def t(en: str, zh: str) -> str:
@@ -215,7 +226,7 @@ BENCH_AI_NAMES = (
 
 
 def _play_match(x_ai, o_ai, game_type, iterations, depth):
-    game = NormalGame() if game_type == "normal" else UltimateGame()
+    game = NormalGame() if game_type == "normal" else RustUltimateGame()
     guard = 0
     while not game.is_over() and guard < 1000:
         ai = x_ai if game.current == X else o_ai
@@ -259,7 +270,16 @@ def bench(
             if name not in BENCH_AI_NAMES:
                 print(f"Unknown AI: {name!r}. Choose from: {', '.join(BENCH_AI_NAMES)}")
                 return 2
+            if game_type == "normal" and name in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE", "Flat MCTS"):
+                print(
+                    f"{name!r} has no Normal backend (the C kernels serialize"
+                    " Ultimate layouts only) — pick Minimax/Minimax Pro/Solver/"
+                    "Basic/Random, or --game-type ultimate"
+                )
+                return 2
         matchups = [(ai_a, ai_b)]
+    elif game_type == "normal":
+        matchups = [("Minimax Pro", "Minimax"), ("Minimax Pro", "Solver")]
     else:
         matchups = [("MCTS", "MCTS+RAVE"), ("MCTS", "MCTS+GRAVE"), ("MCTS+RAVE", "MCTS+GRAVE")]
     if len(matchups) == 1:
@@ -389,7 +409,7 @@ def main(argv=None):
         except ImportError:
             print("pytest is required for --self-test:  python -m pip install pytest")
             return 1
-        # this file lives in src/session/ (D61): three dirnames up to the
+        # this file lives in src/session/: three dirnames up to the
         # repo root, where tests/ lives
         tests = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

@@ -1,15 +1,9 @@
-//! D55 Phase-A spike: burn/wgpu inference parity + timing vs the torch
-//! baselines (DML 1.92 ms, HIP 2.84 ms, CPU 27 ms per batch-256 forward).
-//!
-//! Usage: bench_burn <aznet.safetensors> <spike_input.bin>
-//!                   [<spike_policy.bin> <spike_value.bin>] [--dump-out PREFIX]
-//!
-//! The batch size derives from the input file's length — any n works. With
-//! all four positional files the parity line prints max abs errors vs the
-//! torch reference bins (the D55 spike invocation, unchanged). With
-//! --dump-out PREFIX the softmax(policy) rows ([n, 81]) and value rows
-//! ([n]) are written as raw f32 LE so a non-torch process can compare
-//! against its own reference (the Task 12 parity fuzz).
+//! Phase-A spike: burn/wgpu inference parity + timing vs the torch baselines
+//! (DML 1.92 ms, HIP 2.84 ms, CPU 27 ms per batch-256 forward).
+//! Usage: bench_burn <aznet.safetensors> <spike_input.bin> [<spike_policy.bin>
+//! <spike_value.bin>] [--dump-out PREFIX]. The batch size derives from the input
+//! length; with the reference bins it prints max abs errors, and --dump-out writes
+//! softmax(policy) [n, 81] and value [n] as raw f32 LE for cross-process comparison.
 
 use burn::tensor::{Tensor, TensorData};
 use sba_core::{default_device, infer_arch, read_f32s, shape, AzNet, DefaultBackend};
@@ -59,8 +53,8 @@ fn main() {
     // size the model to the blob (the spike used 128/5; the parity fuzz
     // loads the AZNet(9, 8, 1) test net) — the infer_arch pattern the
     // sibling exes share
-    let (channels, blocks) = infer_arch(&weights_bytes)
-        .unwrap_or_else(|e| panic!("weights load failed: {e}"));
+    let (channels, blocks) =
+        infer_arch(&weights_bytes).unwrap_or_else(|e| panic!("weights load failed: {e}"));
     let mut model = AzNet::<B>::new(&device, channels, blocks);
     model.load_safetensors(&weights_bytes, &device);
     println!("weights loaded in {:?}", t0.elapsed());
@@ -84,10 +78,14 @@ fn main() {
     if let Some(prefix) = &dump {
         let probs = burn::tensor::activation::softmax(p.clone(), 1);
         std::fs::write(format!("{prefix}_policy.bin"), probs.into_data().as_bytes()).unwrap();
-        std::fs::write(format!("{prefix}_value.bin"), v.clone().into_data().as_bytes()).unwrap();
+        std::fs::write(
+            format!("{prefix}_value.bin"),
+            v.clone().into_data().as_bytes(),
+        )
+        .unwrap();
     }
 
-    // parity vs the torch reference bins (the D55 spike invocation)
+    // parity vs the torch reference bins (the spike invocation)
     if let Some((policy_ref, value_ref)) = refs {
         let got_p = p.into_data().to_vec::<f32>().unwrap();
         let got_v = v.into_data().to_vec::<f32>().unwrap();

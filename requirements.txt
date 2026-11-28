@@ -8,7 +8,7 @@
 # Upper bounds are deliberate: all of these are at their declared lower
 # bound today, so the next major would break the project silently.
 pyside6>=6.12,<7
-textual>=8.2,<9
+textual>=8.2.8,<9
 rich>=15,<16
-numpy>=2.0,<3
-safetensors>=0.4,<2   # record files the Rust self-play exe writes/reads
+numpy>=2.5.5,<3
+safetensors>=0.8.0,<2   # record files the Rust self-play exe writes/reads

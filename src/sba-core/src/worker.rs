@@ -1,17 +1,8 @@
-//! Batched inference worker (spec §3): game threads push leaf requests on an
-//! mpsc channel; one worker thread owns the model and accumulates requests
-//! into bucket-sized batches — {16, 64, 256} rows, or a multiple of 256
-//! beyond — flushing when a bucket fills or a 2 ms deadline expires,
-//! whichever comes first. Zero rows pad each batch to its bucket size; one
-//! padded AzNet forward runs and the outputs are split back per request
-//! over a rendezvous reply channel. A request may carry MANY rows: the wave
-//! search's evaluate_batch submits a whole wave so k rows ride ONE channel
-//! message and fill the bucket in one send (a full 256-row wave flushes
-//! immediately; buckets count rows, not requests).
-//!
-//! CONTRACT: replies carry RAW LOGITS — no softmax in the worker; search
-//! applies softmax (mirror: Python applies softmax inside mcts_search after
-//! the forward, not in the network).
+//! Batched inference worker: game threads send leaf requests over mpsc; one thread
+//! owns the model, packs requests into buckets {16, 64, 256} (or a multiple of 256)
+//! and flushes when a bucket fills or the 2 ms deadline expires. Padded rows are
+//! split back to their requests over a reply channel. A request may carry many rows.
+//! CONTRACT: replies are RAW LOGITS; softmax happens in search, never here.
 
 use crate::net::AzNet;
 use crate::search;
@@ -136,13 +127,9 @@ fn worker_loop<B: Backend>(
                 Err(_) => return,
             }
         }
-        // Accumulate toward the next bucket, but never wait past the 2 ms
-        // deadline once we hold at least one row (latency bound). A bulk
-        // wave that fills its bucket exactly (e.g. a 256-row wave) skips
-        // the wait and runs at once; a disconnect only surfaces once the
-        // queue is drained — requests sent before the senders dropped stay
-        // receivable — so the flush below still answers every accepted
-        // request.
+        // Accumulate toward the next bucket but never wait past the 2 ms deadline once
+        // holding a row; a full bucket flushes at once, and queued requests survive a
+        // disconnect until the queue drains.
         let deadline = Instant::now() + MAX_WAIT;
         while held_rows < MAX_BUCKET {
             if held_rows >= next_bucket(held_rows) {

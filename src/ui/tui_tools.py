@@ -1,7 +1,7 @@
 # Copyright (c) 2026 TofuShawn
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Two-page Textual dashboards for the CLI tools (D44/D45): --bench-tui
+"""Two-page Textual dashboards for the CLI tools: --bench-tui
 and --train-tui.
 
 Page 1 (press `1`) is the parameter form; page 2 (press `2`) is the live
@@ -33,7 +33,7 @@ from textual.widgets import (
     Static,
 )
 
-from session.SBA import BENCH_AI_NAMES
+from session.SBA import BENCH_AI_NAMES, ai_options_for
 
 HINT_PARAMS = "[TAB] 下一欄 · [ENTER] 開始 · [1] 參數頁 · [2] 進度頁 · [Q] 離開"
 HINT_RUN = "[2] 進度頁 · [1] 回參數頁（可調整後重跑） · [Q] 離開"
@@ -49,7 +49,7 @@ def _crash_log(where, tb):
     durable copy and the RichLog gets a one-line pointer."""
     try:
         here = os.path.dirname(os.path.abspath(__file__))
-        # this file lives in src/ui/ (D61): two dirnames up to the repo root,
+        # this file lives in src/ui/: two dirnames up to the repo root,
         # where logs/ lives
         path = os.path.join(os.path.dirname(os.path.dirname(here)), "logs", "tui-crash.log")
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -70,7 +70,7 @@ def _field(label, widget, label_id=None):
     yield widget
 
 
-# D53: the workers field means a different thing per self-play engine, so
+# the workers field means a different thing per self-play engine, so
 # the hint must state the meaning of the engine that actually runs - under
 # rust it is the thread count of the one exe process, under python the
 # number of mp worker processes.
@@ -82,7 +82,7 @@ WORKERS_HINTS = {
 
 def engine_note(engine, workers):
     """One-line self-play provenance for the train dashboard's status line
-    (D53 honesty: the label states what actually runs - under rust the
+    (honesty: the label states what actually runs - under rust the
     workers field maps onto the exe's --threads, under python it counts mp
     worker processes)."""
     if engine == "rust":
@@ -266,6 +266,21 @@ class BenchTUI(App):
         if self._auto_exit:
             self.exit()
 
+    def on_select_changed(self, event: Select.Changed):
+        """Board switch rebuilds the engine menus (D65 capability matrix:
+        the MCTS family has no Normal backend)."""
+        if event.select.id != "board":
+            return
+        opts = [(label, key) for key, label in ai_options_for(event.value).items()]
+        fallbacks = {"ultimate": ("MCTS", "MCTS+GRAVE"), "normal": ("Minimax", "Minimax Pro")}[
+            event.value
+        ]
+        for sel_id, fallback in (("#ai-a", fallbacks[0]), ("#ai-b", fallbacks[1])):
+            sel = self.query_one(sel_id, Select)
+            cur = sel.value if sel.value in dict(opts) else fallback
+            sel.set_options(opts)
+            sel.value = cur
+
     def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "start":
             self._press_start()
@@ -359,7 +374,7 @@ class TrainTUI(App):
             yield Static("[bold]TRAIN // 兩階段配方[/bold]")
             yield Static("", id="engine-note", classes="hint")
             yield from _field(
-                "訓練局數 / games（D22 尺度曲線：600/2000/6000）",
+                "訓練局數 / games（尺度曲線：600/2000/6000）",
                 Input(value=str(self._cfg["games"]), type="integer", id="games"),
             )
             yield from _field(
@@ -415,7 +430,7 @@ class TrainTUI(App):
     def on_mount(self):
         from az import rustselfplay
 
-        # D53 provenance: resolve the engine ONCE with the same auto
+        # provenance: resolve the engine ONCE with the same auto
         # semantics train() uses, then label the dashboard from THAT
         # resolution - and _start_train passes the resolved engine on, so
         # the note cannot drift from the engine that actually runs.

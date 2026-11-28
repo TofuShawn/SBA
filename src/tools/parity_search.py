@@ -47,7 +47,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))  # src/tools/
 ROOT = os.path.dirname(os.path.dirname(HERE))  # the repo root
 SRC = os.path.join(ROOT, "src")
-for _p in (SRC, ROOT):  # SRC for the sba packages under src/ (D61)
+for _p in (SRC, ROOT):  # SRC for the sba packages under src/
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -201,7 +201,7 @@ def _layer3(exe, weights, model, positions, sims, seed):
         if g.is_over() or not legal:
             continue
         t0 = time.perf_counter()
-        root, counts = mcts_search(g, model, sims, rollout_weight=0.0, batch_size=256)
+        root, counts = mcts_search(g, model, sims, batch_size=256)
         t_py += time.perf_counter() - t0
         t0 = time.perf_counter()
         ru_counts, ru_value = _rust_search(exe, weights, history, sims, batch_size=256)

@@ -6,12 +6,13 @@
 import pytest
 
 from engines.ai import get_ai_move
-from core.game import UltimateGame, apply_move
+from az.rustbridge import RustUltimateGame
+from core.game import apply_move
 
 
 def _out_of_book_position():
     """A position past the opening book so an MCTS search actually runs."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     return g
@@ -20,17 +21,17 @@ def _out_of_book_position():
 def test_mcts_progress_reports_steps():
     from engines.ai import set_engine_config
 
-    # live progress only exists on the Python MCTS path
-    set_engine_config({"engine": {"multithreaded": False, "c_mcts": False, "opening_book": False}})
+    # the C tree fires the same coarse progress events (D24 shape)
+    set_engine_config({"engine": {"multithreaded": False, "opening_book": False}})
     try:
         g = _out_of_book_position()
         events = []
         move = get_ai_move(g, "MCTS", 200, 3, on_progress=events.append)
         assert move in g.legal_moves()
-        assert len(events) >= 5
+        assert len(events) >= 1  # the C tree reports at its own (coarser) cadence
         first = events[0]
         assert first["it"] <= first["iterations"]
-        assert first["best_text"]  # serial search always has a best child
+        assert first["best_text"]
         assert 0.0 <= first["wr"] <= 1.0
     finally:
         set_engine_config()
@@ -61,32 +62,8 @@ def test_trace_has_top_candidates_and_pick():
         set_engine_config()
 
 
-def test_trace_on_parallel_mcts():
-    # the PYTHON root-parallel merge path (c_mcts off — with the default the
-    # C tree answers first and the parallel code never runs). workers=2 at
-    # budget=200 -> two chunked searches; D24 reports once per finished
-    # thread, so the counter jumps (100 -> 200), not smoothly.
-    from engines.ai import set_engine_config
-
-    set_engine_config(
-        {"engine": {"multithreaded": True, "workers": 2, "c_mcts": False, "opening_book": False}}
-    )
-    try:
-        g = _out_of_book_position()
-        trace = {}
-        events = []
-        move = get_ai_move(g, "MCTS", 200, 3, on_progress=events.append, trace=trace)
-        assert move in g.legal_moves()
-        assert trace["engine"] == "MCTS"
-        assert trace["top"]  # merged root stats fill the candidates
-        assert len(events) == 2  # one coarse report per finished thread
-        assert [e["it"] for e in events] == [100, 200]  # chunk boundaries
-    finally:
-        set_engine_config()
-
-
 def test_trace_on_book_and_basic():
-    g = UltimateGame()
+    g = RustUltimateGame()
     # empty board: MCTS hits the opening book — trace notes it, no top list
     trace = {}
     get_ai_move(g, "MCTS", 200, 3, trace=trace)
@@ -110,3 +87,19 @@ def test_backward_compatible_call():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_trace_on_rave():
+    """The C RAVE tree fills the same trace shape (engine/top/pick)."""
+    from engines.ai import set_engine_config
+
+    set_engine_config({"engine": {"opening_book": False}})
+    try:
+        g = _out_of_book_position()
+        trace = {}
+        move = get_ai_move(g, "MCTS+RAVE", 200, 3, trace=trace)
+        assert move in g.legal_moves()
+        assert trace["engine"] == "MCTS+RAVE"
+        assert trace["top"]  # root stats fill the candidates
+    finally:
+        set_engine_config()

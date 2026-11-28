@@ -1,21 +1,12 @@
-//! The PUCT tree and the leaf-evaluation contract (Phase A).
-//!
-//! Mirrors `src/alphazero.py`'s tree primitives — `SearchNode.best_child`
-//! and the mcts_search expansion/backprop machinery — with the same PUCT
-//! formula (including the `-q` negation: node Q is stored from that node's
-//! side-to-move perspective, so the parent's mover maximizes its
-//! negation), full expansion on first visit, per-ply backprop sign flips,
-//! root-only Dirichlet prior noise (alpha = 10/len(moves)), and the
-//! counts + 1e-8 move-selection distribution. One PUCT simulation —
-//! select down the best_child chain, evaluate the leaf, expand in full,
-//! backprop — is `search_once`, the serial-mode primitive the wave
-//! engine's serial loop runs per sim. The network sits behind the
-//! [`Evaluator`] trait: worker.rs (batched inference) implements it, the
-//! wave engine and the self-play exe consume it.
+//! The PUCT tree and the leaf-evaluation contract. Mirrors `src/alphazero.py`:
+//! the same PUCT formula (Q stored from the node's side to move, parent takes the
+//! negation), full expansion on first visit, per-ply backprop sign flips, root-only
+//! Dirichlet noise (alpha = 10/len(moves)) and the counts + 1e-8 distribution.
+//! `search_once` is one serial simulation; the network sits behind [`Evaluator`].
 
 use rand::RngCore;
 use rand_distr::{Dirichlet, Distribution};
-use sba_game::{DRAW, SbaGame};
+use sba_game::{SbaGame, DRAW};
 
 use crate::wave::SearchLimits;
 
@@ -24,12 +15,8 @@ use crate::wave::SearchLimits;
 pub trait Evaluator {
     fn evaluate(&mut self, planes: [f32; 324]) -> Result<(Vec<f32>, f32), String>;
 
-    /// Batched consultation: one row per leaf, RAW logits + value per row
-    /// (same contract as [`Evaluator::evaluate`], reply order = input
-    /// order). The default is the trivial serial adapter — loop
-    /// [`Evaluator::evaluate`] — which is what tests and any sims-1-style
-    /// caller need; worker.rs overrides it so k rows ride ONE channel
-    /// message into the worker's bucket.
+    /// Batched consultation, one row per leaf, RAW logits + value, reply order = input
+    /// order. Default is the serial adapter; worker.rs overrides it to batch in one send.
     fn evaluate_batch(&mut self, planes: Vec<[f32; 324]>) -> Result<Vec<(Vec<f32>, f32)>, String> {
         planes.into_iter().map(|p| self.evaluate(p)).collect()
     }
@@ -55,12 +42,9 @@ pub(crate) fn softmax81(logits: &[f32]) -> Vec<f32> {
     e.iter().map(|v| v / s).collect()
 }
 
-/// Move-selection distribution (self_play_game mirror): n = counts + 1e-8;
-/// temp <= 0.01 -> one-hot argmax; else n^(1/temp), normalized. Returns an
-/// 81-entry vector indexed by move code k = m*9+i (zeros off the legal
-/// moves), exactly like the Python target — so it doubles as the record's
-/// policy plane. Argmax ties go to the FIRST move (np.argmax), like every
-/// other first-max tie-break here.
+/// Move-selection distribution: n = counts + 1e-8; temp <= 0.01 -> one-hot argmax
+/// (ties to the first move, np.argmax); else n^(1/temp) normalized. 81 entries
+/// indexed by move code, so it doubles as the record's policy plane.
 pub fn distribution(counts: &[(i32, f32)], temp: f32) -> Vec<f32> {
     let n: Vec<f32> = counts.iter().map(|(_, v)| v + 1e-8).collect();
     let mut p = vec![0.0f32; 81];
@@ -91,11 +75,8 @@ pub(crate) struct Node {
     pub(crate) prior: f32,
     pub(crate) visits: f32,
     pub(crate) wins: f32,
-    /// Virtual statistics for wave search (SearchNode.v_visits / v_wins):
-    /// +1 / +VIRTUAL_LOSS per in-flight selection on this node, stripped
-    /// again by the backprop. Exactly zero outside a wave — in serial mode
-    /// they never leave zero, so the selection formula below reduces to
-    /// the plain PUCT it was before the wave port.
+    /// Virtual stats for wave search: +1 / +VIRTUAL_LOSS per in-flight selection,
+    /// stripped by backprop; always zero in serial mode.
     pub(crate) v_visits: f32,
     pub(crate) v_wins: f32,
     pub(crate) children: Vec<Node>,
@@ -115,14 +96,8 @@ impl Node {
         }
     }
 
-    /// Index of the SearchNode.best_child pick. PUCT over REAL+VIRTUAL
-    /// stats: sqrt_parent spans `visits + v_visits`, and each child's
-    /// `visits` / `q` read its virtual stats too (`visits == 0` there means
-    /// "not visited AND not in flight"). An unvisited child is INFINITY
-    /// (always wins selection), else -q + c_puct * prior * sqrt_parent /
-    /// (1 + visits). Ties go to the FIRST child (Python's `if uct >
-    /// best_val` scan), so visit order matches the reference — `max_by`
-    /// would return the LAST max and diverge.
+    /// PUCT over real+virtual stats; unvisited children are INFINITY, ties go to the
+    /// FIRST child to match the reference scan (`max_by` would pick the last).
     pub(crate) fn best_child_index(&self, c_puct: f32) -> usize {
         let sqrt_parent = (self.visits + self.v_visits).sqrt();
         let (mut best, mut best_val) = (0usize, f32::NEG_INFINITY);
@@ -142,14 +117,8 @@ impl Node {
     }
 }
 
-/// Full expansion on first visit (mcts_search does NOT trickle children in
-/// one at a time — every legal move becomes a child at once). Priors are
-/// the raw softmax probs at the move's code; Dirichlet noise (alpha = 10/n,
-/// the "auto" scaling) mixes in as (1-eps)*p + eps*eta ONLY when the
-/// expanded node is the search root — Python's non-root branch keeps the
-/// raw prob, and shrinking every non-root prior by (1-eps) would break the
-/// exact mirror. A single legal move mirrors np.random.dirichlet([a]) ==
-/// [1.0] exactly, so no distribution is drawn (rand_distr wants len >= 2).
+/// Full expansion on first visit; root-only Dirichlet mixing (1-eps)*p + eps*eta with
+/// alpha = 10/n — non-root keeps the raw prior, mirroring python's branch exactly.
 pub(crate) fn expand_with_priors(
     node: &mut Node,
     probs: &[f32],
@@ -190,16 +159,10 @@ pub(crate) fn expand_with_priors(
     Ok(())
 }
 
-/// Mirror of mcts_search's backprop: every node on the path gets
-/// `visits += 1; wins += value` with the value sign flipped per ply, so
-/// each node's wins stay in ITS side-to-move's perspective — the invariant
-/// both best_child's `-q` and _root_value's raw child Q rely on. `value`
-/// is the LEAF's side-to-move value. Python walks `reversed(path)`
-/// (leaf->root, flip after each add); the Rust walk goes root->leaf along
-/// child indices, so the identical per-node assignment falls out of one
-/// up-front parity flip: the node at depth k then receives
-/// value * (-1)^(d-k). Hand-trace, [root, A] with A terminal X-wins:
-/// leaf value -1.0 (O to move at A, lost) -> root +1.0 (X won), A -1.0.
+/// Mirror of mcts_search's backprop: `visits += 1; wins += value` per node with the
+/// sign flipped per ply to keep wins in each node's side-to-move frame. Python walks
+/// leaf->root and flips after each add; this root->leaf walk pre-flips once, giving
+/// the node at depth k the value * (-1)^(d-k) — same result, one pass.
 pub(crate) fn backprop(root: &mut Node, path: &[usize], mut value: f32) {
     if path.len() % 2 == 1 {
         value = -value;
@@ -259,8 +222,8 @@ pub(crate) fn search_once(
 
 #[cfg(test)]
 mod tests {
-    use crate::runner::fixtures::{pol, Probed, Scripted};
     use super::*;
+    use crate::runner::fixtures::{pol, Probed, Scripted};
     use crate::wave::search_position;
     use rand::SeedableRng;
     use sba_game::{O_WINS, X_WINS};
@@ -334,11 +297,7 @@ mod tests {
             .any(|c| c.prior != probs[c.move_code as usize]));
     }
 
-    /// (Ruling 5c) batch_size 1 keeps the old serial mode: the wave loop is
-    /// never entered (zero evaluate_batch calls), one settled evaluate per
-    /// sim, and the visit trace matches the pre-port serial behavior (sim 1
-    /// expands the root; sims 2-3 evaluate the first INF children k=0, k=1).
-    /// Lives here with `search_once`, the serial primitive it pins.
+    /// batch_size 1 keeps the serial mode: no wave loop, one settled evaluate per sim.
     #[test]
     fn batch_size_one_keeps_serial_mode() {
         let mut probe = Probed::uniform(8);

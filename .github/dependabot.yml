@@ -10,8 +10,12 @@ updates:
   # pytest, ruff. torch is not listed in them (CI installs the CPU wheel
   # from the PyTorch index) so dependabot cannot drag the CUDA bundle in.
   # The Rust crate has zero dependencies — nothing for cargo to watch.
+  # target-branch dev: dependency bumps are integration-line changes, and
+  # letting them land on main would bypass dev's CI and collide at the next
+  # dev -> main merge. Actions stay on main (release pipeline reads them).
   - package-ecosystem: "pip"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

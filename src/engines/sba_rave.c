@@ -1,10 +1,10 @@
 /*
- * sba_rave.c — MCTS+RAVE and MCTS+GRAVE in C (D51).
+ * sba_rave.c — MCTS+RAVE and MCTS+GRAVE in C.
  *
  * Ports src/mcts.py's RAVENode / GraveNode trees onto the sba_mcts.c
  * skeleton: same arena ownership (opaque SbaTreeHandle + sba_tree_free),
  * same root symmetry dedup on canonical resulting positions, same
- * untried-bitmask expansion, and the D32 trace kernel feeding AMAF.
+ * untried-bitmask expansion, and the trace kernel feeding AMAF.
  *
  * RAVE:  every node keeps its own AMAF table (81 slots: visits + wins);
  *        selection mixes Q with the parent's AMAF value of the move.

@@ -6,30 +6,23 @@
 import os
 import random
 import threading
-import time
 
 import pytest
 
-from engines import ai
 
-from engines.ai import (
+from engines.cbridge import (
     _c_rollout_state,
     _get_c_rollout,
-    _rollout_move,
-    _serialize_ultimate,
-    get_ai_move,
-    set_engine_config,
+    _get_c_rollout_pattern,
 )
+from engines.ai import get_ai_move, set_engine_config
 from engines import cengine as _ce
+from az.rustbridge import RustUltimateGame
 from core.game import (
-    BitUltimateGame,
-    NormalGame,
     O,
-    UltimateGame,
     X,
     apply_move,
     apply_clone_result,
-    EMPTY,
 )
 
 DLL = os.path.join(
@@ -45,12 +38,12 @@ pytestmark = pytest.mark.skipif(
 
 
 def _empty_board():
-    return UltimateGame()
+    return RustUltimateGame()
 
 
 def _out_of_book_position():
     """A position past the opening book so an MCTS search actually runs."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     return g
@@ -69,41 +62,11 @@ def test_rollout_results_are_legal():
     assert seen != {"D"}  # a heuristic rollout should sometimes produce wins
 
 
-def test_serialize_matches_between_state_types():
-    g = UltimateGame()
-    apply_move(g, (4, 4))  # routes into macro 4
-    apply_move(g, (4, 2))  # routes into macro 2
-    apply_move(g, (2, 6))
-    b = BitUltimateGame.from_game(g)
-    assert _serialize_ultimate(g) == _serialize_ultimate(b)
-
-
-def test_kernel_agrees_with_python_distribution():
-    """Same policy, different RNG: the outcome distribution should be close."""
-    g = _empty_board()
-
-    def py_rollout(state):
-        state = state.clone()
-        result = state.result()
-        while result is None:
-            moves = state.legal_moves()
-            if not moves:
-                break
-            apply_move(state, _rollout_move(state, moves))
-            result = state.result()
-        return result
-
-    n = 400
-    c_x = sum(1 for _ in range(n) if _c_rollout_state(g) == X)
-    p_x = sum(1 for _ in range(n) if py_rollout(g) == X)
-    assert abs(c_x - p_x) / n < 0.15  # generous: random-seed divergence only
-
-
 def test_mcts_reaches_a_valid_endgame():
     """A CvC game driven by the kernel-backed search plays to a legal end."""
     set_engine_config({"engine": {"opening_book": False, "multithreaded": False}})
     try:
-        g = UltimateGame()
+        g = RustUltimateGame()
         for _ in range(120):
             if g.is_over():
                 break
@@ -115,58 +78,12 @@ def test_mcts_reaches_a_valid_endgame():
         set_engine_config()
 
 
-def test_kernel_search_faster_than_python(monkeypatch=None):
-    """The C tree must at least beat the pure-Python MCTS at equal budget
-    (soft 1.5x — timing in CI is noisy, so the hard floor is generous)."""
-    g = UltimateGame()
-    apply_move(g, (4, 4))
-    set_engine_config({"engine": {"c_mcts": True, "opening_book": False, "multithreaded": False}})
-    try:
-        t0 = time.perf_counter()
-        _ce.mcts_search(g.clone(), 400)
-        t_c = time.perf_counter() - t0
-        set_engine_config(
-            {"engine": {"c_mcts": False, "opening_book": False, "multithreaded": False}}
-        )
-        t0 = time.perf_counter()
-        from engines.ai import mcts_search as pure_mcts
-
-        pure_mcts(g.clone(), 400)
-        t_p = time.perf_counter() - t0
-        assert t_c < t_p * 1.5
-    finally:
-        set_engine_config()
-
-
-def test_normal_board_uses_python_path(monkeypatch):
-    """Normal 3x3 stays on the Python rollout (too shallow to bother): no C
-    backend symbol may be consulted for the whole move. The DLL is present
-    (asserted first) so the proof is real — the gates must skip it."""
-    set_engine_config()
-    assert _get_c_rollout() is not None
-    touched = []
-
-    class _NoC:
-        def __getattr__(self, name):
-            def _deny(*args, **kwargs):
-                touched.append(name)
-                raise AssertionError(f"Normal path touched the C backend: {name}")
-
-            return _deny
-
-    monkeypatch.setattr(ai, "_ce", _NoC())
-    g = NormalGame()
-    mv = get_ai_move(g, "MCTS", 200, 3)
-    assert mv in g.legal_moves()
-    assert touched == []
-
-
 def test_pattern_kernel_smoke():
     """Pattern variant (D26, off by default): legal results, sane spread."""
     set_engine_config({"engine": {"c_rollout_pattern": True}})
     try:
-        assert ai._get_c_rollout_pattern() is not None
-        g = UltimateGame()
+        assert _get_c_rollout_pattern() is not None
+        g = RustUltimateGame()
         seen = set()
         for _ in range(200):
             r = _c_rollout_state(g)
@@ -257,12 +174,9 @@ def test_c_mcts_thread_count_scales_with_budget(monkeypatch):
 def _forced_win_position():
     """Exactly one immediate game win, deliberately NOT the first legal move
     so a missing tie-break (or a wrong scoring formula) is visible."""
-    g = UltimateGame()
-    g.macro = [X, X, EMPTY] + [EMPTY] * 6
-    g.micro[2] = [EMPTY, EMPTY, EMPTY, EMPTY, X, EMPTY, X, EMPTY, EMPTY]
-    g.current = X
-    g.active_macro = 2
-    return g
+    from conftest import rust_game_from_bits
+
+    return rust_game_from_bits(px={2: (1 << 4) | (1 << 6)}, mx=0b000000011, current=0, active=2)
 
 
 def test_flat_mcts_c_backend_abi_and_dispatch():
@@ -280,20 +194,17 @@ def test_flat_mcts_c_backend_abi_and_dispatch():
         set_engine_config()
 
 
-def test_flat_mcts_c_and_python_share_scoring_and_tiebreak():
+def test_flat_mcts_c_prefers_immediate_win_on_ties():
     """C must score win 1.0 / draw 0.5 and prefer an immediate game win on
-    ties, exactly like ai.flat_mcts_move. The old (wins+draws)/(2N) formula
-    biased the C kernel toward draws and picked the first legal move."""
+    ties. The old (wins+draws)/(2N) formula biased the C kernel toward
+    draws and picked the first legal move."""
     assert _ce.available(engine=True)
     g = _forced_win_position()
     forced = [m for m in g.legal_moves() if apply_clone_result(g, m) == g.current]
     assert len(forced) == 1 and forced[0] != g.legal_moves()[0]
     for seed in (1, 2, 3, 17, 99):
         c_move = _ce.flat_mcts(g, 30, rng_seed=seed)
-        random.seed(seed)
-        py_move = ai.flat_mcts_move(g.clone(), 30 * len(g.legal_moves()))
         assert c_move == forced[0], (seed, c_move, forced)
-        assert py_move == forced[0], (seed, py_move, forced)
 
 
 def test_c_and_python_rules_agree_over_random_games():
@@ -304,7 +215,7 @@ def test_c_and_python_rules_agree_over_random_games():
     rng = random.Random(20261109)
     checked = 0
     for _ in range(150):
-        g = UltimateGame()
+        g = RustUltimateGame()
         for _ in range(rng.randint(0, 25)):
             lm = g.legal_moves()
             if not lm or g.is_over():
@@ -333,9 +244,9 @@ def test_c_kernels_report_terminal_boards_without_playing_on():
     """An already-decided board must produce the same verdict on both sides:
     no extra moves, and the winner must not depend on whose turn it is."""
     for current in (X, O):
-        w = UltimateGame()
-        w.macro = [X, X, X] + [EMPTY] * 6
-        w.current = current
+        from conftest import rust_game_from_bits
+
+        w = rust_game_from_bits(mx=0b000000111, current=0 if current == X else 1)
         assert w.result() == X and w.legal_moves() == []
         assert _ce.rollout_state(w, rng_seed=1) == X
         assert _ce.rollout_state(w, pattern=True, rng_seed=1) == X
@@ -387,7 +298,7 @@ def test_search_opts_reach_every_c_backend(monkeypatch):
         get_ai_move(g, "MCTS", 200, 3)
         get_ai_move(g, "Minimax", 200, 3)
         get_ai_move(g, "Flat MCTS", 200, 3)
-        ai._c_rollout_state(g)
+        _c_rollout_state(g)
     finally:
         set_engine_config()
 
@@ -404,7 +315,7 @@ def test_search_opts_reach_every_c_backend(monkeypatch):
 def test_c_tree_symmetry_dedups_root():
     """D4 dedup must now happen inside the C tree (81 -> 21 root children
     from an empty Ultimate board), using the canonical resulting position."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     _, off_stats, off_tree = _ce.mcts_search(g, 1500, rng_seed=42, opts=_opts(symmetry=0))
     _, on_stats, on_tree = _ce.mcts_search(g, 1500, rng_seed=42, opts=_opts(symmetry=1))
     try:
@@ -420,7 +331,7 @@ def test_c_tree_symmetry_dedups_root():
 def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
     """uct_c used to be hardcoded to 1.4 (140) and dynamic_uct could not be
     turned off in C. Both must change the visit distribution / best move."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     top = []
     for c in (0.2, 5.0):
         _, stats, tree = _ce.mcts_search(
@@ -431,7 +342,7 @@ def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
             tree.close()
     assert top[0] != top[1]
 
-    g2 = UltimateGame()
+    g2 = RustUltimateGame()
     apply_move(g2, (4, 4))
     apply_move(g2, (4, 0))
     best = []
@@ -448,11 +359,9 @@ def test_c_tree_uct_c_and_dynamic_uct_change_the_search():
 def test_c_rollout_heuristic_switch_is_honoured_by_trace():
     """With the win/block heuristic the first playout move is always the
     immediate game win; with it off the move is drawn uniformly."""
-    g = UltimateGame()
-    g.macro = [X, X, EMPTY] + [EMPTY] * 6
-    g.micro[2] = [EMPTY, EMPTY, EMPTY, EMPTY, X, EMPTY, X, EMPTY, EMPTY]
-    g.current = X
-    g.active_macro = 2
+    from conftest import rust_game_from_bits
+
+    g = rust_game_from_bits(px={2: (1 << 4) | (1 << 6)}, mx=0b000000011, current=0, active=2)
     on = {
         _ce.rollout_trace(g, rng_seed=s, opts=_opts(rollout_heuristic=1))[1][0]
         for s in range(1, 31)
@@ -480,12 +389,18 @@ def test_c_micro_tablebase_changes_minimax_choice():
         ".X.XOXOX.",
     ]
     macro_states = ["X", "O", ".", ".", ".", "X", "O", ".", "."]
-    g = UltimateGame()
-    g.current = X
-    g.active_macro = None
-    for m, row in enumerate(rows):
-        g.micro[m] = [EMPTY if c == "." else c for c in row]
-        g.macro[m] = EMPTY if macro_states[m] == "." else macro_states[m]
+    from conftest import rust_game_from_bits
+
+    px = {m: sum(1 << i for i, c in enumerate(row) if c == "X") for m, row in enumerate(rows)}
+    po = {m: sum(1 << i for i, c in enumerate(row) if c == "O") for m, row in enumerate(rows)}
+    g = rust_game_from_bits(
+        px=px,
+        po=po,
+        mx=sum(1 << m for m, s in enumerate(macro_states) if s == "X"),
+        mo=sum(1 << m for m, s in enumerate(macro_states) if s == "O"),
+        current=0,
+        active=-1,
+    )
     with_tb = _ce.minimax_ultimate(g, 2, opts=_opts(micro_tablebase=1))
     without_tb = _ce.minimax_ultimate(g, 2, opts=_opts(micro_tablebase=0))
     assert with_tb != without_tb
@@ -495,7 +410,7 @@ def test_c_micro_tablebase_changes_minimax_choice():
 def test_c_tree_is_owned_by_the_dll_and_still_reusable():
     """D37: no Python-owned uint8_t arena. The opaque handle must survive a
     second search as `prev`, and releasing it twice must be harmless."""
-    g = UltimateGame()
+    g = RustUltimateGame()
     mv1, s1, t1 = _ce.mcts_search(g, 200, rng_seed=1)
     assert t1 is not None and t1._handle.value
     mv2, s2, t2 = _ce.mcts_search(g, 200, rng_seed=2, prev=t1)

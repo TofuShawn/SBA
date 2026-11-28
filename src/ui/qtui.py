@@ -9,8 +9,8 @@ Run:
     python qtui.py            # desktop app
 
 Maintenance notes:
-- Fonts prefer Noto Sans TC; 微软雅黑 is not installed on every system (D7).
-- Won chunks fill with the winner's color; hovering reveals the cells (D6).
+- Fonts prefer Noto Sans TC; 微软雅黑 is not installed on every system.
+- Won chunks fill with the winner's color; hovering reveals the cells.
 """
 
 import argparse
@@ -83,10 +83,10 @@ from core.game import (
     O,
     EMPTY,
     NormalGame,
-    UltimateGame,
     apply_move,
     micro_win_line,
 )
+from az.rustbridge import RustUltimateGame
 from engines.ai import (
     get_ai_move,
     analyze_position,
@@ -97,6 +97,7 @@ from engines.ai import (
 )
 from session.SBA import (
     AI_OPTIONS,
+    ai_options_for,
     REASON_TEXT,
     current_side_type,
     history_point,
@@ -144,16 +145,12 @@ def _blur_pixmap(pm, radius):
     return QPixmap.fromImage(out)
 
 
-# Role-based typography (D35 review, mirrors the archive reference):
-#   DISPLAY — Inter Black/ExtraBold, tight -0.03em tracking, uppercase:
-#             brand blocks, giant watermark numerals. The mass carries it.
-#   MONO    — JetBrains Mono 500, +0.05em, 12px uppercase: every field
-#             label, clock readout, button. The machine voice.
-#   BODY    — FONT_FAMILIES (HarmonyOS/Noto/雅黑) for CJK and prose.
+# Role-based typography (review): DISPLAY = Inter Black, tight tracking, for
+# brand blocks; MONO = JetBrains Mono, wide tracking, for field labels; BODY = CJK.
 DISPLAY_FAMILIES = ["Inter", "Segoe UI"]
 MONO_FAMILIES = ["JetBrains Mono", "Cascadia Mono", "Consolas", "Courier New"]
 
-# repo root: this file lives in src/ui/ (D61), so three dirnames up; tracked
+# repo root: this file lives in src/ui/, so three dirnames up; tracked
 # assets (static/) stay at the root
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -213,7 +210,7 @@ def anim_enabled():
 
 
 def deck_label(text, size=12, accent=False):
-    """Field-console label: JetBrains Mono, uppercase, +0.05em (D35)."""
+    """Field-console label: JetBrains Mono, uppercase, +0.05em."""
     lab = QLabel(text.upper() if text.isascii() else text)
     font = _mono_font(size, QFont.Medium)
     lab.setFont(font)
@@ -285,7 +282,7 @@ def _media_icon(kind, color="#F7F7F7", size=20):
     return QIcon(pm)
 
 
-# D33: Go-style clock presets — main seconds, byo-yomi seconds per move,
+# Go-style clock presets — main seconds, byo-yomi seconds per move,
 # and the number of byo-yomi periods before a timeout loses the game.
 CLOCK_PRESETS = {
     "off": None,
@@ -296,7 +293,7 @@ CLOCK_PRESETS = {
 
 
 # Board palettes. BoardWidget paints from the active palette; the Endfield
-# theme (D23) is light-on-dark charcoal with signal yellow for the O side.
+# theme is light-on-dark charcoal with signal yellow for the O side.
 PALETTE = {
     "LIGHT": {
         "x": "#242424",
@@ -345,7 +342,7 @@ def _deck_combo(parent=None):
 
 
 class ChamferButton(QPushButton):
-    """Endfield button (D34/D35): self-painted block. Hover/press wipes
+    """Endfield button: self-painted block. Hover/press wipes
     signal yellow in from the left (mech curve), disabled fills with 45°
     hatch. Fully self-painted (no QSS).
 
@@ -376,7 +373,7 @@ class ChamferButton(QPushButton):
         self._wipe_anim.setEasingCurve(ChamferButton._MECH)
         self._wipe_anim.valueChanged.connect(self._on_wipe)
         self.setCursor(Qt.PointingHandCursor)
-        # mono role (D35 review): JetBrains Mono 13px DemiBold on the widget
+        # mono role (review): JetBrains Mono 13px DemiBold on the widget
         # itself, so _deck_button's QFontMetrics measure what paint draws
         f = QFont()
         f.setFamilies(MONO_FAMILIES + FONT_FAMILIES)
@@ -493,11 +490,8 @@ def _deck_button(text, parent=None, primary=False, slant=None):
     return btn
 
 
-# ---------------------------------------------------------------------------
-# Endfield field-engineering theme (D23). The full styling lives in
-# static/endfield.qss so visuals can be retuned without touching logic; only
-# a tiny fallback is embedded for a missing file.
-# ---------------------------------------------------------------------------
+# Endfield theme: styling lives in static/endfield.qss; only a tiny
+# fallback is embedded for a missing file.
 _QSS_PATH = os.path.join(ROOT, "static", "endfield.qss")
 _QSS_FALLBACK = (
     "QWidget { background: #09090b; color: #ffffff; }"
@@ -553,10 +547,10 @@ class BoardWidget(QWidget):
         self._mask_blend = {}
         self._mask_anims = {}
         self._won_cache = set()
-        # D40: AZNet policy heat {(m, i): p} over the empty cells; cleared on
+        # AZNet policy heat {(m, i): p} over the empty cells; cleared on
         # every position change, re-applied by a fresh analysis
         self._heat = {}
-        # D31: stone "stamp" press + progressive win-line draw
+        # stone "stamp" press + progressive win-line draw
         self._stamp_cell = None
         self._stamp_t = 1.0
         self._stamp_anim = QVariantAnimation(self)
@@ -585,7 +579,7 @@ class BoardWidget(QWidget):
         self.update()
 
     def animate_move(self, move):
-        """Stamp-press animation for a freshly placed stone (D31); skipped
+        """Stamp-press animation for a freshly placed stone; skipped
         entirely when Reduce Motion is on."""
         if not anim_enabled():
             return
@@ -595,7 +589,7 @@ class BoardWidget(QWidget):
         self._stamp_anim.start()
 
     def animate_win_line(self):
-        """Progressive draw-in of the game-ending strike line (D31)."""
+        """Progressive draw-in of the game-ending strike line."""
         if not anim_enabled():
             self._win_t = 1.0
             self.update()
@@ -609,7 +603,7 @@ class BoardWidget(QWidget):
         self.update()
 
     def set_policy_heat(self, priors):
-        """D40: AZNet policy priors over the legal moves, painted as a tint
+        """AZNet policy priors over the legal moves, painted as a tint
         on the empty cells (None/{} clears). Pure display state — neither
         the rules nor the engines read it."""
         self._heat = dict(priors) if priors else {}
@@ -622,7 +616,7 @@ class BoardWidget(QWidget):
         self.flash_cell = None
         self._stamp_cell = None  # a new position invalidates a running stamp
         self._heat = {}  # stale priors never outlive their position
-        if isinstance(game, UltimateGame):
+        if isinstance(game, RustUltimateGame):
             won = {m for m in range(9) if game.macro[m] in (X, O)}
             fresh = won - prev_won
             if len(fresh) == 1:
@@ -694,7 +688,7 @@ class BoardWidget(QWidget):
         self._reveal_anim.start()
 
     def _macro_at(self, px, py):
-        if not isinstance(self.game, UltimateGame):
+        if not isinstance(self.game, RustUltimateGame):
             return None
         n, cell, ox, oy = self._grid()
         col = int((px - ox) // (cell + self.GAP))
@@ -713,7 +707,7 @@ class BoardWidget(QWidget):
         self.update()
 
     def _grid(self):
-        n = 9 if isinstance(self.game, UltimateGame) else 3
+        n = 9 if isinstance(self.game, RustUltimateGame) else 3
         cell = (min(self.width(), self.height()) - 2 * self.MARGIN - (n - 1) * self.GAP) / n
         grid = n * cell + (n - 1) * self.GAP
         return n, cell, (self.width() - grid) / 2, (self.height() - grid) / 2
@@ -746,7 +740,7 @@ class BoardWidget(QWidget):
     def mousePressEvent(self, event):
         if self.game is None:
             return
-        if isinstance(self.game, UltimateGame):
+        if isinstance(self.game, RustUltimateGame):
             m = self._macro_at(event.position().x(), event.position().y())
             if m is not None and self.game.macro[m] in (X, O):
                 self._toggle_reveal(m)
@@ -772,7 +766,7 @@ class BoardWidget(QWidget):
         painter.setPen(QPen(QColor("#35373C"), 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(plate_rect.adjusted(0, 0, -1, -1))
-        if isinstance(self.game, UltimateGame):
+        if isinstance(self.game, RustUltimateGame):
             self._paint_ultimate(painter)
         else:
             self._paint_normal(painter)
@@ -786,7 +780,7 @@ class BoardWidget(QWidget):
         if mark in (X, O):
             stamping = cell_id is not None and cell_id == self._stamp_cell and self._stamp_t < 1.0
             if stamping:
-                # D31 stamp press: settle from 1.25x down onto the cell while
+                # stamp press: settle from 1.25x down onto the cell while
                 # fading in — mechanical, sharp, no bounce.
                 t = self._stamp_t
                 s = 1.25 - 0.25 * t
@@ -943,7 +937,7 @@ class BoardWidget(QWidget):
                 )
 
     def _paint_policy_heat(self, painter, cell, ox, oy):
-        """D40: AZNet policy heat — the empty cells tinted by prior mass, the
+        """AZNet policy heat — the empty cells tinted by prior mass, the
         brightest cell being the net's top move (spatial view of the same
         ranking the Best Moves list shows as text). Under the grid lines,
         over the cell fills."""
@@ -1107,7 +1101,7 @@ class AnalysisWorker(QThread):
         except Exception as e:  # noqa: BLE001
             log.error("Analysis failed: %s", e)
             self.result_ready.emit([], (0.5, 0.0, 0.5))
-        # D40: the policy heat is a separate single net forward (no search);
+        # the policy heat is a separate single net forward (no search);
         # it never fails the analysis — a missing model or a torch error
         # just means "no heat".
         if self.policy_heat:
@@ -1184,7 +1178,7 @@ class EndfieldPage(QWidget):
         painter.fillRect(self.rect(), QColor(9, 9, 11, 168))
 
     def _paint_contours(self, painter):
-        """endfield contour (D34): small open arcs in two corners only,
+        """endfield contour: small open arcs in two corners only,
         ink at 9% — never closed rings across the page."""
         w, h = self.width(), self.height()
         if w < 200 or h < 200:
@@ -1228,7 +1222,7 @@ class MenuPage(EndfieldPage):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        # D34: endfield pairing — wide-cap eyebrow on top, bold CN title below
+        # endfield pairing — wide-cap eyebrow on top, bold CN title below
         root.addWidget(deck_label("// ULTIMATE TIC TAC TOE", size=11))
         title = QLabel("終極井字棋")
         title.setObjectName("title")
@@ -1267,6 +1261,7 @@ class MenuPage(EndfieldPage):
         self.game_type = _deck_combo()
         self.game_type.addItem("Normal Tic Tac Toe (普通井字棋)", "normal")
         self.game_type.addItem("Ultimate Tic Tac Toe (終極井字棋)", "ultimate")
+        self.game_type.currentIndexChanged.connect(lambda _: self._update_visibility())
         card_lay.addWidget(self._field_row(t("Game Type", "遊戲類型"), self.game_type)[0])
 
         self.mode = _deck_combo()
@@ -1298,7 +1293,7 @@ class MenuPage(EndfieldPage):
         card_lay.addWidget(self.ai_o_row)
 
         self.mcts = QSlider(Qt.Horizontal)
-        self.mcts.setRange(200, 30000)  # the C engine makes big budgets affordable (D27)
+        self.mcts.setRange(200, 30000)  # the C engine makes big budgets affordable
         self.mcts.setSingleStep(100)
         self.mcts.setValue(800)
         card_lay.addWidget(
@@ -1315,7 +1310,7 @@ class MenuPage(EndfieldPage):
             )[0]
         )
 
-        # D33: Go-style clock — main time, then byo-yomi periods (N × T s)
+        # Go-style clock — main time, then byo-yomi periods (N × T s)
         self.clock_preset = _deck_combo()
         self.clock_preset.addItem(t("No clock", "不計時"), "off")
         self.clock_preset.addItem(t("Blitz: 3 min + 3×10s", "快棋：3 分 + 3×10 秒"), "blitz")
@@ -1333,7 +1328,7 @@ class MenuPage(EndfieldPage):
         self.assistant.setChecked(True)
         card_lay.addWidget(self.assistant)
 
-        # D40: AZNet policy heat on the empty cells — dormant until a trained
+        # AZNet policy heat on the empty cells — dormant until a trained
         # model exists (models/az_ultimate.pt), harmless when off, so default on.
         self.policy_heat = QCheckBox(t("Assistant policy heat (AZ)", "助手策略熱圖（AZ）"))
         self.policy_heat.setChecked(True)
@@ -1377,6 +1372,22 @@ class MenuPage(EndfieldPage):
         self.first_row.setVisible(mode == "pvc")
         self.ai_x_row.setVisible(mode == "cvc")
         self.ai_o_row.setVisible(mode in ("pvc", "cvc"))
+        # capability matrix (D65): the engine menus follow the board size —
+        # the MCTS family has no Normal backend
+        opts = ai_options_for(self.game_type.currentData())
+        fallbacks = {"ultimate": ("Minimax", "MCTS"), "normal": ("Minimax", "Minimax")}[
+            self.game_type.currentData()
+        ]
+        for combo, fallback in ((self.ai_x, fallbacks[0]), (self.ai_o, fallbacks[1])):
+            cur = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            for key, label in opts.items():
+                combo.addItem(label, key)
+            combo.setCurrentIndex(
+                max(0, list(opts).index(cur)) if cur in opts else list(opts).index(fallback)
+            )
+            combo.blockSignals(False)
         if mode == "pvc":
             label = (
                 t("Computer (X) — AI Level", "電腦 (X) — AI 等級")
@@ -1425,12 +1436,12 @@ class GamePage(EndfieldPage):
         self.step_idx = 0
         self.cvc_timer = QTimer(self)
         self.cvc_timer.timeout.connect(self.cvc_tick)
-        self._bar_pos = (1.0, 0.0)  # last drawn X/O split (D31)
+        self._bar_pos = (1.0, 0.0)  # last drawn X/O split
         self._bar_anim = QVariantAnimation(self)
         self._bar_anim.setDuration(250)
         self._bar_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._bar_anim.valueChanged.connect(self._on_bar_anim)
-        # D33: Go-style clocks (main time + byo-yomi periods), per side
+        # Go-style clocks (main time + byo-yomi periods), per side
         self.clock = None  # {'X': {...}, 'O': {...}} when enabled
         self._time_loss = None  # side that lost on time
         self._clock_tick_t = None  # monotonic reference for the last tick
@@ -1455,7 +1466,7 @@ class GamePage(EndfieldPage):
         root.addWidget(self._build_footer())
 
     def _build_command_bar(self):
-        """D34: single dark command bar (constant #161616) — brand block,
+        """single dark command bar (constant #161616) — brand block,
         transport, step field, dual clock, actions. Replaces the old header
         row + control bar + clock chip row (reference: audio-terminal nav)."""
         bar = QFrame()
@@ -1670,7 +1681,7 @@ class GamePage(EndfieldPage):
         return hist_card
 
     def _build_assistant_card(self):
-        """Assistant card: win-rate bar, scanning rail, AI thinking line (D24)
+        """Assistant card: win-rate bar, scanning rail, AI thinking line
         and the Best Moves list with its endfield hatch empty state."""
         az_card = QFrame()
         az_card.setObjectName("card")
@@ -1713,7 +1724,7 @@ class GamePage(EndfieldPage):
         scan_row.addSpacing(8)
         scan_row.addWidget(self.scan_lbl)
         az_lay.addLayout(scan_row)
-        # AI thinking line (D24): live search progress while the engine runs,
+        # AI thinking line: live search progress while the engine runs,
         # then the post-move summary — both live next to the move list so the
         # side panel is where "what is the AI doing" is read.
         self.think_lbl = QLabel("")
@@ -1779,11 +1790,11 @@ class GamePage(EndfieldPage):
     def new_game(self):
         s = self.session
         self.game_id += 1
-        self.game = NormalGame() if s["game_type"] == "normal" else UltimateGame()
+        self.game = NormalGame() if s["game_type"] == "normal" else RustUltimateGame()
         s["game"] = self.game
         self.play_again_btn.setVisible(False)
         self.new_btn.setVisible(True)
-        # D33: init Go-style clocks (X moves first — X's clock starts now)
+        # init Go-style clocks (X moves first — X's clock starts now)
         preset = s.get("clock")
         if preset:
             self.clock = {
@@ -2013,7 +2024,7 @@ class GamePage(EndfieldPage):
     # -- moves -------------------------------------------------------------
 
     def on_cell_click(self, move):
-        if self._time_loss:  # D33: lost on time — the game is over
+        if self._time_loss:  # lost on time — the game is over
             return
         game = self.game
         if game.is_over() or self.busy or is_ai_turn(self.session):
@@ -2071,7 +2082,7 @@ class GamePage(EndfieldPage):
         else:
             self.update_cvc_controls()
 
-    # -- clock (D33: Go-style main time + byo-yomi periods) ----------------
+    # -- clock (: Go-style main time + byo-yomi periods) ----------------
 
     @staticmethod
     def _fmt_main(seconds):
@@ -2123,7 +2134,7 @@ class GamePage(EndfieldPage):
         log.info("Time out: %s loses on time", side)
 
     def _update_clock_chips(self):
-        """D34: one clock readout in the command bar — `✕ 3:00 │ ○ 2:41`,
+        """one clock readout in the command bar — `✕ 3:00 │ ○ 2:41`,
         the side to move in signal yellow; a byo-yomi side becomes a
         yellow-filled tag (the endfield 'look at this' block)."""
         if self.clock is None:
@@ -2220,7 +2231,7 @@ class GamePage(EndfieldPage):
         self.think_lbl.setVisible(True)
 
     def _show_thinking_trace(self):
-        """Completion status (D24, simplified): engine + wall time — enough
+        """Completion status (simplified): engine + wall time — enough
         to see the AI finished and how long it took."""
         engine = (getattr(self, "_last_trace", None) or {}).get("engine", "AI")
         elapsed = time.monotonic() - getattr(self, "_ai_started", time.monotonic())
@@ -2314,7 +2325,7 @@ class GamePage(EndfieldPage):
             self.analysis_list.addItem(t("Assistant disabled", "助手已關閉"))
 
     def on_heat_toggled(self, checked):
-        """D40: flip the AZ policy heat live — off clears the overlay, on
+        """flip the AZ policy heat live — off clears the overlay, on
         re-runs the analysis (the worker computes the priors)."""
         self.session["policy_heat"] = checked
         if not checked:
@@ -2423,11 +2434,8 @@ class GamePage(EndfieldPage):
         self.az_hatch.setVisible(not items)
         self.analysis_list.setVisible(bool(items))
         x, d, o = rates
-        # Readout spans the FULL outcome distribution (a draw-expected
-        # position used to collapse to a meaningless "X 0% · O 0%" — the
-        # user-caught design bug). The mono capital O reads as zero, so
-        # the sides use the ✕/○ marks with their board colors instead of
-        # bare letters.
+        # Readout spans the full distribution: X/D/O shares with the board marks,
+        # since mono "O" reads as zero.
         tot3 = x + d + o
         if tot3 > 0:
             rx, rd, ro = x / tot3, d / tot3, o / tot3
@@ -2437,7 +2445,7 @@ class GamePage(EndfieldPage):
         if tot > 0:
             x, o = x / tot, o / tot
         self.win_bar.setVisible(True)
-        # D31: slide the X/O bar to the new split instead of jumping
+        # slide the X/O bar to the new split instead of jumping
         old_x, old_o = self._bar_pos
         if anim_enabled() and (abs(old_x - x) > 0.005 or abs(old_o - o) > 0.005):
             self._bar_anim.stop()
@@ -2483,9 +2491,9 @@ class GamePage(EndfieldPage):
             result,
             "Normal" if isinstance(self.game, NormalGame) else "Ultimate",
         )
-        self._clock_timer.stop()  # game over: clocks freeze (D35 review)
+        self._clock_timer.stop()  # game over: clocks freeze (review)
         self._update_clock_chips()
-        self.board.animate_win_line()  # D31: strike line draws in
+        self.board.animate_win_line()  # strike line draws in
         self._chart_fit_all()  # compress the whole curve into view
         # No popup: a prominent "Play Again" button replaces New Game.
         self.play_again_btn.setVisible(True)
@@ -2493,7 +2501,7 @@ class GamePage(EndfieldPage):
 
 
 # ---------------------------------------------------------------------------
-# Settings page (D28): flips engine switches from config.toml and persists
+# Settings page: flips engine switches from config.toml and persists
 # them back with save_engine_config (comments survive).
 # ---------------------------------------------------------------------------
 
@@ -2548,7 +2556,7 @@ class SettingsPage(EndfieldPage):
             "MCTS SEARCH",
             "MCTS 搜尋行為",
             "影響 MCTS 搜尋策略與棋力。未標註的開關 C 樹與 Python 路徑皆生效"
-            "（D37）；標註「僅 Python 路徑」者不影響 C 引擎。"
+            "標註「僅 Python 路徑」者不影響 C 引擎。"
             "多執行緒在 C 樹並行，C 關閉時則走 Python 的並行回退。",
             [
                 "rollout_heuristic",

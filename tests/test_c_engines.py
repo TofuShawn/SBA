@@ -12,7 +12,8 @@ import pytest
 
 from engines import ai
 from engines.ai import get_ai_move, set_engine_config
-from core.game import X, UltimateGame, apply_move
+from az.rustbridge import RustUltimateGame
+from core.game import NormalGame, apply_move
 
 DLL = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "engines", "sba_engine.dll"
@@ -23,16 +24,13 @@ pytestmark = pytest.mark.skipif(not os.path.isfile(DLL), reason="native engine D
 def _forced_win():
     """Exactly one immediate game win, deliberately NOT the first legal
     move so a missing tie-break is visible."""
-    g = UltimateGame()
-    g.macro = [X, X, ""] + [""] * 6
-    g.micro[2] = ["", "", "", "", X, "", X, "", ""]
-    g.active_macro = 2
-    g.current = X
-    return g
+    from conftest import rust_game_from_bits
+
+    return rust_game_from_bits(px={2: (1 << 4) | (1 << 6)}, mx=0b000000011, current=0, active=2)
 
 
 def _out_of_book():
-    g = UltimateGame()
+    g = RustUltimateGame()
     apply_move(g, (0, 0))
     apply_move(g, (0, 4))
     return g
@@ -73,7 +71,7 @@ def test_c_rave_tree_reuse():
 
 
 def test_c_rave_symmetry_dedups_the_root():
-    g = UltimateGame()  # empty board: 81 root children before dedup
+    g = RustUltimateGame()  # empty board: 81 root children before dedup
     off = _ce().rave_search(g, 300, opts={"symmetry": 0})[1]
     on = _ce().rave_search(g, 300, opts={"symmetry": 1})[1]
     assert len(off) == 81
@@ -97,31 +95,15 @@ def test_dispatch_raves_use_the_c_backend(monkeypatch):
     assert calls == [False, True]
 
 
-def test_dispatch_raves_fall_back_to_python(monkeypatch):
-    """c_mcts off -> the pure-Python RAVE/GRAVE trees answer (the DLL-less
-    contract). The spy wraps the OWNING module's functions."""
-    from engines import mcts
-
-    calls = []
-    orig_rave = mcts.mcts_rave_search
-    orig_grave = mcts.mcts_grave_search
-
-    def spy_rave(*a, **kw):
-        calls.append("rave")
-        return orig_rave(*a, **kw)
-
-    def spy_grave(*a, **kw):
-        calls.append("grave")
-        return orig_grave(*a, **kw)
-
-    monkeypatch.setattr(ai, "mcts_rave_search", spy_rave)
-    monkeypatch.setattr(ai, "mcts_grave_search", spy_grave)
+def test_dispatch_raves_require_the_c_backend():
+    """c_mcts off -> a clear RuntimeError (the pure-Python RAVE/GRAVE trees
+    retired with the removal project; there is no DLL-less MCTS contract)."""
     set_engine_config({"engine": {"c_mcts": False}})
     try:
         g = _out_of_book()
-        assert get_ai_move(g, "MCTS+RAVE", 100) in g.legal_moves()
-        assert get_ai_move(g, "MCTS+GRAVE", 100) in g.legal_moves()
-        assert calls == ["rave", "grave"]
+        for engine in ("MCTS", "MCTS+RAVE", "MCTS+GRAVE"):
+            with pytest.raises(RuntimeError):
+                get_ai_move(g, engine, 100)
     finally:
         set_engine_config()
 
@@ -213,11 +195,9 @@ def test_c_minimax_pro_dispatch_and_normal_delegation(monkeypatch):
 def test_c_minimax_pro_prefers_the_faster_win():
     """(2,2) completes the macro line immediately — ID negamax must pick
     the forced win over any slower plan."""
-    g = UltimateGame()
-    g.macro = [X, X, ""] + [""] * 6
-    g.micro[2] = [X, X, ""] + [""] * 6
-    g.active_macro = 2
-    g.current = X
+    from conftest import rust_game_from_bits
+
+    g = rust_game_from_bits(px={2: 3}, mx=0b000000011, current=0, active=2)
     assert _ce().minimax_pro(g, 5) == (2, 2)
 
 
@@ -287,7 +267,7 @@ def test_c_minimax_pro_switches_change_the_search():
     lib = ce._load()
     if lib is None or not ce._has_engine:
         pytest.skip("full engine DLL not built")
-    g = UltimateGame()
+    g = RustUltimateGame()
     for mv in (
         (7, 1),
         (1, 3),
@@ -334,3 +314,38 @@ def test_c_minimax_pro_switches_change_the_search():
     assert off[1] == on[1]  # pruning must not change the score
     assert off[0] != on[0]  # ...but root ordering breaks the tie
     assert best_for(use_eval_ordering=1)[0] == on[0]
+
+
+def test_tb_init_export_runs_at_load_and_is_idempotent():
+    """D63: the minimax micro tablebase is built once at DLL load
+    (cengine._load calls sba_minimax_tb_init right after binding) instead of
+    lazily inside eval_ultt. The export must exist, report the table ready,
+    and stay safe under repeated calls (the C guard is an atomic CAS)."""
+    ce = _ce()
+    assert ce.available(engine=True)
+    fn = getattr(ce._lib, "sba_minimax_tb_init", None)
+    assert fn is not None
+    assert fn() == 1
+    assert fn() == 1
+    # a tablebase-driven eval still answers (minimax_ultimate is tb-aware)
+    assert ce.minimax_ultimate(_forced_win(), 4) == (2, 2)
+
+
+def test_move_text_and_tt_key_shapes():
+    """The UI-facing move labels and the position hash: int = Normal,
+    tuple = ultimate (macro-badge prefix); the hash covers 81 micro cells
+    + 9 macro badges with dots for empties."""
+    from engines.cbridge import _tt_key, move_text
+
+    assert move_text(4) == "(2,2)"
+    assert move_text((4, 4)) == "B5 (2,2)"
+    n = NormalGame()
+    n.make_move(4)
+    assert _tt_key(n).count(".") == 8  # the taken cell is no longer a dot
+    ru = RustUltimateGame()
+    ru.make_move(4, 4)
+    key = _tt_key(ru)
+    # ultimate layout: 81 micro cells + "|" + routing macro + side to move
+    # (X played, so it is O's turn — the flip is unconditional on ultimate)
+    assert len(key) == 84 and key.count(".") == 80
+    assert key.endswith("|4O")

@@ -22,6 +22,9 @@ command-line quoting from scratch.
   release workflow (written notes from `docs/releases/<tag>.md`).
 - **`dev`** — the integration branch. CI also runs on push, so work lands
   here CI-green before any merge to main. Feature branches PR into `dev`.
+- **`archive/*`** — frozen history, never merged: `python-reference` is the
+  Python implementation the Rust core replaced, `refactored` is the UI
+  rewrite line from late 2026. Kept for archaeology, not for work.
 
 ## Tasks / 常用命令
 
@@ -30,17 +33,39 @@ command-line quoting from scratch.
 | `python dev.py build` | compile all natives: sba_engine.dll (C), sba_game.dll (Rust state layer), the sba-core bench binary |
 | `python dev.py test` | the pytest suite (args forwarded; count via `pytest tests --collect-only -q`) |
 | `python dev.py lint` | ruff check (F+E9+E7+B+SIM+PERF, see pyproject.toml) |
+| `python dev.py mypy` | mypy on the two ctypes FFI boundary modules (`engines/cengine.py` + `az/rustbridge.py`, `--check-untyped-defs`; scope config in pyproject `[tool.mypy]`) |
+| `python dev.py complexity` | C901 on `src/ui` + AST function-length report (>50 lines, `def` line to block end) on `src/` — warn-only, always exit 0 (graduates into a gate after the GamePage split) |
 | `python dev.py format` | ruff format --check (CI gate; `format-write` applies) |
+| `python dev.py fmt` | `cargo fmt --all -- --check` (CI gate; `fmt-write` applies across the workspace) |
 | `python dev.py clippy` | cargo clippy -D warnings on sba-game |
 | `python dev.py clippy-core` | cargo clippy -D warnings on sba-core (CI Linux gate, default wgpu) |
 | `python dev.py cgate` | C warnings gate: `-Wall -Wextra -Werror` over all five C files |
-| `python dev.py bench-rust` | the Rust state-layer A/B harness |
 | `python dev.py bench-selfplay` | self-play A/B: mp.Pool path vs rust exe (pos/s, speedup; D56) |
 | `python dev.py test-rust` | cargo test: sba-game (default) + sba-core (cpu backend, no GPU) |
+| `python dev.py coverage` | the pytest suite with coverage; the floor (65%) lives in pyproject `[tool.coverage.report]` |
 
-A "ready to commit" state = `lint` + `format` + `clippy` + `clippy-core`
-+ `cgate` + `test-rust` + `test` all green. CI runs the same gates (plus
-the CLI entry smoke) on both ubuntu and windows.
+A "ready to commit" state = `lint` + `format` + `fmt` + `mypy` + `clippy`
++ `clippy-core` + `cgate` + `test-rust` + `test` all green. CI runs the
+same gates (plus the CLI entry smoke and, on Linux, the coverage floor) on
+both ubuntu and windows.
+
+## Commit convention / 提交規範
+
+Conventional Commits in the house style; `.gitmessage` is the commit
+template — set it once per clone with
+`git config commit.template .gitmessage` (repo-local config, already set
+here):
+
+- **Type**: `feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `ci`
+- **Scope**: the area touched — `sba-core`, `sba-game`, `az-train`,
+  `selfplay-bridge`, `engines`, `qt`, `tui`, `config`, `deps`, `structure`;
+  omitted for repo-wide docs/chore
+- **Subject**: imperative, lowercase start, no trailing period; an em-dash
+  clause for the why/how when it fits —
+  `fix(config): TOML-safe save — section-bounded rewriter, verify-before-write`
+- **Body**: the why plus the evidence — gates run (with counts), numbers
+  measured, the decision (Dxx) it implements; never a diff narration
+- One logical change per commit, intermediate states green
 
 ## Layout / 佈局
 
@@ -50,10 +75,11 @@ Python modules group into one-level function packages; `config.py` stays
 the root leaf anchor.
 
 - `src/core/` — the game state layer: `game.py` (rules + bitboards)
-- `src/engines/` — the AI search stack: `ai.py` (the facade), `mcts.py`,
-  `minimax.py`, `cbridge.py`, `cengine.py` (the ctypes boundary), plus
+- `src/engines/` — the AI search stack: `ai.py` (the facade),
+  `cbridge.py`, `cengine.py` (the ctypes boundary), plus
   the five C engines (`sba_*.c` + `sba_ultt.h`) and the `sba_engine.dll`
-  build.py compiles from them
+  build.py compiles from them — the native engine IS the search backend
+  (the pure-Python mcts/minimax stack retired with the removal project)
 - `src/az/` — the AlphaZero stack: `alphazero.py` (training +
   self-play), `rustselfplay.py`, `rustbridge.py`, plus the `sba_game.dll`
   state-layer cdylib build.py copies there
@@ -68,7 +94,7 @@ the root leaf anchor.
   `Cargo.toml` is a minimal workspace (members + profiles), one
   `Cargo.lock`, cargo output in the root `target/`
 - `src/tools/` — the dev harnesses: `build.py` (C DLL + cdylib copy),
-  `bench_rust.py`, `bench_selfplay.py`, `parity_search.py`
+  `bench_selfplay.py`, `parity_search.py`
 - `tests/` — the pytest suite; DLL-gated files skip themselves cleanly
   (count via `pytest tests --collect-only -q`)
 - `docs/decisions.md` — every design decision, append-only (D1…)

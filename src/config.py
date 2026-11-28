@@ -33,27 +33,21 @@ def writable_path(path):
     guard for the write helpers; reads use the same rule)."""
     raw = str(path)
     # Check the RAW path: realpath() resolves '..' away, so testing the
-    # normalized string could never fire (a dead guard until D53 review).
+    # normalized string could never fire (a dead guard until review).
     # Split on both separators so Windows paths behave on POSIX too.
     if ".." in raw.replace("\\", "/").split("/"):
         raise ValueError("path may not contain ..: %s" % raw)
-    rp = os.path.realpath(raw)  # 1. 规范化
+    rp = os.path.realpath(raw)
     if not any(rp == r or rp.startswith(r + os.sep) for r in _ALLOWED_ROOTS):
-        raise ValueError("write path outside repo/temp: %s" % raw)  # 2. 限目录
+        raise ValueError("write path outside repo/temp: %s" % raw)
     return rp
 
 
-# kept so older call sites / external scripts do not break; new code uses
-# the public name above
+# Legacy alias; new code uses `writable_path`.
 _writable_path = writable_path
 
 
-# the $SBA_CONFIG override: applied HERE at import time, not in the entry
-# shims. By the time a shim's `from SBA import main` returns, CONFIG below
-# has already been loaded from _CONFIG_PATH — an entry-time mutation would
-# leave reads on the old file while save_engine_config (which reads
-# _CONFIG_PATH at call time) writes the new one. Import time is one place
-# that every entry point hits identically.
+# $SBA_CONFIG is applied at import time so every entry point sees one file.
 if os.environ.get("SBA_CONFIG"):
     try:
         _CONFIG_PATH = writable_path(os.environ["SBA_CONFIG"])
@@ -81,18 +75,15 @@ _CFG_DEFAULTS = {
         "opening_book": True,
         "micro_tablebase": True,
         "symmetry": True,
-        "object_pool": True,
-        "bitboard": False,
         "c_rollout_pattern": False,
         "c_mcts": True,
         "c_minimax": True,
-        "rust_game": True,  # D48: Rust state layer for AZ self-play
         "multithreaded": False,
         "use_lmr": True,
         "use_killers": True,
         "use_aspiration": True,
         "use_eval_ordering": True,
-        "pro_time_ms": 8000,  # Minimax Pro per-move wall-clock cap (D51)
+        "pro_time_ms": 8000,  # Minimax Pro per-move wall-clock cap
         "uct_c": 1.4,
         "rave_k": 150,
         "tt_max": 300000,
@@ -103,11 +94,7 @@ _CFG_DEFAULTS = {
     "session": {"mcts_budget": 800, "minimax_depth": 4},
 }
 
-# "significantly visited" threshold, shared by every engine and by the
-# assistant panel: a child needs at least
-# max(MIN_VISIT_FLOOR, budget // MIN_VISIT_DIVISOR) visits before it may be
-# called the best move. One definition, so the recommendation shown in the
-# UI and the move the engine plays cannot disagree.
+# Shared visit threshold for "best move" so the UI hint and the engine agree.
 MIN_VISIT_FLOOR = 5
 MIN_VISIT_DIVISOR = 100
 
@@ -118,13 +105,7 @@ EARLY_STOP_AT = 0.7
 EARLY_STOP_SHARE = 0.6
 EARLY_STOP_WR = 0.55
 
-# How long a multiprocess self-play game may stay silent before the parent
-# assumes its worker died and resubmits it. Generous on purpose: a slow CPU
-# game with a big net is minutes, not an hour.
-# Shared by alphazero (mp.Pool games) and rustselfplay (exe rounds, watchdog
-# + default timeout): it lives here — the leaf of the import graph — because
-# Task 9 imports rustselfplay FROM alphazero, so rustselfplay importing the
-# constant back from alphazero would be a cycle.
+# Silence budget for one self-play game; lives here (import-graph leaf) to avoid a cycle.
 MP_GAME_TIMEOUT = 3600.0
 
 # self-play temperature floor: the campaign schedule max(TEMP_MIN, 1 - i/games)
@@ -134,7 +115,7 @@ TEMP_MIN = 0.05
 
 def _load_config():
     """Load config.toml as a dict; missing/broken file -> {}."""
-    path = writable_path(_CONFIG_PATH)  # 规范化 + 禁止 .. + 限 repo/系统暂存目录
+    path = writable_path(_CONFIG_PATH)
     try:
         with open(path, "rb") as fh:
             return tomllib.load(fh)
@@ -169,22 +150,7 @@ def cfg_session(name, default=None):
     return CONFIG.get("session", {}).get(name, _CFG_DEFAULTS["session"].get(name, default))
 
 
-# ============================================================
-# TOML persistence
-#
-# A regex is not a TOML parser, so the rewrite is deliberately narrow:
-#   * only [engine] / [session] scalar keys are touched;
-#   * the key line must sit INSIDE its own section (the text is split on
-#     section headers first, so a same-named key in another section is
-#     never rewritten);
-#   * the value pattern accepts every legal spelling -- sign, digit
-#     separators, hex/oct/bin -- so a hand-written `300_000` is matched
-#     instead of being mistaken for a missing key (that mistake used to
-#     append a duplicate key and destroy the file);
-#   * the result is re-parsed and compared against the overrides before
-#     anything is written; a mismatch aborts the save.
-# ============================================================
-
+# TOML persistence: a narrow regex rewrite, verified by re-parsing before write.
 _SECTION_RE = re.compile(r"^\[([^\]]+)\]\s*$")
 
 # one legal TOML scalar: bool, int (with separators / radix prefixes) or
@@ -308,7 +274,7 @@ def _atomic_write(path, text):
 
 
 def save_engine_config(overrides=None):
-    """Apply overrides at runtime AND persist them to config.toml (D28).
+    """Apply overrides at runtime AND persist them to config.toml.
 
     The file is the source of truth: only the keys explicitly handed in are
     rewritten, so hand-managed values (the opening-book table, [session]
