@@ -89,6 +89,8 @@ window.MathJax = {
 
 <p>報告中所有程式碼區塊皆逐字引用專案原始碼並標註檔名與行號；所有歷史數據標註來源（<span class="kbd">docs/decisions.md</span> 決策編號 D1–D35、<span class="kbd">docs/rocm-wsl2.md</span> 環境記錄、本機實測與訓練日誌）。若描述與實際程式碼衝突，一律以實際程式碼為準，並於附錄集中註明差異。<b>評分慣例</b>：本報告所有對戰一律採「得分率 =（勝 + 0.5 × 和）／局數」，並在每張表標明局數 \(n\) 與誤差 \(\pm\sigma\)（\(\sigma \approx 50\%/\sqrt{n}\)，為保守上界）。</p>
 
+<div class="note"><b>v1.3 現況注記（2026-11-28，對應 v0.5.0）</b>：本報告所走讀的純 Python 引擎堆疊已於 v0.5.0 移除（D65）——<span class="kbd">engines/mcts.py</span>（UCT／RAVE／GRAVE）、<span class="kbd">engines/minimax.py</span>，以及純 Python 規則實作 <span class="kbd">UltimateGame</span>／<span class="kbd">BitUltimateGame</span>。現行架構為：<b>C 引擎是唯一搜尋後端</b>（§3.8），<b>Rust 狀態層是規則實作</b>（<span class="kbd">az.rustbridge</span>），Python 側僅存訓練層。第 2.4、3.3、3.5、5.3、5.4 節自此為<b>歷史走讀</b>（各節頭已標註）；被移除實作的對外契約由兩組金樣本逐位錨定（<span class="kbd">tests/golden/</span>）。</div>
+
 <h3>1.2 貢獻</h3>
 <ul>
   <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）[10]、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）[3]、MCTS+RAVE[5,6]、MCTS+GRAVE[7]、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。現行優化下 MCTS/RAVE/GRAVE 於 30 局/對、300 sims 循環賽中<b>統計持平</b>（51.7% / 48.3% / 45.0%，n = 30／對，±9%，D21 取代 D8/D12 的舊排名）。</li>
@@ -242,6 +244,7 @@ window.MathJax = {
 <p><span class="kbd">winner()</span>（第 113–117 行）只在宏觀層判定：檢查 <span class="kbd">LINES</span> 八條連線（三行、三列、兩對角線）上是否出現三個相同的 <span class="kbd">X</span>/<span class="kbd">O</span> 宏觀佔領。小九宮格內部勝負由 <span class="kbd">micro_winner()</span> 委託共用的 <span class="kbd">line_winner()</span>（第 17–24 行）。<span class="kbd">is_full()</span> 定義為「所有宏觀格皆不可開放」，而 <span class="kbd">result()</span> 依序回傳：宏觀勝者 → 全滿平局 <span class="kbd">'D'</span> → <span class="kbd">None</span>（未結束）。值得注意的是 UTTT 的平局比普通井字棋常見得多：小九宮格可以互為平手（'D'），只要宏觀層無人連線，即使棋盤近乎全滿仍可能和棋。</p>
 
 <h3>2.4 BitUltimateGame：位板表示與等價性</h3>
+<div class="note"><b>v1.3 現況</b>：BitUltimateGame 已隨 v0.5.0 移除（D65）——位板表示由 Rust 狀態層承接（81-bit x/o、9-bit mx/mo 的 ABI 見 <span class="kbd">az.rustbridge.SbaState</span>），位板／列表等價性由金樣本與 <span class="kbd">tests/test_rustgame.py</span> 的契約 pin 承載。本節為歷史走讀。</div>
 <p>位板版把 81 個格子的 X/O 佔位壓成兩個 81-bit 整數，宏觀佔領壓成兩個 9-bit 整數，並以 <span class="kbd">__slots__</span>（第 150 行）省去執行個體字典的記憶體。其關鍵設計：</p>
 <ul>
   <li><b>小九宮格取掩碼</b>：<span class="kbd">_micro_bits(m) = ((x | o) &gt;&gt; (m * 9)) &amp; 0x1FF</span>（第 185–186 行），一次位移即可取得某宏觀格的 9-bit 佔位。</li>
@@ -499,6 +502,7 @@ def encode(game):
 </div>
 
 <h3>3.3 eval_ultimate：宏觀/微觀啟發式評估</h3>
+<div class="note"><b>v1.3 現況</b>：eval_ultimate 已於 v0.5.0 移除（唯一消費者是已刪除的純 Python 引擎）；微觀殘局值由 C Minimax 評估器承載（<span class="kbd">micro_tablebase</span> 開關持續生效）。本節為歷史走讀。</div>
 <p><span class="kbd">eval_ultimate()</span>（第 188–222 行）是終極模式的靜態局面評估，由四層訊號加總：</p>
 <ul>
   <li><b>宏觀佔領 ±1000</b>：每個已贏的小九宮格是壓倒性訊號（第 194–197 行）。</li>
@@ -564,6 +568,7 @@ def encode(game):
 </div>
 
 <h3>3.5 MCTS 家族</h3>
+<div class="note"><b>v1.3 現況</b>：純 Python MCTS 家族（engines/mcts.py 的 UCT／RAVE／GRAVE 樹）已於 v0.5.0 移除——MCTS／MCTS+RAVE／MCTS+GRAVE 現由 C 引擎承載（§3.8），且僅適用 Ultimate 盤面（能力矩陣見 D65）。本節為歷史走讀。</div>
 
 <h4>3.5.1 MCTS（UCT）：動態 UCT、啟發式 rollout 與樹重用</h4>
 <p><span class="kbd">MCTSNode.best_child()</span>（第 308–318 行）實作標準 UCT[3]：</p>
@@ -1352,6 +1357,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 </div>
 
 <h3>5.3 Minimax Pro 核心：_negamax_tt 與置換表</h3>
+<div class="note"><b>v1.3 現況</b>：engines/minimax.py（含 _negamax_tt）已於 v0.5.0 移除——Minimax Pro 由 C negamax 承載（tt_max / use_lmr / use_killers / use_aspiration / use_eval_ordering / pro_time_ms 開關直達 C 後端，§3.4）。本節為歷史走讀。</div>
 <div class="code-block">
   <input class="code-toggle" type="checkbox" id="cb-21">
   <label class="codecap" for="cb-21"><span><span class="tag">ai.py</span> 第 1053–1106 行 — _negamax_tt：置換表 + LMR + Killer 的 negamax 核心</span><span>Minimax Pro</span><span class="code-hint"></span></label>
@@ -1412,6 +1418,7 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
 </div>
 
 <h3>5.4 並行 MCTS 合併根統計</h3>
+<div class="note"><b>v1.3 現況</b>：mcts_move_parallel 已於 v0.5.0 移除——真正的並行由 C 樹根節點並行承載（<span class="kbd">multithreaded</span> + <span class="kbd">workers</span> 開關，thread 0 攜帶重用樹）。本節為歷史走讀。</div>
 <div class="code-block">
   <input class="code-toggle" type="checkbox" id="cb-22">
   <label class="codecap" for="cb-22"><span><span class="tag">ai.py</span> 第 1281–1316 行 — mcts_move_parallel：多執行緒獨立搜尋、合併根統計</span><span>並行 MCTS</span><span class="code-hint"></span></label>
