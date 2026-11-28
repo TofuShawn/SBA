@@ -22,6 +22,11 @@ command-line quoting from scratch.
   release workflow (written notes from `docs/releases/<tag>.md`).
 - **`dev`** — the integration branch. CI also runs on push, so work lands
   here CI-green before any merge to main. Feature branches PR into `dev`.
+- **Merges are squash-only** (repo setting — merge commits and rebase
+  merges are disabled): one commit per PR on `main`, so a release tag maps
+  to exactly the shipped content, and the dev-side fix-up chain (format /
+  CI follow-ups) never leaks into the release line. Keep PR titles
+  conventional-commit shaped — the squash commit inherits the title.
 - **`archive/*`** — frozen history, never merged: `python-reference` is the
   Python implementation the Rust core replaced, `refactored` is the UI
   rewrite line from late 2026. Kept for archaeology, not for work.

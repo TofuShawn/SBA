@@ -33,8 +33,12 @@ except ImportError:  # pragma: no cover
     print("需要 fontTools（pip install fonttools brotli）", file=sys.stderr)
     raise SystemExit(2)
 
-DEFAULT_SERIF = r"C:\Windows\Fonts\NotoSerifTC-VF.ttf"
-DEFAULT_SANS = r"C:\Windows\Fonts\NotoSansTC-VF.ttf"
+# The VF is vendored in-repo (OFL — see docs/assets/fonts/OFL.txt) so the
+# build is reproducible on any machine, including the release runner; the
+# Windows system font stays as the fallback for local runs.
+_REPO_VF = Path(__file__).resolve().parents[2] / "docs" / "assets" / "fonts" / "NotoSansTC-VF.ttf"
+DEFAULT_SERIF = str(_REPO_VF) if _REPO_VF.is_file() else r"C:\Windows\Fonts\NotoSerifTC-VF.ttf"
+DEFAULT_SANS = str(_REPO_VF) if _REPO_VF.is_file() else r"C:\Windows\Fonts\NotoSansTC-VF.ttf"
 
 # 除了文件實際用到的字元，額外保留這些常用區段，避免內嵌後缺字：
 SAFETY_RANGES = [

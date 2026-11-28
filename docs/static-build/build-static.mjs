@@ -328,7 +328,9 @@ const hljsCss = [
 html = html.replace(/<link\b[^>]*href="https?:\/\/[^"]*highlight[^"]*"[^>]*>/gi, () => {
   if (!hljsCss) { stats.warnings.push('找不到 highlight.js 主題 CSS，程式碼區塊會沒有顏色'); return ''; }
   stats.linksInlined++;
-  return `<style>\n/* highlight.js github-dark（建置時內嵌，原本從 CDN 載入） */\n${fs.readFileSync(hljsCss, 'utf8')}\n</style>`;
+  return `<style>\n/* highlight.js github-dark theme — © highlight.js contributors,
+ *    BSD-3-Clause (https://github.com/highlightjs/highlight.js);
+ *    embedded at build time (originally CDN-loaded). */\n${fs.readFileSync(hljsCss, 'utf8')}\n</style>`;
 });
 
 /* 6. 移除全部外部 script 與已失效的初始化 script；非預期的 inline script 保留並警告 */

@@ -89,6 +89,10 @@ window.MathJax = {
 
 <p>報告中所有程式碼區塊皆逐字引用專案原始碼並標註檔名與行號；所有歷史數據標註來源（<span class="kbd">docs/decisions.md</span> 決策編號 D1–D35、<span class="kbd">docs/rocm-wsl2.md</span> 環境記錄、本機實測與訓練日誌）。若描述與實際程式碼衝突，一律以實際程式碼為準，並於附錄集中註明差異。<b>評分慣例</b>：本報告所有對戰一律採「得分率 =（勝 + 0.5 × 和）／局數」，並在每張表標明局數 \(n\) 與誤差 \(\pm\sigma\)（\(\sigma \approx 50\%/\sqrt{n}\)，為保守上界）。</p>
 
+<p><b>授權 / License</b>：本報告文件（含樣式表）以 <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a> 授權發佈（署名—非商業性）；專案程式碼以 GPL-3.0-or-later 授權（見專案根目錄 <span class="kbd">LICENSE</span>）。This document (stylesheets included) is licensed under <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>; the project's code is GPL-3.0-or-later.<b>內嵌元件 / Embedded components</b>：Noto Sans TC 可變字型（SIL Open Font License 1.1，子集化內嵌）、語法高亮主題來自 highlight.js（BSD-3-Clause，建置時內嵌）、數學排版由 MathJax 3（Apache-2.0）於建置時轉為 inline SVG。</p>
+
+<div class="note"><b>v1.3 現況注記（2026-11-28，對應 v0.5.0）</b>：本報告所走讀的純 Python 引擎堆疊已於 v0.5.0 移除（D65）——<span class="kbd">engines/mcts.py</span>（UCT／RAVE／GRAVE）、<span class="kbd">engines/minimax.py</span>，以及純 Python 規則實作 <span class="kbd">UltimateGame</span>／<span class="kbd">BitUltimateGame</span>。現行架構為：<b>C 引擎是唯一搜尋後端</b>（§3.8），<b>Rust 狀態層是規則實作</b>（<span class="kbd">az.rustbridge</span>），Python 側僅存訓練層。第 2.4、3.3、3.5、5.3、5.4 節已於 v1.3 <b>深度改寫為現行實作走讀</b>（各節頭註明被移除實作的去向）；被移除實作的對外契約由兩組金樣本逐位錨定（<span class="kbd">tests/golden/</span>）。</div>
+
 <h3>1.2 貢獻</h3>
 <ul>
   <li><b>遊戲側成果</b>：實作並優化了完整的傳統演算法家族——Basic 規則引擎、Minimax（alpha-beta）[10]、Minimax Pro（negamax + 置換表 + Killer Move + LMR + Aspiration Window + 疊代加深）、MCTS（UCT）[3]、MCTS+RAVE[5,6]、MCTS+GRAVE[7]、Flat MCTS、Solver（3<sup>9</sup> 殘局表）與開局書；並完成位板（bitboard）表示、啟發式 rollout、樹重用、物件池、D4 對稱去重與多執行緒並行等工程優化（決策 D12）。現行優化下 MCTS/RAVE/GRAVE 於 30 局/對、300 sims 循環賽中<b>統計持平</b>（51.7% / 48.3% / 45.0%，n = 30／對，±9%，D21 取代 D8/D12 的舊排名）。</li>
@@ -241,165 +245,115 @@ window.MathJax = {
 <h3>2.3 勝負判定與平局</h3>
 <p><span class="kbd">winner()</span>（第 113–117 行）只在宏觀層判定：檢查 <span class="kbd">LINES</span> 八條連線（三行、三列、兩對角線）上是否出現三個相同的 <span class="kbd">X</span>/<span class="kbd">O</span> 宏觀佔領。小九宮格內部勝負由 <span class="kbd">micro_winner()</span> 委託共用的 <span class="kbd">line_winner()</span>（第 17–24 行）。<span class="kbd">is_full()</span> 定義為「所有宏觀格皆不可開放」，而 <span class="kbd">result()</span> 依序回傳：宏觀勝者 → 全滿平局 <span class="kbd">'D'</span> → <span class="kbd">None</span>（未結束）。值得注意的是 UTTT 的平局比普通井字棋常見得多：小九宮格可以互為平手（'D'），只要宏觀層無人連線，即使棋盤近乎全滿仍可能和棋。</p>
 
-<h3>2.4 BitUltimateGame：位板表示與等價性</h3>
-<p>位板版把 81 個格子的 X/O 佔位壓成兩個 81-bit 整數，宏觀佔領壓成兩個 9-bit 整數，並以 <span class="kbd">__slots__</span>（第 150 行）省去執行個體字典的記憶體。其關鍵設計：</p>
-<ul>
-  <li><b>小九宮格取掩碼</b>：<span class="kbd">_micro_bits(m) = ((x | o) &gt;&gt; (m * 9)) &amp; 0x1FF</span>（第 185–186 行），一次位移即可取得某宏觀格的 9-bit 佔位。</li>
-  <li><b>連線判定</b>：<span class="kbd">_win_mask()</span>（第 188–194 行）以 <span class="kbd">mask &amp; line == line</span> 檢查八條 3-bit 連線掩碼，X/O 各查一次。</li>
-  <li><b>開放性</b>：<span class="kbd">macro_open()</span>（第 204–207 行）先查宏觀掩碼是否已定局，再比較 <span class="kbd">_micro_bits(m) != 0x1FF</span>——一個 <span class="kbd">!=</span> 即完成「是否填滿」的檢查。</li>
-  <li><b>落子</b>：<span class="kbd">make_move()</span>（第 224–238 行）以 <span class="kbd">bit = 1 &lt;&lt; (m * 9 + i)</span> 定位，重複落子因 <span class="kbd">(self.x | self.o) &amp; bit</span> 為真而拋出 <span class="kbd">ValueError</span>，與列表版語意一致。</li>
-  <li><b>平局顯示</b>：<span class="kbd">macro</span> property（第 275–280 行）在掩碼未定局但九格全滿時回傳 <span class="kbd">'D'</span>，讓 UI 呈現與列表版完全一致。</li>
-</ul>
+<h3>2.4 RustUltimateGame：Rust 狀態層與等價性</h3>
+<div class="note"><b>v1.3 改寫</b>：本節原走讀純 Python 的 <span class="kbd">BitUltimateGame</span>，該實作已於 v0.5.0 移除（D65）。現行架構由 <b>Rust 狀態層</b>（<span class="kbd">src/sba-game/src/lib.rs</span> → <span class="kbd">sba_game.dll</span>）承載規則、<span class="kbd">az/rustbridge.py</span> 以 ctypes 包裝；位板／列表等價性由 <span class="kbd">tests/test_rustgame.py</span> 的契約 pin 與兩組金樣本（<span class="kbd">tests/golden/</span>）承載。</div>
+
+<p>架構分兩層：<span class="kbd">src/sba-game/src/lib.rs</span>（540 行）持有狀態 Box 與全部規則，對外只暴露 <span class="kbd">#[no_mangle] extern "C"</span> 的<b>不透明 handle</b>；<span class="kbd">az/rustbridge.py</span> 在 Python 側鏡像 ABI 並提供 <span class="kbd">UltimateGame</span> 介面的 duck-type。狀態本體是 9 個 16-bit 小棋盤掩碼 ×2（<span class="kbd">px</span>/<span class="kbd">po</span>）加 9-bit 宏觀徽章 ×2（<span class="kbd">mx</span>/<span class="kbd">mo</span>）——與原 BitUltimateGame 的位板設計同構，但<b>權威狀態住在 Rust 側</b>：Python 只持有 handle 與兩個鏡像欄位（<span class="kbd">current</span>／<span class="kbd">active_macro</span>，讀取免 FFI）。</p>
 
 <div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-3">
-  <label class="codecap" for="cb-3"><span><span class="tag">game.py</span> 第 142–207 行 — BitUltimateGame：狀態、轉換與位元輔助</span><span>位板表示</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">class BitUltimateGame:
-    &quot;&quot;&quot;Ultimate board stored as bit masks (X/O 81-bit, macro 9-bit).
+  <input class="code-toggle" type="checkbox" id="cb-rs1">
+  <label class="codecap" for="cb-rs1"><span><span class="tag">src/sba-game/src/lib.rs</span> 第 89–100、159–194 行 — SbaState dump 與 apply 狀態機</span><span>規則核心（Rust）</span><span class="code-hint"></span></label>
+  <pre><code class="language-rust">/// A full state dump for encode-from-bits and the Python parity fuzz.
+/// Field order IS the ABI — rustbridge.SbaState mirrors it exactly.
+#[repr(C)]
+pub struct SbaState {
+    pub px: [u16; 9],
+    pub po: [u16; 9],
+    pub mx: u16,
+    pub mo: u16,
+    pub current: u8,
+    pub active: i32,
+    pub result: i32,
+}
 
-    Same interface as UltimateGame (legal_moves / make_move / result /
-    clone / current / active_macro / micro / macro) so the MCTS family can
-    search on the bit representation and hand moves back to the list UI.
-    &quot;&quot;&quot;
-
-    __slots__ = (&#x27;x&#x27;, &#x27;o&#x27;, &#x27;mx&#x27;, &#x27;mo&#x27;, &#x27;current&#x27;, &#x27;active_macro&#x27;)
-
-    def __init__(self):
-        self.x = 0
-        self.o = 0
-        self.mx = 0
-        self.mo = 0
-        self.current = X
-        self.active_macro = None
-
-    @classmethod
-    def from_game(cls, game):
-        g = cls()
-        for m in range(9):
-            for i in range(9):
-                c = game.micro[m][i]
-                if c == X:
-                    g.x |= 1 &lt;&lt; (m * 9 + i)
-                elif c == O:
-                    g.o |= 1 &lt;&lt; (m * 9 + i)
-            if game.macro[m] == X:
-                g.mx |= 1 &lt;&lt; m
-            elif game.macro[m] == O:
-                g.mo |= 1 &lt;&lt; m
-        g.current = game.current
-        g.active_macro = game.active_macro
-        return g
-
-    def clone(self):
-        g = BitUltimateGame()
-        g.x, g.o, g.mx, g.mo = self.x, self.o, self.mx, self.mo
-        g.current = self.current
-        g.active_macro = self.active_macro
-        return g
-
-    def _micro_bits(self, m):
-        return ((self.x | self.o) &gt;&gt; (m * 9)) &amp; 0x1FF
-
-    @staticmethod
-    def _win_mask(mask):
-        for a, b, c in LINES:
-            line = (1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c)
-            if mask &amp; line == line:
-                return True
-        return False
-
-    def micro_winner(self, m):
-        base = m * 9
-        if self._win_mask((self.x &gt;&gt; base) &amp; 0x1FF):
-            return X
-        if self._win_mask((self.o &gt;&gt; base) &amp; 0x1FF):
-            return O
-        return None
-
-    def macro_open(self, m):
-        if (self.mx | self.mo) &amp; (1 &lt;&lt; m):
-            return False
-        return self._micro_bits(m) != 0x1FF</code></pre>
+    /// Applies move (m, i); return-code semantics identical to sba_game_apply.
+    pub fn apply(&amp;mut self, m: i32, i: i32) -&gt; i32 {
+        // _assert_playable: result() is not None (a full-drawn board included)
+        if raw_result(self) != ONGOING {
+            return ERR_OVER;
+        }
+        if !(0..9).contains(&amp;m) || !(0..9).contains(&amp;i) {
+            return ERR_RANGE;
+        }
+        // _assert_ultimate_routing: the forced macro, when open, is mandatory
+        if self.active &gt;= 0 &amp;&amp; self.macro_open(self.active as usize) {
+            if m != self.active {
+                return ERR_ROUTED;
+            }
+        } else if !self.macro_open(m as usize) {
+            return ERR_MACRO_CLOSED;
+        }
+        let m = m as usize;
+        let i = i as usize;
+        if (self.px[m] | self.po[m]) &gt;&gt; i &amp; 1 != 0 {
+            return ERR_OCCUPIED;
+        }
+        if self.current == 0 {
+            self.px[m] |= 1u16 &lt;&lt; i;
+        } else {
+            self.po[m] |= 1u16 &lt;&lt; i;
+        }
+        match self.micro_winner(m) {
+            X_WINS =&gt; self.mx |= 1u16 &lt;&lt; m,
+            O_WINS =&gt; self.mo |= 1u16 &lt;&lt; m,
+            _ =&gt; {}
+        }
+        self.active = if self.macro_open(i) { i as i32 } else { -1 };
+        self.current = 1 - self.current;
+        OK
+    }</code></pre>
 </div>
 
-<div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-4">
-  <label class="codecap" for="cb-4"><span><span class="tag">game.py</span> 第 209–280 行 — BitUltimateGame：落子、勝負與列表視圖重建</span><span>等價介面</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">    def legal_moves(self):
-        if self.active_macro is not None and self.macro_open(self.active_macro):
-            taken = self._micro_bits(self.active_macro)
-            m = self.active_macro
-            return [(m, i) for i in range(9) if not (taken &gt;&gt; i) &amp; 1]
-        moves = []
-        for m in range(9):
-            if not self.macro_open(m):
-                continue
-            taken = self._micro_bits(m)
-            for i in range(9):
-                if not (taken &gt;&gt; i) &amp; 1:
-                    moves.append((m, i))
-        return moves
+<p>落子語意與原 game.py 完全一致，檢查順序為<b>終局 → 範圍 → 強制路由 → 宏觀封閉 → 佔位</b>；五個錯誤碼在 Python 側映射為與原 UltimateGame 相同的例外文字（<span class="kbd">tests/test_rustgame.py</span> 釘住）。<span class="kbd">current</span> 無條件翻手、<span class="kbd">active</span> 在目標小棋盤封閉時歸 <span class="kbd">-1</span>（自由選擇）——這條「翻手」契約由 encode 金樣本在<b>終局列</b>逐位錨定。</p>
 
-    def make_move(self, m, i):
-        bit = 1 &lt;&lt; (m * 9 + i)
-        if (self.x | self.o) &amp; bit:
-            raise ValueError(&#x27;cell is occupied&#x27;)
-        if self.current == X:
-            self.x |= bit
-        else:
-            self.o |= bit
-        w = self.micro_winner(m)
-        if w == X:
-            self.mx |= 1 &lt;&lt; m
-        elif w == O:
-            self.mo |= 1 &lt;&lt; m
-        self.active_macro = i if self.macro_open(i) else None
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-rs2">
+  <label class="codecap" for="cb-rs2"><span><span class="tag">az/rustbridge.py</span> 第 103–115 行 — SbaState 鏡像</span><span>ctypes ABI</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">class SbaState(ctypes.Structure):
+    &quot;&quot;&quot;Mirror of the Rust SbaState dump — field order IS the ABI
+    (rust cdylib src/sba-game/src/lib.rs #[repr(C)] SbaState).&quot;&quot;&quot;
+
+    _fields_ = [
+        (&#x27;px&#x27;, ctypes.c_uint16 * 9),
+        (&#x27;po&#x27;, ctypes.c_uint16 * 9),
+        (&#x27;mx&#x27;, ctypes.c_uint16),
+        (&#x27;mo&#x27;, ctypes.c_uint16),
+        (&#x27;current&#x27;, ctypes.c_uint8),
+        (&#x27;active&#x27;, ctypes.c_int32),
+        (&#x27;result&#x27;, ctypes.c_int32),
+    ]</code></pre>
+</div>
+
+<p>鏡像的 <span class="kbd">_fields_</span> 順序<b>就是 ABI</b>：ctypes Structure 的對齊由 Rust 側 <span class="kbd">#[repr(C)]</span> 保證，<span class="kbd">_load()</span> 一次性綁定十一個導出符號的 argtypes／restype，並以 <span class="kbd">sba_game_abi() == ABI</span> 拒載版本不符的 cdylib。熱路徑的 <span class="kbd">make_move</span> 是「一次 <span class="kbd">sba_game_apply</span> + 鏡像欄位同步」；PUCT 展開的熱點另有單程版 <span class="kbd">clone_apply</span>（clone + make_move 一趟 FFI，Rust 側直接回傳子節點的路由宏觀）：</p>
+
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-rs3">
+  <label class="codecap" for="cb-rs3"><span><span class="tag">az/rustbridge.py</span> 第 245–252、350–363 行 — make_move 與 clone_apply</span><span>熱路徑</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    def make_move(self, m, i):
+        rc = _LIB.sba_game_apply(self._h, m, i)
+        if rc != 0:
+            raise ValueError(_ERR_TEXT.get(rc, &quot;invalid move&quot;))
+        # mirrors advance in lockstep with the handle (same rules)
         self.current = O if self.current == X else X
+        self.active_macro = i if self.macro_open(i) else None
 
-    def winner(self):
-        for a, b, c in LINES:
-            line = (1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c)
-            if self.mx &amp; line == line:
-                return X
-            if self.mo &amp; line == line:
-                return O
-        return None
-
-    def is_full(self):
-        return all(not self.macro_open(m) for m in range(9))
-
-    def result(self):
-        w = self.winner()
-        if w:
-            return w
-        if self.is_full():
-            return &#x27;D&#x27;
-        return None
-
-    def is_over(self):
-        return self.result() is not None
-
-    @property
-    def micro(self):
-        out = []
-        for m in range(9):
-            row = []
-            base = m * 9
-            for i in range(9):
-                bit = 1 &lt;&lt; (base + i)
-                row.append(X if self.x &amp; bit else (O if self.o &amp; bit else EMPTY))
-            out.append(row)
-        return out
-
-    @property
-    def macro(self):
-        return [X if self.mx &amp; (1 &lt;&lt; m) else
-                (O if self.mo &amp; (1 &lt;&lt; m) else
-                 (&#x27;D&#x27; if self._micro_bits(m) == 0x1FF else EMPTY))
-                for m in range(9)]</code></pre>
+    def clone_apply(self, m, i):
+        &quot;&quot;&quot;clone + make_move in one FFI round trip — the PUCT expansion
+        loop&#x27;s hot path. The mirror fields advance in lockstep (the Rust
+        side returns the child&#x27;s routing macro).&quot;&quot;&quot;
+        child = type(self).__new__(type(self))
+        active = ctypes.c_int32()
+        child._h = _LIB.sba_game_clone_apply(
+            self._h, m, i, ctypes.byref(active)
+        )
+        if not child._h:
+            raise ValueError(&quot;clone_apply: illegal move&quot;)
+        child.current = O if self.current == X else X
+        child.active_macro = active.value if active.value &gt;= 0 else None
+        return child</code></pre>
 </div>
 
-<p><b>等價性與效能對比</b>：<span class="kbd">from_game()</span>（第 160–176 行）與 <span class="kbd">micro/macro</span> property 構成雙向轉換，使 MCTS 家族能以位板搜尋、再把走法交回列表版 UI（見 <span class="kbd">_mcts_move</span> 第 1243–1246 行）。位板路徑的優勢在於原生整數運算：佔位檢查、連線判定、威脅掃描（<span class="kbd">_threat_cells</span> 的 <span class="kbd">_LINE_BITS</span>/<span class="kbd">bit_count</span> 路徑，見第 3.5 節）都能避免逐格走訪；代價是盤面重建與語意間接。依據 D12 的實測，<b>在已啟用啟發式 rollout 的配置下，位板並未測得增益，故其開關保留於 <span class="kbd">config.toml</span>（現行預設為開啟）</b>——附錄 A 對 D12 文字與現行程式碼的差異有完整註記。</p>
+<p>批量匯出兩條快路：<span class="kbd">sba_ffi()</span>（第 324–335 行，一次呼叫輸出 cengine 序列化的四件組）與 <span class="kbd">sba_planes_tensor()</span>（第 337–348 行，一次呼叫填滿整張 4×9×9 encode tensor，<span class="kbd">alphazero.encode</span> 直接採用）。生命週期採<b>批次化釋放</b>：PUCT 展開每局製造數千個 wrapper，逐一 <span class="kbd">__del__</span> 釋放實測比 Python 版慢 30%，因此 handle 累積到 512 才批次釋放（<span class="kbd">_flush_handles</span>，第 79 行，atexit 註冊兜底）；已釋放／外部 handle 的呼叫一律回傳 <span class="kbd">ERR_CLOSED</span>，不會偽裝成棋規錯誤。</p>
 
 <h3>2.5 狀態編碼 encode()：深度學習側的接口</h3>
 <p><span class="kbd">alphazero.py</span> 的 <span class="kbd">encode()</span>（第 88–111 行）把遊戲狀態轉為固定形狀輸入張量 <span class="kbd">[4, size, size]</span>（size = 3 或 9）：</p>
@@ -498,15 +452,50 @@ def encode(game):
     return best</code></pre>
 </div>
 
-<h3>3.3 eval_ultimate：宏觀/微觀啟發式評估</h3>
-<p><span class="kbd">eval_ultimate()</span>（第 188–222 行）是終極模式的靜態局面評估，由四層訊號加總：</p>
-<ul>
-  <li><b>宏觀佔領 ±1000</b>：每個已贏的小九宮格是壓倒性訊號（第 194–197 行）。</li>
-  <li><b>Micro 殘局表</b>：當宏觀格開放且內部空格 ≤ 2（<span class="kbd">empty &lt;= 2</span>）時，直接查 <span class="kbd">build_micro_tablebase()</span> 的精確解 <span class="kbd">v ∈ {−1,0,1}</span>，乘 80 與「最可能行棋方」符號（第 201–208 行）。殘局表以盤面為鍵、不含行棋方，因此程式以石子數差推測內部行棋方——這是 3.6 節奇偶性討論在評估層的應用。</li>
-  <li><b>Fork / 威脅計數</b>：<span class="kbd">_fork_count()</span>（第 225–240 行）統計「下一手可同時形成 ≥2 條連線」的空格，±40；<span class="kbd">count_threats()</span> ±3；石子數 ±0.5（第 210–215 行）。</li>
-  <li><b>宏觀兩連 ±20</b>：宏觀層三連線中已占兩格且第三格開放時加 20（第 216–221 行），捕捉全域戰略威脅。</li>
-</ul>
+<h3>3.3 C 評估器 eval_ultt：宏觀/微觀啟發式評估</h3>
+<div class="note"><b>v1.3 改寫</b>：本節原走讀 ai.py 的 <span class="kbd">eval_ultimate</span>（純 Python，已於 v0.5.0 移除）。現行評估在 C：<span class="kbd">eval_ultt</span>（sba_minimax.c，原始註解明言「mirrors ai.py eval_ultimate」），微觀殘局值由 <span class="kbd">micro_tablebase</span> 開關驅動。</div>
 
+<p>評估器是 Minimax 葉節點的靜態得分，符號取「<span class="kbd">player</span> 視角」。權重表與原 Python 版逐項相同：宏觀徽章 ±1000、fork ±40、威脅 ±3、佔位 ±0.5、宏觀連線潛勢 ±20；<span class="kbd">use_tb</span> 開啟時，小棋盤只剩 ≤2 空格者改用<b>精確 3×3 殘局值 ×80</b>——殘局側的符號歸屬（誰更有可能在該小棋盤行動）沿用原 Python 的 parity 慣例：</p>
+
+<div class="code-block">
+  <input class="code-toggle" type="checkbox" id="cb-c1">
+  <label class="codecap" for="cb-c1"><span><span class="tag">src/engines/sba_minimax.c</span> 第 213–245 行 — eval_ultt：與已移除之 ai.py eval_ultimate 逐項鏡像</span><span>靜態評估（C）</span><span class="code-hint"></span></label>
+  <pre><code class="language-c">static double eval_ultt(const SbaState *st, int32_t player, int32_t use_tb) {
+    int32_t opp = player == 1 ? 2 : 1;
+    double score = 0.0;
+    if (use_tb) tb_init();
+    for (int32_t m = 0; m &lt; SBA_N_MACROS; m++) {
+        int32_t state = st-&gt;macro[m];
+        if (state == player) { score += 1000; continue; }
+        if (state == opp) { score -= 1000; continue; }
+        if (state != 0) continue;    /* full-draw macro */
+        const int32_t *c = st-&gt;cells + m * 9;
+        int32_t mine = 0, theirs = 0, empty = 0;
+        for (int32_t i = 0; i &lt; 9; i++) {
+            if (c[i] == player) mine++;
+            else if (c[i] == opp) theirs++;
+            else empty++;
+        }
+        if (use_tb &amp;&amp; empty &lt;= 2) {
+            int32_t v = g_tb[tb_key(c)];
+            if (v != 127) {
+                /* side to move inside an idle micro is ambiguous: credit the
+                 * player most likely to be moving there (Python parity) */
+                int32_t sign = mine &gt;= theirs ? 1 : -1;
+                score += 80.0 * v * sign;
+                continue;
+            }
+        }
+        score += 40.0 * fork_count(st-&gt;cells, m, player);
+        score -= 40.0 * fork_count(st-&gt;cells, m, opp);
+        score += 3.0 * count_threats(st-&gt;cells, m, player);
+        score -= 3.0 * count_threats(st-&gt;cells, m, opp);
+        score += 0.5 * mine;
+        score -= 0.5 * theirs;
+    }</code></pre>
+</div>
+
+<p>殘局表本身是<b>惰性建表</b>：<span class="kbd">g_tb</span> 以 <span class="kbd">127</span> 為「未解」哨兵，<span class="kbd">tb_solve</span> 用 negamax 逐鍵遞迴、<span class="kbd">tb_init</span> 一次填滿並以 <span class="kbd">atomic_int g_tb_ready</span> 保證只跑一次（D51；導出 <span class="kbd">sba_minimax_tb_init</span> 供載入期呼叫）。數學上與原 Python <span class="kbd">build_tablebase()</span> 同構，差異只在 C 版以 <span class="kbd">int8_t</span> 緊湊儲存 3<sup>9</sup> = 19683 鍵。</p>
 <h3>3.4 Minimax Pro：negamax + 置換表 + Killer/LMR/Aspiration + 疊代加深</h3>
 <p><span class="kbd">minimax_pro_move()</span>（第 1109–1149 行）是終極模式的進階傳統精確搜尋（D19：根節點排序修正後與普通 Minimax 統計持平），關鍵設計：</p>
 <ul>
@@ -563,249 +552,38 @@ def encode(game):
     return best_move</code></pre>
 </div>
 
-<h3>3.5 MCTS 家族</h3>
+<h3>3.5 MCTS 家族：C 引擎承載</h3>
+<div class="note"><b>v1.3 改寫</b>：本節原走讀純 Python 的 UCT／RAVE／GRAVE 樹（engines/mcts.py，709 行，已於 v0.5.0 移除）。現行家族由 C 引擎承載——派發面在 <span class="kbd">ai.py</span>、樹本體在 <span class="kbd">sba_mcts.c</span>、編排在 <span class="kbd">cbridge.py</span>；僅適用 Ultimate 盤面（D65 能力矩陣）。</div>
 
-<h4>3.5.1 MCTS（UCT）：動態 UCT、啟發式 rollout 與樹重用</h4>
-<p><span class="kbd">MCTSNode.best_child()</span>（第 308–318 行）實作標準 UCT[3]：</p>
-<div class="formula">\[
-\mathrm{UCT}(s,a) = \frac{W(s,a)}{N(s,a)} + c\cdot\sqrt{\frac{\log N(s)}{N(s,a)}}
-\]</div>
-<p>未訪問子節點回傳 <span class="kbd">math.inf</span>（第 312–313 行），保證每個子節點至少被訪問一次。搜尋主體 <span class="kbd">mcts_search()</span>（第 358–409 行）的特色優化包括：</p>
-<ul>
-  <li><b>動態 UCT 收縮</b>：<span class="kbd">_uct_scale()</span>（第 576–580 行）把探索常數從 1.0×c 線性收縮到 0.6×c：<div class="formula">\[
-  c_{\mathrm{eff}} = c\cdot\left(0.6 + 0.4\cdot\left(1 - \frac{N_{\mathrm{root}}^{\mathrm{new}}}{I}\right)\right)
-  \]</div>
-  前期重探索、後期重利用。與樹重用搭配時，<b>以 <span class="kbd">start_visits = root.visits</span>（第 367 行）與 <span class="kbd">root.visits − start_visits</span>（第 377 行）計算本輪新增訪問量</b>，使收縮進度與歷史訪問量解耦——重用而來的數千次訪問不會讓動態 UCT 立刻進入純利用階段。</li>
-  <li><b>啟發式 rollout</b>：<span class="kbd">_rollout_move()</span>（第 478–497 行）以「先贏、次擋、否則隨機」取代純隨機對弈；<span class="kbd">_threat_cells()</span>（第 440–475 行）對位板狀態走原生位元路徑（<span class="kbd">_LINE_BITS</span> 預計算 8 條 3-bit 連線掩碼，第 437 行；<span class="kbd">(mb &amp; line).bit_count() == 2</span> 判定二子成勢，第 462 行）。多個威脅同時存在時不硬擋（第 495–497 行），保留隨機性。</li>
-  <li><b>樹重用</b>：詳見 3.5.4。</li>
-  <li><b>物件池</b>：<span class="kbd">NodePool</span>（第 321–355 行）只在樹重用關閉時啟用（第 428–429 行），避免被重用子樹仍在參考時回收節點。</li>
-  <li><b>D4 對稱去重</b>：<span class="kbd">_pop_untried()</span>（第 563–573 行）在根節點跳過對稱等價走法（8 種 D4 置換，<span class="kbd">_d4_perms()</span> 第 617–639 行）。</li>
-  <li><b>早期終止</b>：70% 迭代後若最熱子節點佔比 &gt; 60% 且勝率 &gt; 55% 即停止（第 403–408 行），節省接近確定局的計算。</li>
-  <li><b>並行 MCTS</b>：<span class="kbd">mcts_move_parallel()</span>（第 1281–1316 行）把預算切成 workers 份，各自獨立搜尋後<b>合併根節點的 (visits, wins) 統計</b>，再依勝率選步（平手時偏好立即勝）。因每個執行緒各自持有整棵樹，不需虛擬損失同步。</li>
-</ul>
+<p>派發面收斂成一道閘門加三個入口：<span class="kbd">_mcts_move</span> 先擋下 Normal 盤面（C kernel 只序列化 Ultimate 佈局），再要求 <span class="kbd">c_mcts</span> 開關與引擎 DLL 同時成立——任一不成立即 <b>raise RuntimeError</b>（無 Python 回退、無靜默降級），最後按型別分派：</p>
 
 <div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-8">
-  <label class="codecap" for="cb-8"><span><span class="tag">ai.py</span> 第 437–497 行 — _LINE_BITS、_threat_cells 位板路徑與 _rollout_move</span><span>啟發式 rollout</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">_LINE_BITS = [(1 &lt;&lt; a) | (1 &lt;&lt; b) | (1 &lt;&lt; c) for a, b, c in LINES]
+  <input class="code-toggle" type="checkbox" id="cb-c2">
+  <label class="codecap" for="cb-c2"><span><span class="tag">src/engines/ai.py</span> 第 144–170 行 — _mcts_move：家族派發與能力閘門</span><span>派發面</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def _mcts_move(game, ai_type, budget, on_progress=None, trace=None):
+    &quot;&quot;&quot;The MCTS-family dispatch — the native C tree search IS the engine.
 
-
-def _threat_cells(state, player):
-    &quot;&quot;&quot;Cells where `player` would win immediately by playing there.&quot;&quot;&quot;
-    if isinstance(state, NormalGame):
-        cells = state.board
-        res = []
-        for a, b, c in LINES:
-            vals = (cells[a], cells[b], cells[c])
-            if vals.count(player) == 2 and EMPTY in vals:
-                res.append((a, b, c)[vals.index(EMPTY)])
-        return res
-    if isinstance(state, BitUltimateGame):
-        res = []
-        pbits = state.x if player == X else state.o
-        obits = state.o if player == X else state.x
-        closed = state.mx | state.mo
-        for m in range(9):
-            if closed &amp; (1 &lt;&lt; m):
-                continue
-            base = m * 9
-            mb = (pbits &gt;&gt; base) &amp; 0x1FF
-            ob = (obits &gt;&gt; base) &amp; 0x1FF
-            for line in _LINE_BITS:
-                if (mb &amp; line).bit_count() == 2 and ((mb | ob) &amp; line) != line:
-                    empty = line &amp; ~(mb | ob)
-                    res.append((m, empty.bit_length() - 1))
-        return res
-    res = []
-    for m in range(9):
-        if not state.macro_open(m):
-            continue
-        cells = state.micro[m]
-        for a, b, c in LINES:
-            vals = (cells[a], cells[b], cells[c])
-            if vals.count(player) == 2 and EMPTY in vals:
-                res.append((m, (a, b, c)[vals.index(EMPTY)]))
-    return res
-
-
-def _rollout_move(state, moves=None):
-    &quot;&quot;&quot;Win/block-biased rollout policy (falls back to random when disabled).&quot;&quot;&quot;
-    if moves is None:
-        moves = state.legal_moves()
-    if not moves:
-        return None
-    if not cfg_engine(&#x27;rollout_heuristic&#x27;, True):
-        return random.choice(moves)
-    legal = set(moves)
-    current = state.current
-    opp = O if current == X else X
-    wins = [w for w in _threat_cells(state, current) if w in legal]
-    if wins:
-        return random.choice(wins)
-    threats = set(t for t in _threat_cells(state, opp) if t in legal)
-    if not threats:
-        return random.choice(moves)
-    if len(threats) == 1:
-        return next(iter(threats))
-    return random.choice(moves)  # multiple threats: cannot block them all</code></pre>
-</div>
-
-<h4>3.5.2 MCTS+RAVE：AMAF 統計</h4>
-<p><span class="kbd">RAVENode</span>（第 743–774 行）在每個節點維護 <span class="kbd">amaf</span> 字典（走法 → [訪問, 勝分]）。RAVE 的 All-Moves-As-First 思想：對弈中出現的所有走法都同時更新其 AMAF 統計，與樹中位置無關，因此共享快且樣本多。選擇公式為（<span class="kbd">best_child</span> 第 759–774 行）：</p>
-<div class="formula">\[
-\beta(n) = \sqrt{\frac{k}{3n + k}},\qquad
-\mathrm{RAVE\text{-}UCT} = (1-\beta)\,q + \beta\, q_{\mathrm{amaf}} + c\sqrt{\frac{\log N}{n}}
-\]</div>
-<p>其中 <span class="kbd">k = rave_k = 150</span>（<span class="kbd">_CFG_DEFAULTS</span> 第 49 行）。AMAF 分數以「該節點行棋方」視角計分（第 821–827 行註解），是標準 all-moves RAVE 語意。代價是每個節點一份 AMAF 表——記憶體與分支因子成正比。</p>
-
-<div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-9" checked>
-  <label class="codecap" for="cb-9"><span><span class="tag">ai.py</span> 第 759–774 行 — RAVENode.best_child：AMAF 混合選擇</span><span>RAVE</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">    def best_child(self, c, k):
-        log_n = math.log(max(1, self.visits))
-        best, best_val = None, -math.inf
-        for child in self.children:
-            if child.visits == 0:
-                uct = math.inf
-            else:
-                q = child.wins / child.visits
-                an, aw = self.amaf.get(child.move, (0, 0.0))
-                q_amaf = aw / an if an else q
-                beta = math.sqrt(k / (3 * child.visits + k))
-                uct = ((1 - beta) * q + beta * q_amaf
-                       + c * math.sqrt(log_n / child.visits))
-            if uct &gt; best_val:
-                best, best_val = child, uct
-        return best</code></pre>
-</div>
-
-<h4>3.5.3 MCTS+GRAVE：reference node 共享統計</h4>
-<p><span class="kbd">GraveNode</span>（第 859–892 行）是 RAVE 的後繼（Cazenave 2015，決策 D8）：RAVE 統計不複製到每個後代，而是保存在「該走法首次被嘗試的節點」（reference node），後代沿 <span class="kbd">ref</span> 鏈查詢（<span class="kbd">best_child</span> 第 884–885 行：<span class="kbd">ref = child.ref if child.ref is not None else self</span>）。回饋時每個 reference node 只更新一次（<span class="kbd">seen_refs</span>，第 938–958 行），避免同一統計被路徑上多個節點重複累加。數學上與 RAVE 相同，但記憶體從「每節點一份表」降到「每 reference node 一份表」，在 UTTT 的高分支因子上顯著省記憶體且估計更穩——D8 的 30 局/對對戰記錄 GRAVE 勝過 MCTS 與 RAVE。</p>
-
-<div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-10" checked>
-  <label class="codecap" for="cb-10"><span><span class="tag">ai.py</span> 第 876–892 行 — GraveNode.best_child：沿 reference 查詢 RAVE 統計</span><span>GRAVE</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">    def best_child(self, c, k):
-        log_n = math.log(max(1, self.visits))
-        best, best_val = None, -math.inf
-        for child in self.children:
-            if child.visits == 0:
-                uct = math.inf
-            else:
-                q = child.wins / child.visits
-                ref = child.ref if child.ref is not None else self
-                an, aw = ref.rave.get(child.move, (0, 0.0))
-                q_rave = aw / an if an else q
-                beta = math.sqrt(k / (3 * child.visits + k))
-                uct = ((1 - beta) * q + beta * q_rave
-                       + c * math.sqrt(log_n / child.visits))
-            if uct &gt; best_val:
-                best, best_val = child, uct
-        return best</code></pre>
-</div>
-
-<h4>3.5.4 樹重用：_REUSE_LAST 與 _diff_move</h4>
-<p>樹重用（<span class="kbd">_mcts_move</span> 第 1238–1278 行）讓引擎在本方落子後保留子樹，等對手回應後直接下鑽。實作分兩層：</p>
-<ul>
-  <li><b>直連快取</b>：<span class="kbd">_REUSE[(ai_type, _tt_key(g))] = child</span>（第 1272 行）——以「引擎類型 + 局面鍵」直接命中「自己剛走完的狀態」之子樹；快取上限 <span class="kbd">reuse_cache = 32</span>（第 1274–1275 行）。</li>
-  <li><b>跨回應下鑽</b>：<span class="kbd">_REUSE_LAST[ai_type]</span> 保存「引擎落子後」的節點（第 1273 行）；下一輪若直接命中失敗，則以 <span class="kbd">_diff_move(last.state, game)</span>（第 590–614 行）計算「從上輪狀態到當前局面唯一新增的落子」，並在 <span class="kbd">last.children</span> 中找到對應子節點（第 1256–1259 行）。<span class="kbd">_diff_move</span> 對回退、分支、換局回傳 <span class="kbd">None</span>，自動退回全新搜尋。</li>
-</ul>
-<p><b>C 端接管（D27/D30）</b>：這套 Python 樹重用在 D27 隨搜尋 C 化一度移除；D30 以 C 端差分下降重新引入——<span class="kbd">sba_mcts_search</span> 接收上一次的 arena，按棋盤差分逐層下降到當前局面並拷貝匹配子樹為新根，語意與本節相同（悔棋／新局自動回退全新樹），差異在保留樹僅由單執行緒（thread 0）攜帶，見 3.8.5。</p>
-<p><b>命中條件</b>：樹重用依賴「同引擎連續對局」——同一 <span class="kbd">ai_type</span> 的鍵才可命中，因此 CvC 交替對局中不同引擎各自維護自己的 <span class="kbd">_REUSE_LAST</span>，互不干擾。重用時 <span class="kbd">start_visits</span> 增量同時保證動態 UCT（3.5.1）與早期終止邏輯以「本輪新增訪問量」為準。</p>
-
-<div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-11">
-  <label class="codecap" for="cb-11"><span><span class="tag">ai.py</span> 第 576–614 行 — 動態 UCT、重用快取與 _diff_move</span><span>樹重用</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">def _uct_scale(c, root_visits, iterations):
-    &quot;&quot;&quot;Dynamic UCT: explore more early, exploit more as the search matures.&quot;&quot;&quot;
-    if cfg_engine(&#x27;dynamic_uct&#x27;, True):
-        return c * (0.6 + 0.4 * (1.0 - root_visits / max(1, iterations)))
-    return c
-
-
-_REUSE = {}
-
-# The subtree right after the engine&#x27;s own move, per engine. Tree reuse uses
-# it to locate the opponent&#x27;s reply and descend into the matching child.
-_REUSE_LAST = {}
-
-
-def _diff_move(old_state, new_game):
-    &quot;&quot;&quot;Return the single move leading from old_state to new_game, else None.
-
-    Used by tree reuse: _REUSE_LAST holds the position right after the
-    engine&#x27;s own move, so a current position one opponent reply later differs
-    by exactly one filled cell. Rewinds, branches, and different games yield
-    None (fresh search).
+    The pure-Python MCTS stack retired with the removal project: without
+    the engine DLL there is no MCTS backend, so this raises instead of
+    degrading to a search that no longer exists. Normal boards have no C
+    tree either (the kernels serialize Ultimate layouts only).
     &quot;&quot;&quot;
-    if isinstance(new_game, NormalGame):
-        if not isinstance(old_state, NormalGame):
-            return None
-        diff = [i for i in range(9) if old_state.board[i] != new_game.board[i]]
-        if len(diff) != 1 or new_game.board[diff[0]] == EMPTY:
-            return None
-        return diff[0]
-    if not hasattr(old_state, &#x27;micro&#x27;):
-        return None
-    diffs = []
-    for m in range(9):
-        for i in range(9):
-            if old_state.micro[m][i] != new_game.micro[m][i]:
-                diffs.append((m, i))
-    if len(diffs) != 1 or new_game.micro[diffs[0][0]][diffs[0][1]] == EMPTY:
-        return None
-    return diffs[0]</code></pre>
+    if isinstance(game, NormalGame):
+        raise RuntimeError(&quot;the MCTS family applies to Ultimate boards only&quot;)
+    if not (_ce.available(engine=True) and cfg_engine(&quot;c_mcts&quot;, True)):
+        raise RuntimeError(&quot;the MCTS family requires the native engine (python dev.py build)&quot;)
+    if ai_type == &quot;MCTS&quot;:
+        mv = _c_mcts_move(game, budget, on_progress, trace)
+    else:
+        mv = _c_rave_grave_move(
+            game, budget, grave=(ai_type == &quot;MCTS+GRAVE&quot;), on_progress=on_progress, trace=trace
+        )
+    if mv is None:
+        raise RuntimeError(f&quot;{ai_type}: the native engine returned no move&quot;)
+    return mv</code></pre>
 </div>
 
-<div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-12">
-  <label class="codecap" for="cb-12"><span><span class="tag">ai.py</span> 第 1238–1278 行 — _mcts_move：重用、位板搜尋與快取回填</span><span>引擎調度</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">def _mcts_move(game, ai_type, budget):
-    &quot;&quot;&quot;Run an MCTS-family search, reusing the previous tree when enabled.&quot;&quot;&quot;
-    if (ai_type == &#x27;MCTS&#x27; and cfg_engine(&#x27;multithreaded&#x27;, False)):
-        return mcts_move_parallel(game, budget, cfg_engine(&#x27;workers&#x27;, 4))
-    reuse = cfg_engine(&#x27;tree_reuse&#x27;, True)
-    if cfg_engine(&#x27;bitboard&#x27;, True) and isinstance(game, UltimateGame):
-        search_game = BitUltimateGame.from_game(game)
-    else:
-        search_game = game
-    pool = (_POOL if (ai_type == &#x27;MCTS&#x27;
-                      and cfg_engine(&#x27;object_pool&#x27;, True) and not reuse) else None)
-    key, prev = None, None
-    if reuse:
-        key = (ai_type, _tt_key(game))
-        prev = _REUSE.pop(key, None)
-        if prev is None:
-            last = _REUSE_LAST.get(ai_type)
-            if last is not None:
-                reply = _diff_move(last.state, game)
-                if reply is not None:
-                    prev = next((c for c in last.children
-                                 if c.move == reply), None)
-    if ai_type == &#x27;MCTS&#x27;:
-        root = mcts_search(search_game, budget, prev_root=prev, pool=pool)
-    elif ai_type == &#x27;MCTS+RAVE&#x27;:
-        root = mcts_rave_search(search_game, budget, prev_root=prev)
-    else:
-        root = mcts_grave_search(search_game, budget, prev_root=prev)
-    move = _best_mcts_move(root, game, budget)
-    if reuse:
-        g = game.clone()
-        apply_move(g, move)
-        child = next((c for c in root.children if c.move == move), None)
-        if child is not None:
-            _REUSE[(ai_type, _tt_key(g))] = child
-            _REUSE_LAST[ai_type] = child
-            if len(_REUSE) &gt; cfg_engine(&#x27;reuse_cache&#x27;, 32):
-                _REUSE.pop(next(iter(_REUSE)))
-    if pool is not None:
-        pool.release(root)
-    return move</code></pre>
-</div>
-
-<h4>3.5.5 Flat MCTS（研究基準）</h4>
-<p><span class="kbd">flat_mcts_move()</span>（第 524–551 行）把預算均分給每個合法走法，各自從根層做獨立 rollout，完全沒有樹結構——是「只看一層」的基準，用來隔離「樹搜尋」本身的價值（D14，選單隱藏、保留研究）。</p>
-
+<p>三個入口的差異只在 C 側樹型：<b>MCTS</b> 走完整樹並支援根並行（§5.4）；<b>MCTS+RAVE／GRAVE</b> 走 <span class="kbd">_c_rave_grave_move</span>——單線程（RAVE 統計的根並行是獨立專案），樹重用掛在 <span class="kbd">_C_PREV['RAVE']</span>／<span class="kbd">['GRAVE']</span>，bias 由 <span class="kbd">rave_k</span> 開關驅動；<b>Flat MCTS</b>（研究基線，不在選單）走平坦核，每著法以獨立 playout 評分。Tree-reuse 的所有權規則（D63：熱 arena 在 <span class="kbd">_TREE_REUSE_LOCK</span> 下 pop、獨佔直到寫回）與 §5.4 的根並行共用同一套槽位契約。</p>
 <h3>3.6 殘局表 Solver 與開局書</h3>
 <p><span class="kbd">build_tablebase()</span>（第 675–718 行）以遞迴 negamax 求解普通井字棋全部 \(3^9 = 19683\) 個盤面，memo 以 <span class="kbd">_board_key()</span>（3 進位編碼）為鍵、<b>不包含行棋方</b>。這在數學上是合法的：井字棋嚴格輪流行棋且 X 先手，因此任何可達盤面的石子數奇偶性唯一決定行棋方（X 數 = O 數 → O 行棋；X 數 = O 數 + 1 → X 行棋）；把「不可能出現的盤面」一併求解也只會得到一致解。<span class="kbd">solver_move()</span>（第 721–736 行）查表後回傳最佳著（平手時隨機），終極模式則退回首搜 MCTS（第 723–724 行，因終極無殘局表）；<span class="kbd">build_micro_tablebase()</span>（第 712–718 行）是同一張表的語意別名，供 <span class="kbd">eval_ultimate</span> 在微觀層使用（D3：Solver 移出選單、保留分析面板）。</p>
 
@@ -1351,118 +1129,79 @@ def _train_multiprocess(make_game_fn, model, optimizer, evaluate, replay, games,
                          total_loss / steps_per_game, el), flush=True)</code></pre>
 </div>
 
-<h3>5.3 Minimax Pro 核心：_negamax_tt 與置換表</h3>
+<h3>5.3 C Minimax Pro：negamax + 置換表 + 六開關</h3>
+<div class="note"><b>v1.3 改寫</b>：本節原走讀 Python 的 <span class="kbd">_negamax_tt</span>／<span class="kbd">_get_tt</span>／<span class="kbd">_get_killers</span>（engines/minimax.py，已於 v0.5.0 移除）。現行走讀 <span class="kbd">sba_minimax_pro</span>（C）與其 Opts 橋——六個搜尋開關<b>直達 C 後端</b>。</div>
+
+<p>橋面（<span class="kbd">cbridge._c_minimax_pro</span>）把 Settings 頁的 MINIMAX PRUNING 群組逐項送進 C：<span class="kbd">tt_max</span>（置換表上限）、<span class="kbd">use_lmr</span>、<span class="kbd">use_killers</span>、<span class="kbd">use_aspiration</span>、<span class="kbd">use_eval_ordering</span>、<span class="kbd">pro_time_ms</span>（每步牆鐘上限）。這一段是 Settings 頁「不是裝飾」的保證——明確傳參才不會讓開關群組在 c_minimax 開啟時形同虛設：</p>
+
 <div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-21">
-  <label class="codecap" for="cb-21"><span><span class="tag">ai.py</span> 第 1053–1106 行 — _negamax_tt：置換表 + LMR + Killer 的 negamax 核心</span><span>Minimax Pro</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">def _negamax_tt(game, depth, alpha, beta):
-    result = game.result()
-    if result is not None:
-        if result == &#x27;D&#x27;:
-            return 0
-        return 100000 if result == game.current else -100000
-    if depth == 0:
-        return eval_ultimate(game, game.current)
-    key = _tt_key(game)
-    entry = _get_tt().get(key)
-    if entry is not None and entry[0] &gt;= depth:
-        _, flag, score, _ = entry
-        if flag == 0:
-            return score
-        if flag == -1:
-            alpha = max(alpha, score)
-        else:
-            beta = min(beta, score)
-        if alpha &gt;= beta:
-            return score
-    alpha0 = alpha
-    best, best_move = -math.inf, None
-    tt_move = entry[3] if entry is not None else None
-    for idx, m in enumerate(_order_moves(game, tt_move, depth)):
-        g = game.clone()
-        apply_move(g, m)
-        if (cfg_engine(&#x27;use_lmr&#x27;, True) and depth &gt;= 4 and idx &gt;= 2
-                and m != tt_move):
-            val = -_negamax_tt(g, depth - 2, -beta, -alpha)
-            if val &gt; alpha:
-                val = -_negamax_tt(g, depth - 1, -beta, -alpha)
-        else:
-            val = -_negamax_tt(g, depth - 1, -beta, -alpha)
-        if val &gt; best:
-            best, best_move = val, m
-        alpha = max(alpha, val)
-        if alpha &gt;= beta:
-            if (cfg_engine(&#x27;use_killers&#x27;, True) and depth &gt;= 2
-                    and best_move is not None and best_move != tt_move):
-                killers = _get_killers()
-                killers.setdefault(depth, [])
-                if best_move not in killers[depth]:
-                    killers[depth].append(best_move)
-                    if len(killers[depth]) &gt; 2:
-                        killers[depth].pop(0)
-            break
-    flag = 0
-    if best &lt;= alpha0:
-        flag = 1
-    elif best &gt;= beta:
-        flag = -1
-    if len(_get_tt()) &lt; _tt_max():
-        _get_tt()[key] = (depth, flag, best, best_move)
-    return best</code></pre>
+  <input class="code-toggle" type="checkbox" id="cb-c3">
+  <label class="codecap" for="cb-c3"><span><span class="tag">src/engines/cbridge.py</span> 第 245–263 行 — _c_minimax_pro：開關直達 C</span><span>Opts 橋</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">def _c_minimax_pro(game, depth):
+    &quot;&quot;&quot;Minimax Pro via the C backend; None → Python fallback.
+
+    The four pruning switches are C-side capabilities too (sba_minimax_pro
+    reads o-&gt;use_*), but cengine.minimax_pro defaults them all to True.
+    Passing them explicitly is what keeps the MINIMAX PRUNING group on the
+    settings page from being a no-op whenever c_minimax is on.
+    &quot;&quot;&quot;
+    if not _ce.available(engine=True):
+        return None
+    return _ce.minimax_pro(
+        game,
+        depth,
+        time_limit_ms=int(cfg_engine(&quot;pro_time_ms&quot;, 8000)),
+        use_lmr=bool(cfg_engine(&quot;use_lmr&quot;, True)),
+        use_killers=bool(cfg_engine(&quot;use_killers&quot;, True)),
+        use_aspiration=bool(cfg_engine(&quot;use_aspiration&quot;, True)),
+        use_eval_ordering=bool(cfg_engine(&quot;use_eval_ordering&quot;, True)),
+    )</code></pre>
 </div>
 
-<h3>5.4 並行 MCTS 合併根統計</h3>
+<p>C 側 <span class="kbd">sba_minimax_pro</span>（sba_minimax.c 第 664 行起）的骨架：終局檢查 → 置換表以 <span class="kbd">calloc</span> 配到 <span class="kbd">min(tt_max, 2<sup>18</sup>)</span> 槽、<span class="kbd">killers</span> 歸零 → 決定性 fallback 手（中心偏好，僅在首層深度未完成就逾時時現身）→ 疊代加深主迴圈。葉節點靜態評估即 §3.3 的 <span class="kbd">eval_ultt</span>（<span class="kbd">micro_tablebase</span> 直通）；五項剪枝開關（LMR／Killer／Aspiration／Eval-ordering）在 <span class="kbd">SbaProOpts</span> 逐欄位生效；逾時以 <span class="kbd">clock()</span> 對 <span class="kbd">pro_time_ms</span> 檢查，逾時即回傳目前最佳。</p>
+
+<h3>5.4 C 樹根並行與樹重用：_c_mcts_move</h3>
+<div class="note"><b>v1.3 改寫</b>：本節原走讀 Python 的 <span class="kbd">mcts_move_parallel</span>（GIL 下的實驗性合併路徑，已於 v0.5.0 移除）。現行走讀 <span class="kbd">_c_mcts_move</span> 的<b>根並行</b>、<b>獨佔所有權規則</b>（D63）與<b>樹重用</b>——ctypes 在 C 呼叫內釋放 GIL，這是真並行而非線程交錯。</div>
+
+<p>並行形態：<span class="kbd">threads = min(workers, budget // 400)</span>——每執行緒至少 400 sims 才值得開一顆 arena；<span class="kbd">multithreaded</span> 開關是總閘。thread 0 <b>獨佔攜帶</b>上一次的重用樹、其餘從零起跑，合併因此永不重複計數：</p>
+
 <div class="code-block">
-  <input class="code-toggle" type="checkbox" id="cb-22">
-  <label class="codecap" for="cb-22"><span><span class="tag">ai.py</span> 第 1281–1316 行 — mcts_move_parallel：多執行緒獨立搜尋、合併根統計</span><span>並行 MCTS</span><span class="code-hint"></span></label>
-  <pre><code class="language-python">def mcts_move_parallel(game, iterations, workers=4):
-    &quot;&quot;&quot;Run several independent MCTS searches and merge their root stats.&quot;&quot;&quot;
-    chunk = max(1, iterations // workers)
-    results = []
-    if cfg_engine(&#x27;bitboard&#x27;, True) and isinstance(game, UltimateGame):
-        base = BitUltimateGame.from_game(game)
+  <input class="code-toggle" type="checkbox" id="cb-c4">
+  <label class="codecap" for="cb-c4"><span><span class="tag">src/engines/cbridge.py</span> 第 101–129 行 — 執行緒編排與重用 pop</span><span>根並行</span><span class="code-hint"></span></label>
+  <pre><code class="language-python">    c_opts = _c_search_opts()
+    # the multithreaded switch gates root parallelization; workers caps it
+    threads = int(cfg_engine(&quot;workers&quot;, 8) or 1) if cfg_engine(&quot;multithreaded&quot;, False) else 1
+    threads = max(1, min(threads, max(1, budget // 400)))
+    # the switch gates BOTH ends of the reuse cycle: no prev passed in, and
+    # the fresh arena is dropped on return (the _CTree finalizer frees it) —
+    # storing it would pin a dead arena between moves
+    reuse = cfg_engine(&quot;tree_reuse&quot;, True)
+    prev = None
+    if reuse:
+        with _TREE_REUSE_LOCK:
+            prev = _C_PREV.pop(&quot;MCTS&quot;, None)
+
+    results = [None]
+    if threads &lt;= 1:
+        results[0] = _ce.mcts_search(game, budget, opts=c_opts, prev=prev)
     else:
-        base = game
+        per = max(100, budget // threads)
+        results = [None] * threads
 
-    def work():
-        results.append(mcts_search(base.clone(), chunk))
+        def _work(k):
+            results[k] = _ce.mcts_search(game, per, opts=c_opts, prev=prev if k == 0 else None)
 
-    threads = [threading.Thread(target=work) for _ in range(workers)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    stats = {}
-    for root in results:
-        for c in root.children:
-            s = stats.setdefault(c.move, [0, 0.0])
-            s[0] += c.visits
-            s[1] += c.wins
-    if not stats:
-        moves = game.legal_moves()
-        return random.choice(moves) if moves else None
-    best_move = max(stats, key=lambda m: stats[m][1] / max(1, stats[m][0]))
-    best_ratio = stats[best_move][1] / max(1, stats[best_move][0])
-    for m, (v, w) in stats.items():
-        if w / max(1, v) == best_ratio:
-            g = game.clone()
-            apply_move(g, m)
-            if g.result() == game.current:
-                best_move = m
-                break
-    return best_move</code></pre>
+        workers = [threading.Thread(target=_work, args=(k,)) for k in range(threads)]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+        results = [r for r in results if r]</code></pre>
 </div>
 
-<h3>5.5 模組協作關係</h3>
-<p>依賴方向單向（D2）：<span class="kbd">game.py</span>（規則與位板）→ <span class="kbd">ai.py</span>（傳統引擎與啟發式）→ <span class="kbd">alphazero.py</span>（神經搜尋與訓練）→ <span class="kbd">native/</span>（C 搜尋核心，經 <span class="kbd">native/cengine.py</span> 單一 ctypes 邊界，D27）。跨側復用具體表現為：</p>
-<ul>
-  <li><b>位板被兩側共用</b>：<span class="kbd">BitUltimateGame</span> 同時服務傳統 MCTS（<span class="kbd">_mcts_move</span> 第 1243–1246 行）與局面分析（<span class="kbd">analyze_position</span> 第 1450–1454 行）；AlphaZero 搜尋的狀態雖為列表版，但其 rollout 經 <span class="kbd">ai._rollout_move</span> 間接使用同一套威脅掃描。</li>
-  <li><b>啟發式 rollout 是橋樑</b>：<span class="kbd">alphazero.rollout_value</span> 延遲匯入 <span class="kbd">ai._rollout_move</span>（第 234 行），使深度學習側的葉子評估直接繼承遊戲側的戰術知識。</li>
-  <li><b>引擎調度</b>：<span class="kbd">get_ai_move()</span>（第 1319–1342 行）統一分派全部引擎（含 AlphaZero 無模型時退回 MCTS，第 1167–1174 行），UI 與對戰基準共用同一入口。</li>
-  <li><b>C 後端路由與回退</b>：MCTS／Minimax／Flat／Solver 在 <span class="kbd">config.toml</span> 開關下優先走 <span class="kbd">native/</span>（D27），DLL 缺失時整段回退純 Python；RAVE／GRAVE 的 rollout 也改吃 C trace 核心，AI 助手分析與走子搜尋共用同一次搜尋的根統計。</li>
-</ul>
-</section>
+<p>合併與所有權的交接（第 131–155 行）：四元統計 <span class="kbd">(visits, wins, mover, draws)</span> 逐鍵相加（mover 計數也曾因只加首線程而靜默失真）；活 arena 取第一個非空者寫回 <span class="kbd">_C_PREV['MCTS']</span>；搜尋半途陣亡且無新 arena 時，把<b>未動過的熱樹原樣歸還</b>槽位（<span class="kbd">sba_mcts_search</span> 對 prev 是唯讀——不會污染）。D63 的所有權規則貫穿全段：熱 arena 在鎖下 <b>pop</b>，搜尋獨佔直到寫回；並行的 analysis 錯過槽位便自建 arena，絕不讀取搜尋中的樹。</p>
 
+<p>選手與回報沿用與已移除之 Python 版相同的契約：最佳手 = 足訪問數（<span class="kbd">min_visits</span> 下限）內最高勝率、立即取勝者優先（<span class="kbd">apply_clone_result</span> 驗證）；<span class="kbd">trace['top']</span> 取訪問前三、<span class="kbd">on_progress</span> 於收尾回報一次（C 樹的粗粒度節奏）。</p>
 <section id="s6">
 <h2><span class="no" style="background:var(--chip-dl)">6</span>訓練表現、超參數與效能優化<span class="side dl">深度學習側為主</span></h2>
 

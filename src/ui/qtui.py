@@ -93,6 +93,7 @@ from engines.ai import (
     move_text,
     az_policy_priors,
     cfg_engine,
+    cfg_session,
     save_engine_config,
 )
 from session.SBA import (
@@ -292,10 +293,16 @@ CLOCK_PRESETS = {
 }
 
 
-# Board palettes. BoardWidget paints from the active palette; the Endfield
-# theme is light-on-dark charcoal with signal yellow for the O side.
+# Theme layer. BoardWidget and the self-painted widgets read their colors
+# from PAL at PAINT TIME — a theme switch is a module-global rebind
+# (set_theme) plus a widget-wide update(); no widget rebuilds. Chrome
+# beyond the paint tokens lives in static/<theme>.qss (see _QSS_FILES);
+# the Endfield theme is light-on-dark charcoal with signal yellow.
+# "backdrops" gates the survey-image page backgrounds (light themes run
+# plain).
 PALETTE = {
     "LIGHT": {
+        "backdrops": False,
         "x": "#242424",
         "o": "#A29A00",
         "cell_empty": "#ECEDEE",
@@ -310,8 +317,33 @@ PALETTE = {
         "win_fill_x": "#242424",
         "win_fill_o": "#A29A00",
         "win_mark": "#FFFFFF",
+        "plate": "#ECEDEE",
+        "frame": "#8A8D91",
+        "deck_base": "#FFFFFF",
+        "deck_ink": "#111111",
+        "bar_bg": "#F0F1F3",
+        "bar_ink": "#111111",
+        "badge_bg": "#242424",
+        "badge_ink": "#FFFFFF",
+        "chart_base": "#FFFFFF",
+        "chart_axis": "#333333",
+        "chart_grid": "#C6C8CC",
+        "chart_line": "#8A8400",
+        "hist_dot": "#8A8400",
+        "btn_bg": "#DFE1E3",
+        "btn_bg_ghost": "#FFFFFF",
+        "btn_pen": "#8A8D91",
+        "btn_signal": "#8A8400",
+        "btn_text": "#242424",
+        "btn_text_ghost": "#242424",
+        "btn_text_wipe": "#FFFFFF",
+        "btn_hatch": "#9AA0A8",
+        "btn_disabled_pen": "#A8ADB4",
+        "btn_disabled_bg": "#E4E6E9",
+        "btn_disabled_text": "#8B9096",
     },
     "DARK": {
+        "backdrops": True,
         "x": "#F7F7F7",
         "o": "#FFFA00",
         "cell_empty": "#0A0A0C",
@@ -326,10 +358,65 @@ PALETTE = {
         "win_fill_x": "#F7F7F7",
         "win_fill_o": "#FFFA00",
         "win_mark": "#09090B",
+        "plate": "#0D0E10",
+        "frame": "#35373C",
+        "deck_base": "#0D0E10",
+        "deck_ink": "#EDEDED",
+        "bar_bg": "#161616",
+        "bar_ink": "#EDEDED",
+        "badge_bg": "#FFFA00",
+        "badge_ink": "#161616",
+        "chart_base": "#0D0E10",
+        "chart_axis": "#C6C9CE",
+        "chart_grid": "#35373C",
+        "chart_line": "#585858",
+        "hist_dot": "#FFFA00",
+        "btn_bg": "#222222",
+        "btn_bg_ghost": "#161616",
+        "btn_pen": "#353535",
+        "btn_signal": "#FFFA00",
+        "btn_text": "#EDEDED",
+        "btn_text_ghost": "#EDEDED",
+        "btn_text_wipe": "#161616",
+        "btn_hatch": "#3a3a3a",
+        "btn_disabled_pen": "#2a2a2a",
+        "btn_disabled_bg": "#1c1c1c",
+        "btn_disabled_text": "#6a6a6a",
     },
 }
-ACTIVE_THEME = "DARK"  # Endfield field-console look; LIGHT is for future use
+
+
+def _startup_theme():
+    name = cfg_session("theme", "DARK")
+    return name if name in PALETTE else "DARK"
+
+
+ACTIVE_THEME = _startup_theme()
 PAL = PALETTE[ACTIVE_THEME]
+
+
+def set_theme(name):
+    """Switch the live theme: rebind PAL (every paint site reads it at
+    paint time), reapply the theme QSS, and repaint every widget.
+    Persists to config.toml ([session] theme) — survives restarts."""
+    global ACTIVE_THEME, PAL, QSS
+    if name not in PALETTE:
+        log.warning("set_theme: unknown theme %r", name)
+        return False
+    if name == ACTIVE_THEME:
+        return True
+    ACTIVE_THEME = name
+    PAL = PALETTE[name]
+    QSS = _load_qss(name)
+    app = QApplication.instance()
+    if app is not None:
+        app.setStyleSheet(QSS)
+        for w in app.allWidgets():
+            # QWidget.update(w): QListView carries an update(QModelIndex)
+            # overload that a bare w.update() would bind to on PySide6
+            QWidget.update(w)
+    save_engine_config({"session": {"theme": name}})
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +492,7 @@ class ChamferButton(QPushButton):
         """45-degree ink hatch — the disabled fill (endfield-ui token)."""
         p.save()
         p.setClipRect(rect)
-        p.setPen(QPen(QColor("#3a3a3a"), 1))
+        p.setPen(QPen(QColor(PAL["btn_hatch"]), 1))
         x = rect.left() - rect.height()
         while x < rect.right():
             p.drawLine(int(x), int(rect.bottom()), int(x + rect.height()), int(rect.top()))
@@ -434,23 +521,23 @@ class ChamferButton(QPushButton):
         p.setRenderHint(QPainter.Antialiasing, True)
 
         if not self.isEnabled():
-            p.setPen(QPen(QColor("#2a2a2a"), 1))
-            p.setBrush(QColor("#1c1c1c"))
+            p.setPen(QPen(QColor(PAL["btn_disabled_pen"]), 1))
+            p.setBrush(QColor(PAL["btn_disabled_bg"]))
             p.drawPath(path)
             self._hatch(p, path.boundingRect())
-            p.setPen(QColor("#6a6a6a"))
+            p.setPen(QColor(PAL["btn_disabled_text"]))
             p.setFont(self.font())
             p.drawText(self.rect(), Qt.AlignCenter, self.text())
             p.end()
             return
 
-        bg = QColor("#161616") if self.kind == "ghost" else QColor("#222222")
-        p.setPen(QPen(QColor("#353535"), 1))
+        bg = QColor(PAL["btn_bg_ghost"] if self.kind == "ghost" else PAL["btn_bg"])
+        p.setPen(QPen(QColor(PAL["btn_pen"]), 1))
         p.setBrush(bg)
         p.drawPath(path)
 
         if self.kind == "primary":
-            p.setPen(QPen(QColor("#FFFA00"), 1))
+            p.setPen(QPen(QColor(PAL["btn_signal"]), 1))
             p.setBrush(Qt.NoBrush)
             p.drawPath(path)
 
@@ -458,18 +545,20 @@ class ChamferButton(QPushButton):
             p.save()
             p.setClipRect(QRectF(0, 0, w * wipe, h))
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor("#FFFA00"))
+            p.setBrush(QColor(PAL["btn_signal"]))
             p.drawPath(path)
             p.restore()
 
         text_color = (
-            "#161616" if wipe > 0.55 else ("#FFFA00" if self.kind == "primary" else "#EDEDED")
+            PAL["btn_text_wipe"]
+            if wipe > 0.55
+            else (PAL["btn_signal"] if self.kind == "primary" else PAL["btn_text"])
         )
         if self.kind == "ghost":
-            text_color = "#EDEDED"
+            text_color = PAL["btn_text_ghost"]
         if self.hasFocus():
             # QPainterPath has no adjusted(); a 2px signal pen IS the focus ring
-            p.setPen(QPen(QColor("#FFFA00"), 2))
+            p.setPen(QPen(QColor(PAL["btn_signal"]), 2))
             p.setBrush(Qt.NoBrush)
             p.drawPath(path)
 
@@ -490,21 +579,27 @@ def _deck_button(text, parent=None, primary=False, slant=None):
     return btn
 
 
-# Endfield theme: styling lives in static/endfield.qss; only a tiny
-# fallback is embedded for a missing file.
-_QSS_PATH = os.path.join(ROOT, "static", "endfield.qss")
+# Theme QSS: styling lives in static/<theme>.qss; only a tiny fallback is
+# embedded for a missing file. A theme without its own file falls back to
+# the Endfield sheet.
+_QSS_FILES = {"DARK": "endfield.qss", "LIGHT": "light.qss"}
 _QSS_FALLBACK = (
     "QWidget { background: #09090b; color: #ffffff; }"
     "QPushButton#primary { background: #fffa00; color: #09090b; }"
 )
 
 
-def _load_qss():
+def _load_qss(theme=None):
+    name = _QSS_FILES.get(theme or ACTIVE_THEME, "endfield.qss")
+    path = os.path.join(ROOT, "static", name)
     try:
-        with open(_QSS_PATH, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return fh.read()
     except OSError:
-        log.warning("endfield.qss not found at %s; using inline fallback", _QSS_PATH)
+        if name != "endfield.qss":
+            log.warning("%s not found at %s; falling back to endfield.qss", name, path)
+            return _load_qss("DARK")
+        log.warning("endfield.qss not found at %s; using inline fallback", path)
         return _QSS_FALLBACK
 
 
@@ -762,8 +857,8 @@ class BoardWidget(QWidget):
         n, cell, ox, oy = self._grid()
         span = n * cell + (n - 1) * self.GAP
         plate_rect = QRectF(ox, oy, span, span).adjusted(-8.0, -8.0, 8.0, 8.0)
-        painter.fillRect(plate_rect, QColor("#0D0E10"))
-        painter.setPen(QPen(QColor("#35373C"), 1))
+        painter.fillRect(plate_rect, QColor(PAL["plate"]))
+        painter.setPen(QPen(QColor(PAL["frame"]), 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRect(plate_rect.adjusted(0, 0, -1, -1))
         if isinstance(self.game, RustUltimateGame):
@@ -1001,7 +1096,7 @@ class BoardWidget(QWidget):
             if blend < 1.0:
                 # flat dark base so nothing bleeds through, then the tint
                 painter.setPen(Qt.NoPen)
-                base = QColor("#0D0E10")
+                base = QColor(PAL["chart_base"])
                 base.setAlpha(int(255 * (1.0 - blend) * mb))
                 if base.alpha() > 0:
                     painter.setBrush(base)
@@ -1151,7 +1246,9 @@ class EndfieldPage(QWidget):
         load (and cached) they read as soft field texture instead of competing
         with the board (user feedback: "opacity too high, try blurry or dark").
         """
-        if not self.BACKDROP:
+        if not self.BACKDROP or not PAL.get("backdrops", True):
+            # the survey images belong to the dark Endfield look; light
+            # themes (white pages) run plain
             return None
         pix = EndfieldPage._backdrop_cache.get(self.BACKDROP)
         if pix is None:
@@ -1185,7 +1282,7 @@ class EndfieldPage(QWidget):
             return
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setBrush(Qt.NoBrush)
-        ink = QColor("#EDEDED")
+        ink = QColor(PAL["deck_ink"])
         ink.setAlpha(23)
         painter.setPen(QPen(ink, 1))
         for cx, cy, start in ((0, 0, 0), (w, h, 1800)):
@@ -1480,7 +1577,7 @@ class GamePage(EndfieldPage):
         wm = QLabel("UTTT")
         f = _display_font(19)
         wm.setFont(f)
-        wm.setStyleSheet("color: #EDEDED;")
+        wm.setStyleSheet(f"color: {PAL['bar_ink']};")
         brand.addWidget(wm)
         brand.addWidget(deck_label("終極井字棋 // ULTIMATE", size=10))
         top.addLayout(brand)
@@ -1516,7 +1613,7 @@ class GamePage(EndfieldPage):
         top.addWidget(self.clock_lbl)
         self.byo_tag = QLabel("")
         self.byo_tag.setStyleSheet(
-            "background: #FFFA00; color: #161616; padding: 3px 8px;font-weight: 700;"
+            f"background: {PAL['badge_bg']}; color: {PAL['badge_ink']}; padding: 3px 8px;font-weight: 700;"
         )
         self.byo_tag.hide()
         top.addWidget(self.byo_tag)
@@ -1551,7 +1648,7 @@ class GamePage(EndfieldPage):
         self.hist_x_series.setName(t("X win rate", "X 勝率"))
         self.hist_x_series.setColor(QColor(PAL["x"]))
         self.hist_ref = QLineSeries()
-        ref_pen = QPen(QColor("#585858"))
+        ref_pen = QPen(QColor(PAL["chart_line"]))
         ref_pen.setStyle(Qt.DashLine)
         ref_pen.setWidthF(1.0)
         self.hist_ref.setPen(ref_pen)
@@ -1567,9 +1664,9 @@ class GamePage(EndfieldPage):
         self.hist_chart.addAxis(self.hist_axis, Qt.AlignBottom)
         self.hist_chart.addAxis(self.hist_axis_y, Qt.AlignLeft)
         for ax in (self.hist_axis, self.hist_axis_y):
-            ax.setLabelsColor(QColor("#C6C9CE"))
-            ax.setTitleBrush(QBrush(QColor("#C6C9CE")))
-            ax.setLinePen(QPen(QColor("#35373C")))
+            ax.setLabelsColor(QColor(PAL["chart_axis"]))
+            ax.setTitleBrush(QBrush(QColor(PAL["chart_axis"])))
+            ax.setLinePen(QPen(QColor(PAL["chart_grid"])))
             ax.setGridLinePen(QPen(QColor(255, 255, 255, 12), 1, Qt.DashLine))
         self.hist_x_series.attachAxis(self.hist_axis)
         self.hist_x_series.attachAxis(self.hist_axis_y)
@@ -1579,8 +1676,8 @@ class GamePage(EndfieldPage):
         self.hist_dot.setName(t("Current", "目前"))
         self.hist_dot.setMarkerSize(8.0)
         self.hist_dot.setMarkerShape(QScatterSeries.MarkerShapeRectangle)
-        self.hist_dot.setColor(QColor("#FFFA00"))
-        self.hist_dot.setBorderColor(QColor("#FFFA00"))
+        self.hist_dot.setColor(QColor(PAL["hist_dot"]))
+        self.hist_dot.setBorderColor(QColor(PAL["hist_dot"]))
         self.hist_chart.addSeries(self.hist_dot)
         self.hist_dot.attachAxis(self.hist_axis)
         self.hist_dot.attachAxis(self.hist_axis_y)
@@ -1695,11 +1792,11 @@ class GamePage(EndfieldPage):
         self.win_bar_lay.setContentsMargins(0, 0, 0, 0)
         self.win_bar_lay.setSpacing(2)
         self.bar_x = QFrame()
-        self.bar_x.setStyleSheet("background: #F7F7F7;")
+        self.bar_x.setStyleSheet(f"background: {PAL['x']};")
         self.bar_d = QFrame()
-        self.bar_d.setStyleSheet("background: #35373C;")
+        self.bar_d.setStyleSheet(f"background: {PAL['macro_line']};")
         self.bar_o = QFrame()
-        self.bar_o.setStyleSheet("background: #FFFA00;")
+        self.bar_o.setStyleSheet(f"background: {PAL['o']};")
         for _b in (self.bar_x, self.bar_d, self.bar_o):
             _b.setMinimumWidth(0)
         self.win_bar_lay.addWidget(self.bar_x, 1)
@@ -2123,7 +2220,7 @@ class GamePage(EndfieldPage):
         self.status_mark.setText("○" if winner == "O" else "✕")
         self.status_mark.setStyleSheet(
             "color: "
-            + ("#FFFA00" if winner == "O" else "#EDEDED")
+            + (PAL["o"] if winner == "O" else PAL["x"])
             + "; font-size: 20px; font-weight: 700;"
         )
         self.status_text.setText(
@@ -2141,7 +2238,7 @@ class GamePage(EndfieldPage):
             return
         segs = []
         byo_side = None
-        mark = {"X": ("✕", "#EDEDED"), "O": ("○", "#FFFA00")}
+        mark = {"X": ("✕", PAL["x"]), "O": ("○", PAL["o"])}
         for side in ("X", "O"):
             c = self.clock[side]
             glyph, gcol = mark[side]
@@ -2414,7 +2511,7 @@ class GamePage(EndfieldPage):
         p = QPainter(lbl)
         r = lbl.rect()
         p.fillRect(r, QColor("#1d1d1d"))
-        p.setPen(QPen(QColor("#3a3a3a"), 1))
+        p.setPen(QPen(QColor(PAL["btn_hatch"]), 1))
         x = r.left() - r.height()
         while x < r.right():
             p.drawLine(x, r.bottom(), x + r.height(), r.top())
@@ -2520,23 +2617,13 @@ class SettingsPage(EndfieldPage):
         "rollout_heuristic": ("Heuristic rollout (win/block)", "啟發式 rollout（贏/擋）"),
         "tree_reuse": ("Reuse search tree between moves", "跨手重用搜尋樹"),
         "dynamic_uct": ("Dynamic UCT exploration", "動態 UCT 探索"),
-        "bitboard": ("Bitboard acceleration (Python path)", "位元棋盤加速（僅 Python 路徑）"),
         "opening_book": ("Opening book", "開局書"),
         "micro_tablebase": ("Micro endgame tablebase", "micro 殘局表"),
         "multithreaded": (
-            "Multithreaded MCTS (C tree / Python fallback)",
-            "多執行緒 MCTS（C 樹並行／Python 回退並行）",
-        ),
-        "early_stop": (
-            "Stop dominant searches early (Python path)",
-            "提早終止優勢搜尋（僅 Python 路徑）",
-        ),
-        "progressive_widening": (
-            "Progressive widening (Python path)",
-            "漸進式加粗（僅 Python 路徑）",
+            "Multithreaded MCTS (C root parallelization)",
+            "多執行緒 MCTS（C 樹根並行）",
         ),
         "symmetry": ("Symmetry reduction", "對稱性歸約"),
-        "object_pool": ("Node object pool (Python path)", "節點物件池（僅 Python 路徑）"),
         "use_lmr": ("Late move reductions", "LMR 剪枝"),
         "use_killers": ("Killer move heuristic", "殺手棋啟發"),
         "use_aspiration": ("Aspiration windows", "期望視窗"),
@@ -2549,30 +2636,22 @@ class SettingsPage(EndfieldPage):
         (
             "C ENGINE BACKENDS",
             "C 引擎後端",
-            "哪些演算法走原生 C 實作；關閉後自動回退純 Python（較慢）。",
+            "哪些演算法走原生 C 實作。關閉 c_mcts 後 MCTS 家族在 Ultimate 停用；"
+            "關閉 c_minimax 後 Minimax／Minimax Pro 停用（無 Python 回退）。",
             ["c_mcts", "c_minimax", "c_rollout_pattern"],
         ),
         (
             "MCTS SEARCH",
             "MCTS 搜尋行為",
-            "影響 MCTS 搜尋策略與棋力。未標註的開關 C 樹與 Python 路徑皆生效"
-            "標註「僅 Python 路徑」者不影響 C 引擎。"
-            "多執行緒在 C 樹並行，C 關閉時則走 Python 的並行回退。",
-            [
-                "rollout_heuristic",
-                "tree_reuse",
-                "dynamic_uct",
-                "early_stop",
-                "progressive_widening",
-                "multithreaded",
-                "object_pool",
-            ],
+            "影響 C 樹搜尋策略與棋力——C 引擎是唯一後端。"
+            "多執行緒 = C 樹根節點並行（threads 上限由 workers 決定）。",
+            ["rollout_heuristic", "tree_reuse", "dynamic_uct", "multithreaded"],
         ),
         (
             "SEARCH AIDS",
             "搜尋輔助結構",
-            "開局書、殘局表與加速用的內部表示。",
-            ["opening_book", "micro_tablebase", "bitboard", "symmetry"],
+            "開局書、殘局表與對稱性歸約。",
+            ["opening_book", "micro_tablebase", "symmetry"],
         ),
         (
             "MINIMAX PRUNING",
