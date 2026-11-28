@@ -386,7 +386,13 @@ n = 20；95% 信賴區間約 ±22%——僅供排序參考。2026-11-15 於 C �
 
 ## 授權
 
-本專案以 **GNU GPL v3（GPLv3）** 授權釋出，詳細條款請見 [LICENSE](LICENSE)。
+**程式碼**（`src/`、`tests/`、C 引擎與兩個 Rust crate）以 **GNU GPL v3（GPLv3）**
+授權釋出，詳細條款請見 [LICENSE](LICENSE)。
+
+**文件**——技術報告（`docs/AlphaZero_UTTT_Technical_Report.html` 及其發佈的
+HTML/PDF 版本）與 `docs/` 下所有內容（教程、決策記錄、開發指南）——以
+**創作共用姓名標示－非商業性 4.0**（[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)）
+授權；法律全文見 [LICENSE.docs](LICENSE.docs)。
 
 ### 第三方授權
 

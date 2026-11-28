@@ -10,6 +10,8 @@
  * 切換：暗色為預設；`.theme-switch:checked ~ .page` 覆寫為紙本淺色，
  *       純 CSS（不需 JavaScript，靜態版在 Obsidian 內同樣可切換）。
  * 列印：@media print 一律強制紙本淺色。
+ * 授權：本樣式為報告文件集的一部分，以 CC BY-NC 4.0 授權
+ *       （隨文件發佈）；檔案為原創（Endfield 設計系統報告版，D23）。
  *
  * 注意：本檔同時服務舊的 inline `var(--chip-*)` 寫法（章節編號），
  *       因此保留 --chip-game / --chip-dl / --chip-both 三個名稱。

@@ -89,6 +89,8 @@ window.MathJax = {
 
 <p>報告中所有程式碼區塊皆逐字引用專案原始碼並標註檔名與行號；所有歷史數據標註來源（<span class="kbd">docs/decisions.md</span> 決策編號 D1–D35、<span class="kbd">docs/rocm-wsl2.md</span> 環境記錄、本機實測與訓練日誌）。若描述與實際程式碼衝突，一律以實際程式碼為準，並於附錄集中註明差異。<b>評分慣例</b>：本報告所有對戰一律採「得分率 =（勝 + 0.5 × 和）／局數」，並在每張表標明局數 \(n\) 與誤差 \(\pm\sigma\)（\(\sigma \approx 50\%/\sqrt{n}\)，為保守上界）。</p>
 
+<p><b>授權 / License</b>：本報告文件（含樣式表）以 <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a> 授權發佈（署名—非商業性）；專案程式碼以 GPL-3.0-or-later 授權（見專案根目錄 <span class="kbd">LICENSE</span>）。This document (stylesheets included) is licensed under <a href="https://creativecommons.org/licenses/by-nc/4.0/">CC BY-NC 4.0</a>; the project's code is GPL-3.0-or-later.<b>內嵌元件 / Embedded components</b>：Noto Sans TC 可變字型（SIL Open Font License 1.1，子集化內嵌）、語法高亮主題來自 highlight.js（BSD-3-Clause，建置時內嵌）、數學排版由 MathJax 3（Apache-2.0）於建置時轉為 inline SVG。</p>
+
 <div class="note"><b>v1.3 現況注記（2026-11-28，對應 v0.5.0）</b>：本報告所走讀的純 Python 引擎堆疊已於 v0.5.0 移除（D65）——<span class="kbd">engines/mcts.py</span>（UCT／RAVE／GRAVE）、<span class="kbd">engines/minimax.py</span>，以及純 Python 規則實作 <span class="kbd">UltimateGame</span>／<span class="kbd">BitUltimateGame</span>。現行架構為：<b>C 引擎是唯一搜尋後端</b>（§3.8），<b>Rust 狀態層是規則實作</b>（<span class="kbd">az.rustbridge</span>），Python 側僅存訓練層。第 2.4、3.3、3.5、5.3、5.4 節已於 v1.3 <b>深度改寫為現行實作走讀</b>（各節頭註明被移除實作的去向）；被移除實作的對外契約由兩組金樣本逐位錨定（<span class="kbd">tests/golden/</span>）。</div>
 
 <h3>1.2 貢獻</h3>
